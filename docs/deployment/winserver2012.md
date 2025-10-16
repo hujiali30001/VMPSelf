@@ -1,23 +1,29 @@
 # WinServer 2012 部署指南（VMP Auth Service）
 
-本文档记录将授权主服务器部署到 Windows Server 2012（IP: `192.168.132.132`）的完整流程。核心服务基于 FastAPI + Uvicorn，默认使用 SQLite 存储授权数据。
+本文面向将授权主服务器部署到 Windows Server 2012 的场景，示例环境：内网 IP `192.168.132.132`、Python 安装在 `C:\Python313\python.exe`。如果你的环境不同，可按需调整目录或端口。
 
-## 1. 准备工作
+---
 
-| 项目 | 说明 |
+## Step 0. 准备与检查清单
+
+| 项目 | 检查项 |
 | --- | --- |
-| 管理权限 | 以管理员身份登录服务器，推荐使用远程桌面。 |
-| 网络 | 服务器需要访问 GitHub（下载依赖、NSSM），客户端网络需能访问服务器暴露端口。 |
-| Python | 安装 64 位 Python 3.10+（示例路径 `C:\Python313\python.exe`），安装时勾选 “Add Python to PATH”。 |
-| Git (可选) | 若直接 `git clone` 代码，可安装 Git for Windows；否则可手动上传压缩包。 |
-| NSSM | 用于将 Uvicorn 注册为 Windows 服务，脚本会自动下载。 |
-| 防火墙 | 需允许 TCP 8000（或自定义端口）的入站访问。 |
+| 管理权限 | 使用管理员账号登录服务器（推荐 RDP）。 |
+| 网络 | 服务器需访问 GitHub（下载依赖、NSSM）以及 PyPI；客户端需能访问服务暴露的端口。 |
+| 运行时 | 安装 64 位 Python 3.10+，安装时勾选 “Add Python to PATH”。示例路径 `C:\Python313\python.exe`。 |
+| Git（可选） | 若要直接 `git clone` 仓库，请安装 Git for Windows。没有 Git 时可上传压缩包。 |
+| 防火墙 | 预留 TCP 8000（或自定义端口）入站访问。 |
+| 证书/密码 | 准备好管理后台账号、HMAC 密钥等强随机密码。 |
 
-## 2. 获取代码
+> 若需要把服务长期运行为 Windows 服务，文末提供自动化脚本和 NSSM 相关步骤。
 
-> 以下示例假定目标路径为 `C:\Services\VMPSelf`。
+---
 
-### 方式 A：Git 克隆
+## Step 1. 拉取代码到服务器
+
+以下示例目标目录为 `C:\Services\VMPSelf`，可按需修改。
+
+### 方法 A：使用 Git 克隆（推荐）
 ```powershell
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
 mkdir C:\Services
@@ -25,12 +31,14 @@ cd C:\Services
 git clone https://github.com/hujiali30001/VMPSelf.git
 ```
 
-### 方式 B：手动上传
-1. 在本地执行 `git archive` 或压缩仓库。
-2. 通过 RDP 剪贴板/SMB 上传到服务器。
-3. 解压到 `C:\Services\VMPSelf`。
+### 方法 B：手工上传压缩包
+1. 在本地执行 `git archive --format zip HEAD -o VMPSelf.zip`；
+2. 通过 RDP 剪贴板、SMB 或云盘上传到服务器；
+3. 在服务器解压到 `C:\Services\VMPSelf`。
 
-## 3. 配置虚拟环境
+---
+
+## Step 2. 准备 Python 虚拟环境
 
 ```powershell
 cd C:\Services\VMPSelf\server
@@ -40,23 +48,39 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-## 4. 配置环境变量（.env）
+> 第一次执行会拉取依赖（FastAPI、Uvicorn、SQLAlchemy、Jinja2 等），请保持网络畅通。
 
-复制示例文件并根据需要调整：
+---
+
+## Step 3. 生成并编辑 `.env`
+
+复制示例文件并填写关键信息：
+
 ```powershell
 Copy-Item .env.example .env -Force
 notepad .env
 ```
 
-重点字段：
+建议设置：
+
 - `VMP_ENV=production`
 - `VMP_SQLITE_PATH=C:/Services/VMPSelf/server/data/license.db`
-- `VMP_HMAC_SECRET=<生成的强密码>`
+- `VMP_HMAC_SECRET=<强随机密钥>`
 - `VMP_ADMIN_USER=<后台用户名>`
 - `VMP_ADMIN_PASS=<后台密码>`
-- CDN 防护参数如不需要可保持默认。
+- 若暂不接入 CDN，可保持默认的 `VMP_CDN_*` 配置。
 
-## 5. 初始化数据库与测试运行
+可以通过 PowerShell 快速生成随机密钥：
+
+```powershell
+[Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Maximum 256 }))
+```
+
+保存 `.env` 后继续下一步。
+
+---
+
+## Step 4. 初始化数据库并本地试运行
 
 ```powershell
 python manage.py init-db
@@ -64,69 +88,100 @@ python manage.py create-license --card DEMO-0001 --ttl 30
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
 ```
 
-> 打开浏览器访问 `http://192.168.132.132:8000/docs`，确认 API 正常后 `Ctrl+C` 停止。
-> 若需图形化管理卡密，可访问 `http://192.168.132.132:8000/admin/licenses` 并使用上述后台账号登录。
+- 打开浏览器访问 `http://192.168.132.132:8000/docs`，查看 Swagger 文档确认接口可访问。
+- 访问 `http://192.168.132.132:8000/admin/licenses`，浏览器会弹出 HTTP Basic 登录框，使用 `.env` 中的 `VMP_ADMIN_USER` / `VMP_ADMIN_PASS` 登录，即可看到卡密管理后台（支持筛选、撤销）。
+- 验证完毕后在终端按 `Ctrl+C` 停止 Uvicorn。
 
-## 6. 使用脚本自动部署为服务
+---
 
-项目内提供 `server/tools/winserver2012_deploy.ps1` 以自动化完成以下任务：
-- 创建/更新虚拟环境并安装依赖
-- 初始化数据库
-- 下载 NSSM 并注册 `VMPAuthService` Windows 服务
-- 配置服务自动重启
-- 添加防火墙规则
+## Step 5. 一键部署为 Windows 服务（可选）
 
-执行方式：
+项目内提供 `server/tools/winserver2012_deploy.ps1`，可自动完成以下操作：
+
+1. 创建/更新虚拟环境并安装依赖；
+2. 初始化数据库（若已存在则跳过）；
+3. 下载并解压 NSSM；
+4. 注册名为 `VMPAuthService` 的 Windows 服务，使用 Uvicorn 启动 API；
+5. 创建日志目录 `logs/`，将 stdout/stderr 轮转写入；
+6. 设置防火墙规则放行指定端口。
+
+执行示例：
+
 ```powershell
 cd C:\Services\VMPSelf\server
 .\.venv\Scripts\Activate.ps1
-powershell -ExecutionPolicy Bypass -File tools\winserver2012_deploy.ps1 \
-    -InstallRoot "C:\Services\VMPSelf\server" \
-    -PythonExe "C:\Python313\python.exe" \
-    -ServiceName "VMPAuthService" \
-    -Port 8000
+powershell -ExecutionPolicy Bypass -File tools\winserver2012_deploy.ps1 `
+		-InstallRoot "C:\Services\VMPSelf\server" `
+		-PythonExe "C:\Python313\python.exe" `
+		-ServiceName "VMPAuthService" `
+		-Port 8000
 ```
 
-脚本运行结束后服务会以 NSSM 托管的方式常驻，安装路径 `C:\Services\VMPSelf\server`。
+脚本执行成功后，服务将自动启动并设置为开机自启。日志位于 `C:\Services\VMPSelf\server\logs\`。
 
-## 7. 服务管理
+---
+
+## Step 6. 服务日常管理
 
 ```powershell
-# 查看状态
+# 查看服务状态
 nssm status VMPAuthService
 
-# 启动/停止
+# 启动 / 停止
 nssm start VMPAuthService
 nssm stop VMPAuthService
 
-# 查看实时日志
+# 实时查看日志
 Get-Content -Path "C:\Services\VMPSelf\server\logs\uvicorn.log" -Wait
 ```
 
-若需修改启动参数（端口、环境变量等），执行：
-```powershell
-nssm edit VMPAuthService
-```
-修改完成后重启服务。
+若需调整端口或环境变量，可执行 `nssm edit VMPAuthService`，修改后再 `nssm restart VMPAuthService` 生效。
 
-## 8. 防火墙与安全
+---
 
-```powershell
-New-NetFirewallRule -DisplayName "VMP Auth API" -Direction Inbound -Profile Any -Action Allow -Protocol TCP -LocalPort 8000
-```
+## Step 7. 防火墙与安全建议
 
-建议：
-- 若公网开放，使用反向代理（IIS / Nginx）加 TLS。
-- 生产环境务必设置强随机 `VMP_HMAC_SECRET`。
-- 定期备份 `data/license.db`。
+- 默认脚本已放行 TCP 8000。如需手动添加：
 
-## 9. 验证
+	```powershell
+	New-NetFirewallRule -DisplayName "VMP Auth API" -Direction Inbound -Profile Any -Action Allow -Protocol TCP -LocalPort 8000
+	```
+
+- 如果要公网访问，建议通过 IIS、Nginx 或 CDN（腾讯云、Cloudflare 等）做 HTTPS 反向代理，并在 `.env` 中启用 `VMP_CDN_ENFORCED=true` 及共享密钥校验。
+- 定期备份 `data/license.db`，并妥善管理 HMAC 密钥、后台密码。
+- 服务器开启 Windows Update，禁用弱口令和不必要的服务（如 SMBv1）。
+
+---
+
+## Step 8. 快速自检
+
+服务或脚本运行完毕后，可执行以下命令确认接口可用：
 
 ```powershell
 Invoke-RestMethod -Uri "http://192.168.132.132:8000/api/v1/ping"
 ```
-返回 `{"status":"ok"}` 表示服务工作正常。
+
+返回示例：
+
+```text
+message server_time
+------- -----------
+pong    2025-10-16T19:28:29.680446+00:00
+```
+
+若能看到 `pong` 与时间戳，表示授权服务已正常工作。
 
 ---
 
-如需恢复或更新服务，可重新运行部署脚本；脚本会尝试保留现有数据库和 `.env` 设置。
+## Step 9. 常见问题
+
+| 现象 | 排查建议 |
+| --- | --- |
+| `AssertionError: Jinja2 must be installed to use Jinja2Templates` | 确认已执行 `pip install -r requirements.txt`，或手动安装 `python -m pip install Jinja2==3.1.4`。 |
+| 启动时报 SQLite 无法写入 | 检查 `VMP_SQLITE_PATH` 目录权限，确保服务账户有写权限，或改为其他路径。 |
+| 浏览器访问后台提示 401 | 确认使用 `.env` 中的 `VMP_ADMIN_USER`、`VMP_ADMIN_PASS`，区分大小写。 |
+| 端口被占用 | 修改脚本参数和 `.env` 中的端口，或释放正在占用端口的程序。 |
+
+---
+
+部署过程中若需重新安装或更新服务，可再次运行自动化脚本；脚本会尝试保留现有数据库和 `.env` 配置。祝部署顺利！
