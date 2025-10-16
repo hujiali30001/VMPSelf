@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import secrets
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import select
@@ -22,6 +23,30 @@ class LicenseService:
         stmt = select(models.License).where(models.License.card_code == card_code)
         return self.db.scalar(stmt)
 
+    def create_license(self, card_code: Optional[str], ttl_days: int) -> models.License:
+        if card_code and not card_code.strip():
+            raise ValueError("card_code must not be blank")
+
+        code = card_code.strip() if card_code else secrets.token_hex(8).upper()
+        secret = secrets.token_urlsafe(32)
+        now = datetime.now(timezone.utc)
+        expires = None
+        if ttl_days > 0:
+            expires = now + timedelta(days=ttl_days)
+
+        license_obj = models.License(
+            card_code=code,
+            secret=secret,
+            expire_at=expires,
+            status=models.LicenseStatus.UNUSED.value,
+        )
+        self.db.add(license_obj)
+        self.db.flush()
+        self.log_event(license_obj, "create", f"License created with ttl_days={ttl_days}")
+        self.db.commit()
+        self.db.refresh(license_obj)
+        return license_obj
+
     def log_event(self, license_obj: models.License, event_type: str, message: str) -> None:
         log = models.AuditLog(
             event_type=event_type,
@@ -29,6 +54,15 @@ class LicenseService:
             message=message,
         )
         self.db.add(log)
+
+    def get_audit_logs(self, license_obj: models.License, limit: int = 50) -> list[models.AuditLog]:
+        stmt = (
+            select(models.AuditLog)
+            .where(models.AuditLog.license_id == license_obj.id)
+            .order_by(models.AuditLog.created_at.desc())
+            .limit(limit)
+        )
+        return list(self.db.scalars(stmt).all())
 
     def activate(self, request: ActivationRequest) -> tuple[Optional[str], Optional[datetime], str]:
         license_obj = self.get_license(request.card_code)
@@ -105,12 +139,50 @@ class LicenseService:
         self.db.commit()
         return True
 
+    def extend_expiry(self, card_code: str, extra_days: int) -> Optional[models.License]:
+        if extra_days <= 0:
+            raise ValueError("extra_days must be positive")
+
+        license_obj = self.get_license(card_code)
+        if not license_obj:
+            return None
+
+        now = datetime.now(timezone.utc)
+        base = license_obj.expire_at
+        if base is None:
+            base = now
+        elif base.tzinfo is None:
+            base = base.replace(tzinfo=timezone.utc)
+
+        license_obj.expire_at = base + timedelta(days=extra_days)
+        license_obj.updated_at = now
+        self.log_event(license_obj, "extend", f"Expiry extended by {extra_days} days")
+        self.db.commit()
+        self.db.refresh(license_obj)
+        return license_obj
+
+    def reset_license(self, card_code: str) -> bool:
+        license_obj = self.get_license(card_code)
+        if not license_obj:
+            return False
+
+        for activation in list(license_obj.activations):
+            self.db.delete(activation)
+
+        license_obj.bound_fingerprint = None
+        license_obj.status = models.LicenseStatus.UNUSED.value
+        license_obj.updated_at = datetime.now(timezone.utc)
+        self.log_event(license_obj, "reset", "License reset and activations cleared")
+        self.db.commit()
+        return True
+
     def revoke(self, card_code: str) -> bool:
         license_obj = self.get_license(card_code)
         if not license_obj:
             return False
 
         license_obj.status = models.LicenseStatus.REVOKED.value
+        license_obj.updated_at = datetime.now(timezone.utc)
         self.log_event(license_obj, "revoke", "License revoked")
         self.db.commit()
         return True

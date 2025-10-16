@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <title>卡密详情 - 授权管理后台</title>
+    <style>
+        body {
+            font-family: "Segoe UI", Arial, sans-serif;
+            margin: 32px;
+            background: #f4f6fb;
+            color: #20262e;
+        }
+        a {
+            color: #2563eb;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+        h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+        .message {
+            padding: 12px 16px;
+            background: #eef7ff;
+            border: 1px solid #b6dbff;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            color: #11508a;
+        }
+        .layout {
+            display: grid;
+            grid-template-columns: 1.2fr 1fr;
+            gap: 24px;
+        }
+        .card {
+            background: #fff;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+        }
+        .card h2 {
+            margin-top: 0;
+            font-size: 18px;
+            margin-bottom: 16px;
+        }
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px 18px;
+            font-size: 14px;
+        }
+        .info-item span {
+            display: block;
+        }
+        .info-label {
+            font-size: 12px;
+            text-transform: uppercase;
+            color: #6b7a8f;
+            letter-spacing: 0.05em;
+            margin-bottom: 4px;
+        }
+        .info-value {
+            font-weight: 600;
+        }
+        .badge {
+            border-radius: 12px;
+            padding: 4px 10px;
+            font-size: 12px;
+            display: inline-block;
+            text-transform: uppercase;
+        }
+        .badge-unused { background: #e0f2ff; color: #0366d6; }
+        .badge-active { background: #e6ffed; color: #1b7f46; }
+        .badge-revoked { background: #ffeceb; color: #b11c1c; }
+        .badge-expired { background: #fff5e6; color: #b36b00; }
+        .actions {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 20px;
+        }
+        .actions form {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .actions input[type="number"] {
+            width: 120px;
+            padding: 6px 10px;
+            border-radius: 6px;
+            border: 1px solid #cfd8dc;
+        }
+        button {
+            border: none;
+            background: linear-gradient(135deg, #4c8df6, #2563eb);
+            color: #fff;
+            padding: 8px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+        button.danger {
+            background: linear-gradient(135deg, #f87171, #dc2626);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #fff;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+            margin-top: 24px;
+        }
+        th, td {
+            padding: 12px 14px;
+            border-bottom: 1px solid #ecf0f5;
+            text-align: left;
+            font-size: 13px;
+        }
+        th {
+            background: #f3f6fb;
+            text-transform: uppercase;
+            font-weight: 600;
+            font-size: 12px;
+            letter-spacing: 0.04em;
+            color: #556070;
+        }
+        tr:last-child td {
+            border-bottom: none;
+        }
+        .empty {
+            padding: 18px;
+            text-align: center;
+            color: #607d8b;
+        }
+        .audit-list {
+            margin-top: 24px;
+        }
+        .audit-item {
+            border-left: 3px solid #c7d2fe;
+            padding: 12px 16px;
+            background: #f8fafc;
+            border-radius: 10px;
+            margin-bottom: 12px;
+        }
+        .audit-title {
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        .audit-time {
+            font-size: 11px;
+            text-transform: uppercase;
+            color: #6b7a8f;
+            letter-spacing: 0.05em;
+        }
+        .back-link {
+            font-size: 13px;
+        }
+        @media (max-width: 1024px) {
+            .layout {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div>
+            <div class="back-link"><a href="/admin/licenses">&larr; 返回列表</a></div>
+            <h1>卡密详情</h1>
+        </div>
+        <div>
+            <span class="badge badge-{{ license.status }}">{{ status_labels.get(license.status, license.status) }}</span>
+        </div>
+    </header>
+
+    {% set return_to = request.url.path + ('?' + request.url.query if request.url.query else '') %}
+
+    {% if message %}
+    <div class="message">{{ message }}</div>
+    {% endif %}
+
+    <div class="layout">
+        <section class="card">
+            <h2>基础信息</h2>
+            <div class="info-grid">
+                <div class="info-item">
+                    <span class="info-label">卡密</span>
+                    <span class="info-value">{{ license.card_code }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">当前状态</span>
+                    <span class="info-value">{{ status_labels.get(license.status, license.status) }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">绑定指纹</span>
+                    <span class="info-value">{{ license.bound_fingerprint or '-' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">最近心跳</span>
+                    <span class="info-value">{{ latest_seen.isoformat() if latest_seen else '-' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">到期时间</span>
+                    <span class="info-value">{{ license.expire_at.isoformat() if license.expire_at else '未设置' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">剩余天数</span>
+                    <span class="info-value">{{ expires_in_days if expires_in_days is not none else '未知' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">创建时间</span>
+                    <span class="info-value">{{ license.created_at.isoformat() }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">更新时间</span>
+                    <span class="info-value">{{ license.updated_at.isoformat() }}</span>
+                </div>
+            </div>
+
+            <div class="actions">
+                <form method="post" action="/admin/licenses/{{ license.card_code }}/extend">
+                    <label for="extend-days" class="info-label">延期天数</label>
+                    <input id="extend-days" type="number" name="extra_days" value="30" min="1" max="365" />
+                    <input type="hidden" name="return_to" value="{{ return_to }}" />
+                    <button type="submit">执行延期</button>
+                </form>
+
+                <form method="post" action="/admin/licenses/{{ license.card_code }}/reset" onsubmit="return confirm('确认重置并清空所有激活记录吗？');">
+                    <input type="hidden" name="return_to" value="{{ return_to }}" />
+                    <button class="danger" type="submit">重置卡密</button>
+                </form>
+
+                <form method="post" action="/admin/licenses/revoke" onsubmit="return confirm('确认撤销 {{ license.card_code }} 吗？');">
+                    <input type="hidden" name="card_code" value="{{ license.card_code }}" />
+                    <input type="hidden" name="return_to" value="{{ return_to }}" />
+                    <button class="danger" type="submit">撤销授权</button>
+                </form>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>审计日志（最近 100 条）</h2>
+            <div class="audit-list">
+                {% if audit_logs %}
+                {% for log in audit_logs %}
+                <div class="audit-item">
+                    <div class="audit-title">{{ log.event_type }}</div>
+                    <div>{{ log.message or '-' }}</div>
+                    <div class="audit-time">{{ log.created_at.isoformat() }}</div>
+                </div>
+                {% endfor %}
+                {% else %}
+                <div class="empty">暂无审计记录。</div>
+                {% endif %}
+            </div>
+        </section>
+    </div>
+
+    <section>
+        <h2>激活设备</h2>
+        {% if activations %}
+        <table>
+            <thead>
+                <tr>
+                    <th>设备指纹</th>
+                    <th>Token</th>
+                    <th>首次激活</th>
+                    <th>最近心跳</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for activation in activations %}
+                <tr>
+                    <td>{{ activation.device_fingerprint }}</td>
+                    <td>{{ activation.token or '-' }}</td>
+                    <td>{{ activation.activated_at.isoformat() }}</td>
+                    <td>{{ activation.last_seen.isoformat() if activation.last_seen else '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty">该卡密暂无激活记录。</div>
+        {% endif %}
+    </section>
+</body>
+</html>

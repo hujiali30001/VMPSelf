@@ -89,7 +89,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
 ```
 
 - 打开浏览器访问 `http://192.168.132.132:8000/docs`，查看 Swagger 文档确认接口可访问。
-- 访问 `http://192.168.132.132:8000/admin/licenses`，浏览器会弹出 HTTP Basic 登录框，使用 `.env` 中的 `VMP_ADMIN_USER` / `VMP_ADMIN_PASS` 登录，即可看到卡密管理后台（支持筛选、撤销）。
+- 访问 `http://192.168.132.132:8000/admin/licenses`，浏览器会弹出 HTTP Basic 登录框，使用 `.env` 中的 `VMP_ADMIN_USER` / `VMP_ADMIN_PASS` 登录，即可看到卡密管理后台：支持快速创建卡密、按状态/关键字筛选分页、查看激活次数与心跳、进入详情页延期或重置授权。
 - 验证完毕后在终端按 `Ctrl+C` 停止 Uvicorn。
 
 ---
