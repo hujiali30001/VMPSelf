@@ -1,0 +1,19 @@
+{
+  "origin_host": "auth.example.com",
+  "origin_port": 443,
+  "edge_token": "your-shared-secret",
+  "ssl_certificate": "/etc/pki/tls/certs/edge.crt",
+  "ssl_certificate_key": "/etc/pki/tls/private/edge.key",
+  "allow_http": false,
+  "extra_packages": ["nginx"],
+  "firewall_ports": [80, 443],
+  "hosts": [
+    {
+      "name": "cdn-node-1",
+      "host": "203.0.113.10",
+      "user": "root",
+      "port": 22,
+      "password": "replace-with-strong-password"
+    }
+  ]
+}

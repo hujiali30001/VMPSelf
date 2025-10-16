@@ -1,0 +1,62 @@
+# Python virtual environments
+.venv/
+*/.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake-build-*/
+
+# Ninja build
+*.ninja
+*.ninja_deps
+*.ninja_log
+
+# Build output directories
+client/build/
+client/bin/
+server/build/
+
+# Qt deployment artifacts
+client/**/*.qm
+client/**/*.dll
+client/**/*.pdb
+client/**/*.lib
+client/**/*.exe
+client/build/
+
+# Logs
+*.log
+logs/
+client/logs/
+server/logs/
+
+# IDE files
+.vscode/
+.idea/
+*.suo
+*.user
+*.db
+*.opendb
+*.VC.db
+*.VC.opendb
+
+# Test cache
+.pytest_cache/
+pytest_cache/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Packaging
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
