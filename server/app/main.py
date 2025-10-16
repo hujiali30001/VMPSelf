@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api import admin
 from app.api.routes import router
 from app.core.settings import get_settings
 from app.db.base import Base
@@ -41,3 +42,4 @@ if settings.cdn_enforced and settings.cdn_token:
     )
 
 app.include_router(router, prefix="/api/v1")
+app.include_router(admin.router, prefix="/admin")

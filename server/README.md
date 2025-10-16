@@ -23,6 +23,21 @@ python manage.py init-db
 python manage.py create-license --card DEMO-0001 --ttl 30
 ```
 
+## 管理卡密
+- 查看最近 20 条卡密（按创建时间倒序）：
+	```powershell
+	python manage.py list-licenses
+	```
+- 仅查看已激活卡密并显示 50 条：
+	```powershell
+	python manage.py list-licenses --status active --limit 50
+	```
+- 撤销指定卡密：
+	```powershell
+	python manage.py revoke-license DEMO-0001
+	```
+	撤销后客户端心跳将返回 `license_not_found`，需重新发放卡密。
+
 ## 启动服务
 ```powershell
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
@@ -64,6 +79,17 @@ CI 测试覆盖核心授权流程（激活/心跳/撤销）、离线许可与 CD
 | `VMP_CDN_IP_HEADER` | 读取真实客户端 IP 的 Header，默认 `X-Forwarded-For`。 |
 | `VMP_CDN_IP_WHITELIST` | 允许的 CDN 回源 IP 列表，逗号分隔。 |
 | `VMP_CDN_EXEMPT_PATHS` | 允许绕过 CDN 鉴权的接口（例如心跳或健康检查），逗号分隔。 |
+| `VMP_ADMIN_USER` | 管理后台 HTTP Basic 用户名。 |
+| `VMP_ADMIN_PASS` | 管理后台 HTTP Basic 密码，建议使用高强度随机值。 |
+
+## Web 管理页面
+- 启动服务后访问 `http://<服务器地址>:8000/admin/licenses`。
+- 浏览器会弹出 HTTP Basic 登录框，用户名/密码来自 `.env` 中的 `VMP_ADMIN_USER`、`VMP_ADMIN_PASS`。
+- 页面功能：
+	- 按状态筛选卡密，支持设置返回条数。
+	- 查看卡密绑定指纹、失效时间、最近心跳时间等信息。
+	- 一键撤销卡密，撤销后客户端心跳将返回 `license_not_found`。
+- 若要通过 HTTPS 暴露到公网，请置于 CDN 或反向代理之后（参见下文 CDN 防护示例）。
 
 ## CDN 防护示例
 1. 在腾讯云 CDN 创建域名，源站指向授权服务器内网 IP，仅开放 HTTPS。

@@ -22,7 +22,7 @@
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
 mkdir C:\Services
 cd C:\Services
-git clone https://github.com/<your-org>/VMPSelf.git
+git clone https://github.com/hujiali30001/VMPSelf.git
 ```
 
 ### 方式 B：手动上传
@@ -52,6 +52,8 @@ notepad .env
 - `VMP_ENV=production`
 - `VMP_SQLITE_PATH=C:/Services/VMPSelf/server/data/license.db`
 - `VMP_HMAC_SECRET=<生成的强密码>`
+- `VMP_ADMIN_USER=<后台用户名>`
+- `VMP_ADMIN_PASS=<后台密码>`
 - CDN 防护参数如不需要可保持默认。
 
 ## 5. 初始化数据库与测试运行
@@ -63,6 +65,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
 ```
 
 > 打开浏览器访问 `http://192.168.132.132:8000/docs`，确认 API 正常后 `Ctrl+C` 停止。
+> 若需图形化管理卡密，可访问 `http://192.168.132.132:8000/admin/licenses` 并使用上述后台账号登录。
 
 ## 6. 使用脚本自动部署为服务
 

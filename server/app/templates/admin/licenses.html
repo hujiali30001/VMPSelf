@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <title>授权管理后台</title>
+    <style>
+        body {
+            font-family: "Segoe UI", Arial, sans-serif;
+            margin: 32px;
+            background: #f5f6fa;
+            color: #222;
+        }
+        h1 {
+            margin-bottom: 16px;
+        }
+        .filter-form {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        select, input[type="number"], button {
+            padding: 6px 10px;
+            font-size: 14px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #fff;
+        }
+        th, td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #e2e6ea;
+            text-align: left;
+            font-size: 14px;
+        }
+        th {
+            background: #f0f2f5;
+            text-transform: uppercase;
+            font-weight: 600;
+            font-size: 13px;
+        }
+        tr:hover {
+            background: #fafbff;
+        }
+        .badge {
+            border-radius: 12px;
+            padding: 4px 10px;
+            font-size: 12px;
+            display: inline-block;
+            text-transform: uppercase;
+        }
+        .badge-unused { background: #e0f2ff; color: #0366d6; }
+        .badge-active { background: #e6ffed; color: #1b7f46; }
+        .badge-revoked { background: #ffeceb; color: #b11c1c; }
+        .badge-expired { background: #fff5e6; color: #b36b00; }
+        .actions form {
+            display: inline;
+        }
+        .message {
+            padding: 10px 12px;
+            background: #eef7ff;
+            border: 1px solid #b6dbff;
+            border-radius: 6px;
+            margin-bottom: 16px;
+            color: #11508a;
+        }
+        .empty {
+            padding: 24px;
+            background: #fff;
+            border: 1px dashed #cfd8dc;
+            text-align: center;
+            color: #607d8b;
+        }
+        footer {
+            margin-top: 32px;
+            font-size: 12px;
+            color: #7b8894;
+        }
+    </style>
+</head>
+<body>
+    <h1>授权管理后台</h1>
+
+    {% if message %}
+    <div class="message">{{ message }}</div>
+    {% endif %}
+
+    <form class="filter-form" method="get" action="/admin/licenses">
+        <label>
+            状态：
+            <select name="status">
+                {% for value, label in statuses %}
+                <option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>
+            条数：
+            <input type="number" name="limit" value="{{ limit }}" min="-1" />
+        </label>
+        <button type="submit">筛选</button>
+    </form>
+
+    {% if licenses %}
+    <table>
+        <thead>
+            <tr>
+                <th>卡密</th>
+                <th>状态</th>
+                <th>绑定指纹</th>
+                <th>到期时间</th>
+                <th>最近心跳</th>
+                <th>创建时间</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for license, latest_seen in licenses %}
+            <tr>
+                <td>{{ license.card_code }}</td>
+                <td>
+                    <span class="badge badge-{{ license.status }}">{{ status_labels.get(license.status, license.status) }}</span>
+                </td>
+                <td>{{ license.bound_fingerprint or "-" }}</td>
+                <td>{{ license.expire_at.isoformat() if license.expire_at else "-" }}</td>
+                <td>{{ latest_seen.isoformat() if latest_seen else "-" }}</td>
+                <td>{{ license.created_at.isoformat() }}</td>
+                <td class="actions">
+                    <form method="post" action="/admin/licenses/revoke">
+                        <input type="hidden" name="card_code" value="{{ license.card_code }}" />
+                        <input type="hidden" name="status" value="{{ status }}" />
+                        <input type="hidden" name="limit" value="{{ limit }}" />
+                        <button type="submit" onclick="return confirm('确认撤销 {{ license.card_code }} 吗？');">撤销</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty">当前筛选条件下没有卡密记录。</div>
+    {% endif %}
+
+    <footer>
+        通过 HTTP Basic 认证保护。请在 `.env` 中配置 <code>VMP_ADMIN_USER</code> 和 <code>VMP_ADMIN_PASS</code>。
+    </footer>
+</body>
+</html>

@@ -5,8 +5,8 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_db
 from app.core.settings import get_settings
-from app.db.session import SessionLocal
 from app.schemas import (
     ActivationRequest,
     ActivationResponse,
@@ -23,12 +23,6 @@ router = APIRouter()
 settings = get_settings()
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 @router.post("/license/activate", response_model=ActivationResponse)
 def activate_license(payload: ActivationRequest, db: Session = Depends(get_db)):
     service = LicenseService(db)
