@@ -116,7 +116,8 @@ if (-not $InstallRoot) {
 }
 
 if (-not (Test-Path -LiteralPath $InstallRoot)) {
-    Write-Step ("创建安装目录 " + $InstallRoot)
+    $installDirMessage = "创建安装目录 " + $InstallRoot
+    Write-Step $installDirMessage
     New-Item -ItemType Directory -Path $InstallRoot | Out-Null
 }
 
@@ -269,8 +270,9 @@ function Invoke-Nssm {
     param([string[]]$Arguments)
     $process = Start-Process -FilePath $NssmExe -ArgumentList $Arguments -NoNewWindow -Wait -PassThru
     if ($process.ExitCode -ne 0) {
-    $joinedArgs = $Arguments -join ' '
-    throw ("NSSM 命令失败: " + $joinedArgs)
+        $joinedArgs = $Arguments -join ' '
+        $errorMessage = "NSSM 命令失败: " + $joinedArgs
+        throw $errorMessage
     }
 }
 
@@ -314,15 +316,20 @@ if (-not $existingRule) {
 Write-Step "启动服务"
 Invoke-Nssm -Arguments @("start", $ServiceName)
 
-Write-Step ("部署完成。当前监听地址: " + ("http://" + $ListenHost + ":" + $Port))
+$baseUrl = "http://" + $ListenHost + ":" + $Port
+$deploySummary = "部署完成。当前监听地址: " + $baseUrl
+Write-Step $deploySummary
 
 Write-Host "" 
-$baseUrl = "http://" + $ListenHost + ":" + $Port
-Write-Host ("后台登录地址: " + ($baseUrl + "/admin/licenses")) -ForegroundColor Green
-Write-Host ("用户管理入口: " + ($baseUrl + "/admin/users")) -ForegroundColor Green
-Write-Host ("HTTP Basic 用户名: " + $FinalAdminUser)
+$adminUrl = "后台登录地址: " + $baseUrl + "/admin/licenses"
+$userUrl = "用户管理入口: " + $baseUrl + "/admin/users"
+$adminUserInfo = "HTTP Basic 用户名: " + $FinalAdminUser
+Write-Host $adminUrl -ForegroundColor Green
+Write-Host $userUrl -ForegroundColor Green
+Write-Host $adminUserInfo
 if ($GeneratedAdminPassword) {
-    Write-Host ("HTTP Basic 密码: " + $FinalAdminPass + " (已自动生成，请立即备份)") -ForegroundColor Yellow
+    $generatedPasswordInfo = "HTTP Basic 密码: " + $FinalAdminPass + " (已自动生成，请立即备份)"
+    Write-Host $generatedPasswordInfo -ForegroundColor Yellow
 } elseif ($AdminPassword) {
     Write-Host "HTTP Basic 密码已更新为参数指定值" -ForegroundColor Yellow
 } else {
@@ -330,7 +337,8 @@ if ($GeneratedAdminPassword) {
 }
 
 if ($GeneratedHmacSecret) {
-    Write-Host ("HMAC 密钥已自动生成：" + $FinalHmacSecret) -ForegroundColor Yellow
+    $generatedHmacInfo = "HMAC 密钥已自动生成：" + $FinalHmacSecret
+    Write-Host $generatedHmacInfo -ForegroundColor Yellow
 } elseif ($HmacSecret) {
     Write-Host "HMAC 密钥已按参数更新" -ForegroundColor Yellow
 } else {
