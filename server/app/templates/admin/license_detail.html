@@ -108,6 +108,12 @@
             box-shadow: 0 24px 48px rgba(37, 99, 235, 0.18);
         }
 
+        .message-warning {
+            background: linear-gradient(135deg, rgba(245, 158, 11, 0.18), rgba(253, 230, 138, 0.25));
+            border: 1px solid rgba(245, 158, 11, 0.35);
+            color: #92400e;
+        }
+
         .summary-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -120,6 +126,57 @@
             background: var(--bg-panel-alt);
             border: 1px solid rgba(37, 99, 235, 0.14);
             box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+        }
+
+        .type-summary {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .type-summary svg {
+            width: 32px;
+            height: 32px;
+            flex-shrink: 0;
+        }
+
+        .type-meta {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .type-meta span {
+            font-size: 12px;
+            color: var(--text-secondary);
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .type-name {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .type-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border-radius: 999px;
+            padding: 4px 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .type-status.active {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--success);
+        }
+
+        .type-status.inactive {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--danger);
         }
 
         .summary-title {
@@ -176,6 +233,22 @@
         .info-value {
             font-weight: 600;
             font-size: 15px;
+        }
+
+        .info-value-flex {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 600;
+            font-size: 15px;
+        }
+
+        .info-sub {
+            display: block;
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+            letter-spacing: 0.03em;
         }
 
         .actions {
@@ -280,6 +353,17 @@
             padding: 20px;
             display: grid;
             gap: 16px;
+        }
+
+        .type-description {
+            font-size: 13px;
+            line-height: 1.7;
+            color: var(--text-secondary);
+            background: rgba(37, 99, 235, 0.05);
+            border-radius: 16px;
+            padding: 18px;
+            border: 1px solid rgba(37, 99, 235, 0.08);
+            white-space: pre-line;
         }
 
         .copy-row {
@@ -447,10 +531,36 @@
         <div class="message">{{ message }}</div>
         {% endif %}
 
+    {% if license.card_type and not license.card_type.is_active %}
+    <div class="message message-warning">关联的卡密类型已停用，新建卡密时将无法再选择该类型。</div>
+    {% endif %}
+
         <div class="summary-grid">
             <div class="summary-card">
                 <div class="summary-title">卡密</div>
                 <div class="summary-value">{{ license.card_code }}</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-title">卡密类型</div>
+                {% if license.card_type %}
+                <div class="type-summary">
+                    {% if license.card_type.color %}
+                    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32">
+                        <rect x="0" y="0" width="32" height="32" rx="10" ry="10" fill="{{ license.card_type.color }}" stroke="rgba(15, 23, 42, 0.08)" stroke-width="1" />
+                    </svg>
+                    {% endif %}
+                    <div class="type-meta">
+                        <div class="type-name">{{ license.card_type.display_name }}</div>
+                        <span>{{ license.card_type.code }}</span>
+                    </div>
+                    <span class="type-status {% if license.card_type.is_active %}active{% else %}inactive{% endif %}">
+                        {% if license.card_type.is_active %}启用{% else %}停用{% endif %}
+                    </span>
+                </div>
+                {% else %}
+                <div class="summary-value">自定义</div>
+                <div class="summary-sub">未绑定类型</div>
+                {% endif %}
             </div>
             <div class="summary-card">
                 <div class="summary-title">注册用户</div>
@@ -478,6 +588,80 @@
                     <div class="info-item">
                         <span class="info-label">卡密</span>
                         <span class="info-value">{{ license.card_code }}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">卡密类型</span>
+                        {% if license.card_type %}
+                        <span class="info-value">
+                            {{ license.card_type.display_name }}
+                            <span class="info-sub">代码：{{ license.card_type.code }}</span>
+                        </span>
+                        {% else %}
+                        <span class="info-value">自定义 / 无类型</span>
+                        {% endif %}
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">类型状态</span>
+                        {% if license.card_type %}
+                        <span class="info-value">{% if license.card_type.is_active %}启用{% else %}停用{% endif %}</span>
+                        {% else %}
+                        <span class="info-value">--</span>
+                        {% endif %}
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">类型默认前缀</span>
+                        {% if license.card_type %}
+                        <span class="info-value">{{ license.card_type.card_prefix or '无' }}</span>
+                        {% else %}
+                        <span class="info-value">--</span>
+                        {% endif %}
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">卡密前缀</span>
+                        <span class="info-value">{{ license.card_prefix or '-' }}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">类型默认有效期</span>
+                        {% if license.card_type %}
+                        <span class="info-value">
+                            {% if license.card_type.default_duration_days is not none %}
+                            {{ license.card_type.default_duration_days }} 天
+                            {% else %}
+                            不限
+                            {% endif %}
+                        </span>
+                        {% else %}
+                        <span class="info-value">--</span>
+                        {% endif %}
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">自定义有效期</span>
+                        <span class="info-value">
+                            {% if license.custom_duration_days is not none %}
+                            {% if license.custom_duration_days > 0 %}
+                            {{ license.custom_duration_days }} 天
+                            {% else %}
+                            不限
+                            {% endif %}
+                            {% elif license.card_type and license.card_type.default_duration_days is not none %}
+                            沿用类型（{{ license.card_type.default_duration_days }} 天）
+                            {% else %}
+                            未设置
+                            {% endif %}
+                        </span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">类型标识颜色</span>
+                        {% if license.card_type and license.card_type.color %}
+                        <div class="info-value-flex">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18">
+                                <rect x="0" y="0" width="18" height="18" rx="6" ry="6" fill="{{ license.card_type.color }}" stroke="rgba(15, 23, 42, 0.08)" stroke-width="1" />
+                            </svg>
+                            <span class="info-sub">{{ license.card_type.color }}</span>
+                        </div>
+                        {% else %}
+                        <span class="info-value">--</span>
+                        {% endif %}
                     </div>
                     <div class="info-item">
                         <span class="info-label">绑定指纹</span>
@@ -591,6 +775,13 @@
                 {% endif %}
             </section>
         </div>
+
+        {% if license.card_type and license.card_type.description %}
+        <section class="panel">
+            <h2>类型说明</h2>
+            <div class="type-description">{{ license.card_type.description }}</div>
+        </section>
+        {% endif %}
 
         <section class="panel">
             <h2>激活设备</h2>

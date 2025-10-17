@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -21,6 +21,24 @@ class LicenseStatus(str, Enum):
     EXPIRED = "expired"
 
 
+class LicenseCardType(Base):
+    __tablename__ = "license_card_types"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    code: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
+    display_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    default_duration_days: Mapped[Optional[int]] = mapped_column(Integer)
+    card_prefix: Mapped[Optional[str]] = mapped_column(String(16))
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    color: Mapped[Optional[str]] = mapped_column(String(16))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+    licenses: Mapped[list["License"]] = relationship(back_populates="card_type")
+
+
 class License(Base):
     __tablename__ = "licenses"
 
@@ -33,8 +51,13 @@ class License(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
+    card_type_id: Mapped[Optional[int]] = mapped_column(ForeignKey("license_card_types.id"))
+    custom_duration_days: Mapped[Optional[int]] = mapped_column(Integer)
+    card_prefix: Mapped[Optional[str]] = mapped_column(String(16))
+
     activations: Mapped[list["Activation"]] = relationship(back_populates="license", cascade="all, delete-orphan")
     user: Mapped[Optional["User"]] = relationship(back_populates="license", uselist=False)
+    card_type: Mapped[Optional[LicenseCardType]] = relationship(back_populates="licenses")
 
 
 class Activation(Base):

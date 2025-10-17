@@ -1,0 +1,20 @@
+{% set has_message = message is defined and message %}
+{% set has_messages = messages is defined and messages %}
+{% if has_message %}
+    <div class="flash flash-info">{{ message }}</div>
+{% endif %}
+{% if has_messages %}
+    {% for item in messages %}
+        {% if item is mapping %}
+            {% set level = item.get('level', 'info') %}
+            {% set text = item.get('text') or item.get('message') %}
+        {% elif item is sequence %}
+            {% set level = item[0] if item|length > 1 else 'info' %}
+            {% set text = item[1] if item|length > 1 else item[0] %}
+        {% else %}
+            {% set level = 'info' %}
+            {% set text = item %}
+        {% endif %}
+        <div class="flash flash-{{ level }}">{{ text }}</div>
+    {% endfor %}
+{% endif %}

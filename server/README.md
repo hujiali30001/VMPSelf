@@ -20,8 +20,17 @@ python manage.py init-db
 
 ## 创建卡密
 ```powershell
-python manage.py create-license --card DEMO-0001 --ttl 30
+# 生成 10 张月卡（使用默认天数与前缀）
+python manage.py create-license --type month --quantity 10
+
+# 自定义卡号与有效期（单张）
+python manage.py create-license --card DEMO-0001 --ttl 45
+
+# 指定类型同时覆盖前缀与天数
+python manage.py create-license --type enterprise --prefix VIP- --custom-ttl 180 --quantity 5
 ```
+
+> `create-license` 默认回退到 30 天有效期；如果指定 `--type`，将优先使用类型的默认配置，可通过 `--custom-ttl` 与 `--prefix` 覆盖。
 
 ## 管理卡密
 - 查看最近 20 条卡密（按创建时间倒序）：
@@ -145,7 +154,17 @@ CI 测试覆盖核心授权流程（激活/心跳/撤销）、离线许可与 CD
 	- 一键下载包含授权数据与签名的 JSON 文件，便于线下备份或通过脚本导入客户端。
 	- 一键撤销卡密，撤销后客户端心跳将返回 `license_not_found`。
 	- 即将上线的客户端注册页可复用后台生成的卡密，后台可通过审计日志追踪注册行为。
+	- 更详细的后台门户布局、权限模型与交互流程，参见《[License Card Type Extensions – Admin UI](../docs/design/license_card_types.md#admin-ui)》章节。
+	- CDN 管理控制台即将上线：支持查看边缘节点心跳、触发 `deploy_cdn.py` 滚动发布、轮换 `X-Edge-Token`、追踪部署日志，详细需求见《[License Card Type Extensions – CDN 管理模块](../docs/design/license_card_types.md#cdn-管理模块详解)》。
 - 若要通过 HTTPS 暴露到公网，请置于 CDN 或反向代理之后（参见下文 CDN 防护示例）。
+
+### Roadmap
+
+- **卡密类型体系**：正在设计支持天卡/月卡/季卡/年卡等可配置类型的功能，允许自定义卡号前缀与默认有效期，详见《[License Card Type Extensions](../docs/design/license_card_types.md)》设计文档。
+- **后台管理门户 2.0**：将引入仪表盘、批量任务、审计日志、角色权限等模块，布局与交互要求见《[License Card Type Extensions – Admin UI](../docs/design/license_card_types.md#admin-ui)》。
+- **CDN 管理与部署编排**：计划把 `deploy_cdn.py` 集成到后台，实现节点清单维护、蓝绿发布、共享密钥轮换与部署告警，详见《[License Card Type Extensions – CDN 管理模块](../docs/design/license_card_types.md#cdn-管理模块详解)》。
+- **多产品与租户管理**：计划引入软件目录、套餐与租户模型，满足多产品授权与渠道运营需求。
+- **自动化与告警**：未来会增加离线报表、告警通知、批量操作等运营能力。
 
 ## CDN 防护示例
 1. 在腾讯云 CDN 创建域名，源站指向授权服务器内网 IP，仅开放 HTTPS。

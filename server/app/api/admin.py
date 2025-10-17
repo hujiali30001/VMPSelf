@@ -12,7 +12,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from starlette.status import HTTP_303_SEE_OTHER, HTTP_401_UNAUTHORIZED
 
 from app.api.deps import get_db
@@ -20,6 +20,11 @@ from app.core.settings import get_settings
 from app.db import License, LicenseStatus, models
 from app.schemas import (
     LicenseAdminResponse,
+    LicenseBatchCreateResponse,
+    LicenseCardTypeCreateRequest,
+    LicenseCardTypeListResponse,
+    LicenseCardTypeResponse,
+    LicenseCardTypeUpdateRequest,
     LicenseCreateRequest,
     LicenseListResponse,
     LicenseUpdateRequest,
@@ -27,6 +32,7 @@ from app.schemas import (
     UserListResponse,
     UserUpdateRequest,
 )
+from app.services.card_type_service import LicenseCardTypeService
 from app.services.license_service import LicenseService
 from app.services.user_service import UserService
 
@@ -58,6 +64,24 @@ def _serialize_user(user: Optional[models.User]) -> Optional[dict[str, object]]:
     }
 
 
+def _serialize_card_type(card_type: Optional[models.LicenseCardType]) -> Optional[dict[str, object]]:
+    if not card_type:
+        return None
+    return {
+        "id": card_type.id,
+        "code": card_type.code,
+        "display_name": card_type.display_name,
+        "default_duration_days": card_type.default_duration_days,
+        "card_prefix": card_type.card_prefix,
+        "description": card_type.description,
+        "color": card_type.color,
+        "is_active": card_type.is_active,
+        "sort_order": card_type.sort_order,
+        "created_at": card_type.created_at,
+        "updated_at": card_type.updated_at,
+    }
+
+
 def _serialize_license(license_obj: License) -> dict[str, object]:
     return {
         "id": license_obj.id,
@@ -69,6 +93,9 @@ def _serialize_license(license_obj: License) -> dict[str, object]:
         "created_at": license_obj.created_at,
         "updated_at": license_obj.updated_at,
         "user": _serialize_user(license_obj.user),
+        "card_type": _serialize_card_type(getattr(license_obj, "card_type", None)),
+        "card_prefix": license_obj.card_prefix,
+        "custom_duration_days": license_obj.custom_duration_days,
     }
 
 DEFAULT_PAGE_SIZE = 20
@@ -91,6 +118,7 @@ def _build_list_query(
     page_size: int,
     q: Optional[str],
     message: Optional[str] = None,
+    type_code: Optional[str] = None,
 ) -> str:
     params: dict[str, str] = {
         "status": status,
@@ -99,6 +127,8 @@ def _build_list_query(
     }
     if q:
         params["q"] = q
+    if type_code:
+        params["type_code"] = type_code
     if message:
         params["message"] = message
     return urlencode(params)
@@ -322,27 +352,141 @@ def api_delete_user(
     return Response(status_code=204)
 
 
+@router.get("/api/license-types", response_model=LicenseCardTypeListResponse)
+def api_list_license_types(
+    include_inactive: bool = True,
+    db: Session = Depends(get_db),
+    _: HTTPBasicCredentials = Depends(require_admin),
+):
+    service = LicenseCardTypeService(db)
+    items = service.list_types(include_inactive=include_inactive)
+    return {
+        "items": [_serialize_card_type(item) for item in items if item],
+        "total": len(items),
+    }
+
+
+@router.post("/api/license-types", response_model=LicenseCardTypeResponse, status_code=201)
+def api_create_license_type(
+    payload: LicenseCardTypeCreateRequest,
+    db: Session = Depends(get_db),
+    _: HTTPBasicCredentials = Depends(require_admin),
+):
+    service = LicenseCardTypeService(db)
+    try:
+        card_type = service.create_type(**payload.dict())
+    except ValueError as exc:
+        message = str(exc)
+        if message in {
+            "card_type_exists",
+            "code_blank",
+            "code_invalid",
+            "duration_invalid",
+            "duration_too_large",
+            "prefix_too_long",
+            "prefix_invalid",
+            "color_invalid",
+        }:
+            raise HTTPException(status_code=400, detail=message)
+        raise
+    serialized = _serialize_card_type(card_type)
+    assert serialized is not None
+    return serialized
+
+
+@router.patch("/api/license-types/{type_id}", response_model=LicenseCardTypeResponse)
+def api_update_license_type(
+    type_id: int,
+    payload: LicenseCardTypeUpdateRequest,
+    db: Session = Depends(get_db),
+    _: HTTPBasicCredentials = Depends(require_admin),
+):
+    updates = payload.dict(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="no_fields_provided")
+
+    service = LicenseCardTypeService(db)
+    try:
+        card_type = service.update_type(type_id, **updates)
+    except ValueError as exc:
+        message = str(exc)
+        if message in {
+            "card_type_not_found",
+        }:
+            raise HTTPException(status_code=404, detail=message)
+        if message in {
+            "display_name_blank",
+            "duration_invalid",
+            "duration_too_large",
+            "prefix_too_long",
+            "prefix_invalid",
+            "color_invalid",
+        }:
+            raise HTTPException(status_code=400, detail=message)
+        raise
+
+    serialized = _serialize_card_type(card_type)
+    assert serialized is not None
+    return serialized
+
+
+@router.delete("/api/license-types/{type_id}", status_code=204)
+def api_delete_license_type(
+    type_id: int,
+    db: Session = Depends(get_db),
+    _: HTTPBasicCredentials = Depends(require_admin),
+):
+    service = LicenseCardTypeService(db)
+    try:
+        deleted = service.delete_type(type_id)
+    except ValueError as exc:
+        if str(exc) == "card_type_in_use":
+            raise HTTPException(status_code=400, detail="card_type_in_use")
+        raise
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail="card_type_not_found")
+    return Response(status_code=204)
+
+
 @router.get("/api/licenses", response_model=LicenseListResponse)
 def api_list_licenses(
     status: str = "all",
     offset: int = 0,
     limit: int = 50,
     search: Optional[str] = None,
+    type_code: Optional[str] = None,
     db: Session = Depends(get_db),
     _: HTTPBasicCredentials = Depends(require_admin),
 ):
     offset = max(offset, 0)
     limit = max(1, min(limit, 200))
     search_query = search.strip() if search else None
+    type_filter = type_code.strip() if type_code else None
 
     service = LicenseService(db)
-    items = service.list_licenses(status=status, search=search_query, offset=offset, limit=limit)
+    items = service.list_licenses(
+        status=status,
+        search=search_query,
+        type_code=type_filter,
+        offset=offset,
+        limit=limit,
+    )
 
     total_stmt = select(func.count()).select_from(License)
     if status and status != "all":
         total_stmt = total_stmt.where(License.status == status)
     if search_query:
         total_stmt = total_stmt.where(License.card_code.ilike(f"%{search_query}%"))
+    if type_filter:
+        total_stmt = (
+            total_stmt.join_from(
+                License,
+                models.LicenseCardType,
+                License.card_type_id == models.LicenseCardType.id,
+            )
+            .where(models.LicenseCardType.code == type_filter)
+        )
     total = db.scalar(total_stmt) or 0
 
     return {
@@ -353,7 +497,7 @@ def api_list_licenses(
     }
 
 
-@router.post("/api/licenses", response_model=LicenseAdminResponse, status_code=201)
+@router.post("/api/licenses", response_model=LicenseBatchCreateResponse, status_code=201)
 def api_create_license(
     payload: LicenseCreateRequest,
     db: Session = Depends(get_db),
@@ -361,12 +505,40 @@ def api_create_license(
 ):
     service = LicenseService(db)
     try:
-        license_obj = service.create_license(payload.card_code, payload.ttl_days)
+        licenses, batch_id = service.create_licenses(
+            type_code=payload.type_code,
+            card_code=payload.card_code,
+            quantity=payload.quantity,
+            custom_prefix=payload.custom_prefix,
+            ttl_days=payload.ttl_days,
+            custom_ttl_days=payload.custom_ttl_days,
+        )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        message = str(exc)
+        if message in {
+            "card_type_not_found",
+            "card_type_disabled",
+            "card_code_exists",
+            "card_code_blank",
+            "card_code_too_long",
+            "card_code_requires_single_quantity",
+            "quantity_invalid",
+            "quantity_too_large",
+            "custom_ttl_invalid",
+            "ttl_invalid",
+            "prefix_invalid",
+            "prefix_too_long",
+        }:
+            raise HTTPException(status_code=400, detail=message)
+        raise
     except IntegrityError:
         raise HTTPException(status_code=400, detail="card_code_exists")
-    return _serialize_license(license_obj)
+
+    return {
+        "items": [_serialize_license(obj) for obj in licenses],
+        "batch_id": batch_id,
+        "quantity": len(licenses),
+    }
 
 
 @router.get("/api/licenses/{card_code}", response_model=LicenseAdminResponse)
@@ -427,6 +599,222 @@ def api_delete_license(
     if not success:
         raise HTTPException(status_code=404, detail="license_not_found")
     return Response(status_code=204)
+
+
+@router.get("/license-types")
+def license_types_page(
+    request: Request,
+    edit: Optional[int] = None,
+    message: Optional[str] = None,
+    db: Session = Depends(get_db),
+    _: HTTPBasicCredentials = Depends(require_admin),
+):
+    service = LicenseCardTypeService(db)
+    card_types = service.list_types(include_inactive=True)
+
+    counts = {
+        row[0]: row[1]
+        for row in db.execute(
+            select(models.License.card_type_id, func.count()).group_by(models.License.card_type_id)
+        ).all()
+    }
+
+    edit_type = None
+    if edit:
+        edit_type = service.get_by_id(edit)
+        if not edit_type:
+            message = "未找到指定卡密类型"
+
+    total_active = sum(1 for item in card_types if item.is_active)
+    total_inactive = len(card_types) - total_active
+
+    card_type_rows = [
+        {
+            "type": item,
+            "license_count": counts.get(item.id, 0),
+        }
+        for item in card_types
+    ]
+
+    return_to = request.url.path
+    if request.url.query:
+        return_to += f"?{request.url.query}"
+
+    return templates.TemplateResponse(
+        request,
+        "admin/card_types/index.html",
+        {
+            "request": request,
+            "card_types": card_type_rows,
+            "total": len(card_types),
+            "total_active": total_active,
+            "total_inactive": total_inactive,
+            "edit_type": edit_type,
+            "message": message,
+            "return_to": return_to,
+        },
+    )
+
+
+@router.post("/license-types/create")
+def create_license_type_action(
+    request: Request,
+    code: str = Form(...),
+    display_name: str = Form(...),
+    default_duration_days: Optional[str] = Form(None),
+    card_prefix: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    color: Optional[str] = Form(None),
+    sort_order: Optional[str] = Form(None),
+    is_active: Optional[str] = Form(None),
+    return_to: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    _: HTTPBasicCredentials = Depends(require_admin),
+):
+    service = LicenseCardTypeService(db)
+    try:
+        duration = int(default_duration_days) if default_duration_days else None
+    except ValueError:
+        duration = None
+        message = "默认有效期需要为数字"
+        target = _append_message(_sanitize_return_path(return_to, fallback="/admin/license-types"), message)
+        return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+
+    try:
+        order_value = int(sort_order) if sort_order else None
+    except ValueError:
+        order_value = None
+        message = "排序值需要为数字"
+        target = _append_message(_sanitize_return_path(return_to, fallback="/admin/license-types"), message)
+        return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+
+    try:
+        service.create_type(
+            code=code,
+            display_name=display_name,
+            default_duration_days=duration,
+            card_prefix=card_prefix,
+            description=description,
+            color=color,
+            sort_order=order_value,
+            is_active=bool(is_active),
+        )
+    except ValueError as exc:
+        db.rollback()
+        message = str(exc)
+    else:
+        message = f"已创建类型 {code}"
+
+    target = _append_message(_sanitize_return_path(return_to, fallback="/admin/license-types"), message)
+    return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+
+
+@router.post("/license-types/{type_id}/update")
+def update_license_type_action(
+    request: Request,
+    type_id: int,
+    display_name: Optional[str] = Form(None),
+    default_duration_days: Optional[str] = Form(None),
+    card_prefix: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    color: Optional[str] = Form(None),
+    sort_order: Optional[str] = Form(None),
+    is_active: Optional[str] = Form(None),
+    return_to: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    _: HTTPBasicCredentials = Depends(require_admin),
+):
+    service = LicenseCardTypeService(db)
+
+    def _parse_int(value: Optional[str]) -> Optional[int]:
+        if value is None or value.strip() == "":
+            return None
+        return int(value)
+
+    updates: dict[str, object] = {}
+    if display_name is not None:
+        updates["display_name"] = display_name
+    if default_duration_days is not None:
+        try:
+            updates["default_duration_days"] = _parse_int(default_duration_days)
+        except ValueError:
+            message = "默认有效期需要为数字"
+            target = _append_message(_sanitize_return_path(return_to, fallback="/admin/license-types?edit={type_id}".format(type_id=type_id)), message)
+            return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+    if card_prefix is not None:
+        updates["card_prefix"] = card_prefix
+    if description is not None:
+        updates["description"] = description
+    if color is not None:
+        updates["color"] = color
+    if sort_order is not None:
+        try:
+            updates["sort_order"] = _parse_int(sort_order)
+        except ValueError:
+            message = "排序值需要为数字"
+            target = _append_message(_sanitize_return_path(return_to, fallback="/admin/license-types?edit={type_id}".format(type_id=type_id)), message)
+            return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+    updates["is_active"] = is_active is not None
+
+    try:
+        service.update_type(type_id, **updates)
+    except ValueError as exc:
+        db.rollback()
+        message = str(exc)
+    else:
+        message = "类型信息已更新"
+
+    target = _append_message(
+        _sanitize_return_path(return_to, fallback="/admin/license-types"),
+        message,
+    )
+    return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+
+
+@router.post("/license-types/{type_id}/toggle")
+def toggle_license_type_action(
+    request: Request,
+    type_id: int,
+    return_to: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    _: HTTPBasicCredentials = Depends(require_admin),
+):
+    service = LicenseCardTypeService(db)
+    card_type = service.get_by_id(type_id)
+    if not card_type:
+        message = "未找到指定卡密类型"
+    else:
+        try:
+            updated = service.update_type(type_id, is_active=not card_type.is_active)
+        except ValueError as exc:
+            db.rollback()
+            message = str(exc)
+        else:
+            message = "已启用" if updated.is_active else "已停用"
+
+    target = _append_message(_sanitize_return_path(return_to, fallback="/admin/license-types"), message)
+    return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+
+
+@router.post("/license-types/{type_id}/delete")
+def delete_license_type_action(
+    request: Request,
+    type_id: int,
+    return_to: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    _: HTTPBasicCredentials = Depends(require_admin),
+):
+    service = LicenseCardTypeService(db)
+    try:
+        deleted = service.delete_type(type_id)
+    except ValueError as exc:
+        db.rollback()
+        message = str(exc)
+    else:
+        message = "类型已删除" if deleted else "未找到指定卡密类型"
+
+    target = _append_message(_sanitize_return_path(return_to, fallback="/admin/license-types"), message)
+    return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
 
 
 @router.get("/users")
@@ -645,6 +1033,7 @@ def licenses_page(
     page: int = 1,
     page_size: int = DEFAULT_PAGE_SIZE,
     q: Optional[str] = None,
+    type_code: Optional[str] = None,
     message: str | None = None,
     db: Session = Depends(get_db),
     _: HTTPBasicCredentials = Depends(require_admin),
@@ -652,22 +1041,41 @@ def licenses_page(
     page = max(page, 1)
     page_size = max(1, min(page_size, MAX_PAGE_SIZE))
     search_query = q.strip() if q else None
+    type_query = type_code.strip() if type_code else None
 
-    def apply_filters(stmt):
+    card_type_service = LicenseCardTypeService(db)
+    card_types = card_type_service.list_types(include_inactive=True)
+    active_card_types = [item for item in card_types if item.is_active]
+
+    def apply_filters(stmt, include_type: bool = True):
         if status != "all":
             stmt = stmt.where(License.status == status)
         if search_query:
             stmt = stmt.where(License.card_code.ilike(f"%{search_query}%"))
+        if include_type:
+            if type_query == "__none__":
+                stmt = stmt.where(License.card_type_id.is_(None))
+            elif type_query:
+                stmt = stmt.join(License.card_type).where(models.LicenseCardType.code == type_query)
         return stmt
 
-    total = db.scalar(apply_filters(select(func.count()).select_from(License))) or 0
+    total_stmt = select(func.count()).select_from(License)
+    total = db.scalar(apply_filters(total_stmt)) or 0
     total_pages = max((total + page_size - 1) // page_size, 1) if total else 1
     if page > total_pages:
         page = total_pages
     offset = (page - 1) * page_size
 
     license_stmt = apply_filters(
-        select(License).order_by(License.created_at.desc()).offset(offset).limit(page_size)
+        select(License)
+        .options(
+            selectinload(License.activations),
+            selectinload(License.user),
+            selectinload(License.card_type),
+        )
+        .order_by(License.created_at.desc())
+        .offset(offset)
+        .limit(page_size)
     )
 
     license_rows = []
@@ -675,7 +1083,11 @@ def licenses_page(
         latest_seen = None
         if license_obj.activations:
             latest_seen = max(
-                (activation.last_seen for activation in license_obj.activations if activation.last_seen),
+                (
+                    activation.last_seen or activation.activated_at
+                    for activation in license_obj.activations
+                    if activation.last_seen or activation.activated_at
+                ),
                 default=None,
             )
         license_rows.append(
@@ -688,14 +1100,70 @@ def licenses_page(
         )
 
     statuses = [("all", "全部"), *[(s.value, STATUS_LABELS.get(s.value, s.value)) for s in LicenseStatus]]
-    status_counts = {
-        row[0]: row[1]
-        for row in db.execute(select(License.status, func.count()).group_by(License.status)).all()
-    }
+    status_counts_stmt = select(License.status, func.count()).select_from(License)
+    status_counts_stmt = apply_filters(status_counts_stmt)
+    status_counts_stmt = status_counts_stmt.group_by(License.status)
+    status_counts = {row[0]: row[1] for row in db.execute(status_counts_stmt).all()}
+
+    type_counts_stmt = select(License.card_type_id, func.count()).select_from(License)
+    type_counts_stmt = apply_filters(type_counts_stmt, include_type=False)
+    type_counts_stmt = type_counts_stmt.group_by(License.card_type_id)
+    type_counts = {row[0]: row[1] for row in db.execute(type_counts_stmt).all()}
+
+    selected_card_type = None
+    if type_query:
+        selected_card_type = next((item for item in card_types if item and item.code == type_query), None)
+
+    def _build_type_link(code: Optional[str]) -> str:
+        return f"/admin/licenses?{_build_list_query(status, 1, page_size, search_query, None, code)}"
+
+    type_breakdown: list[dict[str, object]] = []
+    type_breakdown.append(
+        {
+            "code": "",
+            "label": "全部类型",
+            "count": sum(type_counts.values()),
+            "is_active": True,
+            "url": _build_type_link(None),
+            "is_selected": not type_query,
+        }
+    )
+    type_breakdown.append(
+        {
+            "code": "__none__",
+            "label": "未设置类型",
+            "count": type_counts.get(None, 0),
+            "is_active": True,
+            "url": _build_type_link("__none__"),
+            "is_selected": type_query == "__none__",
+        }
+    )
+    for item in card_types:
+        type_breakdown.append(
+            {
+                "code": item.code,
+                "label": item.display_name,
+                "count": type_counts.get(item.id, 0),
+                "is_active": item.is_active,
+                "url": _build_type_link(item.code),
+                "is_selected": type_query == item.code,
+                "type": item,
+            }
+        )
+
+    selected_type_total = 0
+    if type_query == "__none__":
+        selected_type_total = type_counts.get(None, 0)
+    elif selected_card_type:
+        selected_type_total = type_counts.get(selected_card_type.id, 0)
+    elif not type_query:
+        selected_type_total = sum(type_counts.values())
+
+    type_filter_urls = {entry["code"]: entry["url"] for entry in type_breakdown}
 
     return templates.TemplateResponse(
         request,
-        "admin/licenses.html",
+        "admin/licenses/index.html",
         {
             "request": request,
             "licenses": license_rows,
@@ -713,6 +1181,14 @@ def licenses_page(
             "status_counts": status_counts,
             "message": message,
             "status_labels": STATUS_LABELS,
+            "card_types": card_types,
+            "active_card_types": active_card_types,
+            "selected_type_code": type_query or "",
+            "selected_card_type": selected_card_type,
+            "type_breakdown": type_breakdown,
+            "selected_type_total": selected_type_total,
+            "type_counts": type_counts,
+            "type_filter_urls": type_filter_urls,
         },
     )
 
@@ -721,28 +1197,73 @@ def licenses_page(
 def create_license_action(
     request: Request,
     card_code: Optional[str] = Form(None),
-    ttl_days: int = Form(30),
+    type_code: Optional[str] = Form(None),
+    quantity: Optional[str] = Form("1"),
+    custom_prefix: Optional[str] = Form(None),
+    ttl_days: Optional[str] = Form(None),
+    custom_ttl_days: Optional[str] = Form(None),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     _: HTTPBasicCredentials = Depends(require_admin),
 ):
     service = LicenseService(db)
-    ttl_days = max(ttl_days, 0)
+
+    def _parse_int(value: Optional[str]) -> Optional[int]:
+        if value is None:
+            return None
+        trimmed = value.strip()
+        if trimmed == "":
+            return None
+        return int(trimmed)
+
+    card_code_value = (card_code or "").strip() or None
+    type_value = (type_code or "").strip() or None
+    if type_value == "__none__":
+        type_value = None
+    prefix_value = (custom_prefix or "").strip() or None
+
+    parse_warning: Optional[str] = None
     try:
-        license_obj = service.create_license(card_code, ttl_days)
-        if license_obj.expire_at:
-            expire_text = license_obj.expire_at.isoformat()
-        else:
-            expire_text = "永久有效"
-        msg = f"已创建卡密 {license_obj.card_code}（到期：{expire_text}）"
+        quantity_value = _parse_int(quantity) or 1
+    except ValueError:
+        quantity_value = 1
+        parse_warning = "数量格式错误，已自动重置为 1"
+
+    try:
+        ttl_value = _parse_int(ttl_days)
+        custom_ttl_value = _parse_int(custom_ttl_days)
+    except ValueError:
+        msg = "有效期参数需为数字"
+        target = _append_message(_sanitize_return_path(return_to), msg)
+        return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+
+    try:
+        licenses, batch_id = service.create_licenses(
+            type_code=type_value,
+            card_code=card_code_value,
+            quantity=quantity_value,
+            custom_prefix=prefix_value,
+            ttl_days=ttl_value,
+            custom_ttl_days=custom_ttl_value,
+        )
     except ValueError as exc:
         db.rollback()
         msg = str(exc)
-        license_obj = None
     except IntegrityError:
         db.rollback()
-        msg = f"卡密 {card_code} 已存在"
-        license_obj = None
+        msg = "卡密已存在"
+    else:
+        if not licenses:
+            msg = "未生成卡密"
+        elif len(licenses) == 1:
+            license_obj = licenses[0]
+            expire_text = license_obj.expire_at.isoformat() if license_obj.expire_at else "永久有效"
+            msg = f"已创建卡密 {license_obj.card_code}（到期：{expire_text}）"
+        else:
+            msg = f"已批量创建 {len(licenses)} 个卡密，批次号 {batch_id}"
+
+    if parse_warning:
+        msg = f"{parse_warning}；{msg}" if msg else parse_warning
 
     target = _sanitize_return_path(return_to)
     target = _append_message(target, msg)

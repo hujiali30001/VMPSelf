@@ -116,7 +116,10 @@ def test_admin_api_license_crud_flow():
         json={"card_code": "API-LIC-001", "ttl_days": 5},
     )
     assert create_resp.status_code == 201
-    created = create_resp.json()
+    created_payload = create_resp.json()
+    assert created_payload["quantity"] == 1
+    assert created_payload["batch_id"]
+    created = created_payload["items"][0]
     card_code = created["card_code"]
 
     list_resp = client.get(
@@ -163,3 +166,49 @@ def test_admin_api_license_crud_flow():
         params={"force": "true"},
     )
     assert force_delete.status_code == 204
+
+
+def test_admin_api_license_batch_with_type_and_filter():
+    client = TestClient(app)
+
+    with SessionLocal() as session:
+        card_type = models.LicenseCardType(
+            code="month",
+            display_name="月卡",
+            default_duration_days=30,
+            card_prefix="M-",
+            color="#6366f1",
+            is_active=True,
+        )
+        session.add(card_type)
+        session.commit()
+
+    batch_resp = client.post(
+        "/admin/api/licenses",
+        auth=BASIC_AUTH,
+        json={
+            "type_code": "month",
+            "quantity": 3,
+            "custom_prefix": "VIP-",
+            "custom_ttl_days": 45,
+        },
+    )
+    assert batch_resp.status_code == 201
+    payload = batch_resp.json()
+    assert payload["quantity"] == 3
+    assert len(payload["items"]) == 3
+    for item in payload["items"]:
+        assert item["card_type"]["code"] == "month"
+        assert item["card_prefix"] == "VIP-"
+        assert item["custom_duration_days"] == 45
+
+    sample_code = payload["items"][0]["card_code"]
+    list_resp = client.get(
+        "/admin/api/licenses",
+        auth=BASIC_AUTH,
+        params={"type_code": "month", "search": sample_code[:5]},
+    )
+    assert list_resp.status_code == 200
+    data = list_resp.json()
+    assert data["total"] >= 1
+    assert all(item["card_type"]["code"] == "month" for item in data["items"])

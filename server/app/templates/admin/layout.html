@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <title>{% block title %}授权管理后台{% endblock %}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+        :root {
+            color-scheme: light;
+            --bg-surface: #f5f7fb;
+            --bg-panel: #ffffff;
+            --bg-panel-alt: linear-gradient(135deg, #f1f5ff 0%, #f8fafc 100%);
+            --border-soft: #e5e7f1;
+            --text-primary: #1f2937;
+            --text-secondary: #6b7280;
+            --brand: #2563eb;
+            --brand-dark: #1d4ed8;
+            --brand-gradient: linear-gradient(135deg, rgba(37, 99, 235, 0.85), rgba(59, 130, 246, 0.85));
+            --shadow-soft: 0 20px 45px rgba(15, 23, 42, 0.10);
+            --shadow-card: 0 16px 40px rgba(37, 99, 235, 0.20);
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --sidebar-width: 240px;
+        }
+
+        *, *::before, *::after {
+            box-sizing: border-box;
+        }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            background: var(--bg-surface);
+            font-family: "Inter", "PingFang SC", "Segoe UI", system-ui, -apple-system, sans-serif;
+            color: var(--text-primary);
+        }
+
+        body {
+            min-height: 100vh;
+        }
+
+        a {
+            color: inherit;
+        }
+
+        a, button {
+            transition: all 0.2s ease;
+        }
+
+        .app-shell {
+            display: grid;
+            grid-template-columns: var(--sidebar-width) 1fr;
+            min-height: 100vh;
+        }
+
+        .app-sidebar {
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            background: var(--bg-panel);
+            border-right: 1px solid rgba(15, 23, 42, 0.05);
+            box-shadow: 12px 0 32px rgba(15, 23, 42, 0.08);
+            display: flex;
+            flex-direction: column;
+            padding: 24px 20px;
+            gap: 24px;
+            z-index: 30;
+        }
+
+        .sidebar-brand {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .sidebar-logo {
+            width: 44px;
+            height: 44px;
+            border-radius: 14px;
+            background: var(--brand-gradient);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-weight: 700;
+            font-size: 18px;
+            box-shadow: 0 16px 30px rgba(59, 130, 246, 0.35);
+        }
+
+        .sidebar-meta h1 {
+            margin: 0;
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        .sidebar-meta span {
+            display: block;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .sidebar-nav {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .sidebar-nav a {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 14px;
+            border-radius: 12px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .sidebar-nav a:hover {
+            background: rgba(37, 99, 235, 0.08);
+            color: var(--brand-dark);
+        }
+
+        .sidebar-nav a.is-active {
+            background: linear-gradient(135deg, rgba(37, 99, 235, 0.14), rgba(37, 99, 235, 0.22));
+            color: var(--brand-dark);
+            box-shadow: 0 16px 32px rgba(37, 99, 235, 0.18);
+        }
+
+        .sidebar-icon {
+            width: 28px;
+            height: 28px;
+            border-radius: 9px;
+            background: rgba(37, 99, 235, 0.12);
+            color: var(--brand-dark);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .sidebar-footer {
+            margin-top: auto;
+            padding-top: 12px;
+            border-top: 1px solid rgba(15, 23, 42, 0.05);
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .app-main {
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        .topbar {
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            background: var(--bg-panel);
+            box-shadow: 0 12px 30px rgba(37, 99, 235, 0.08);
+        }
+
+        .topbar-inner {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 20px;
+            padding: 18px 42px;
+            flex-wrap: wrap;
+        }
+
+        .topbar-title {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .topbar-title h2 {
+            margin: 0;
+            font-size: 22px;
+            font-weight: 700;
+        }
+
+        .topbar-title p {
+            margin: 0;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .topbar-actions {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            flex-wrap: wrap;
+        }
+
+        .app-content {
+            flex: 1;
+            padding: 36px 48px 64px;
+            display: grid;
+            gap: 32px;
+        }
+
+        .panel {
+            background: var(--bg-panel);
+            border-radius: 20px;
+            padding: 24px;
+            box-shadow: var(--shadow-soft);
+        }
+
+        .panel h2 {
+            margin: 0 0 16px;
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 16px;
+        }
+
+        .stat-card {
+            border-radius: 18px;
+            padding: 18px;
+            background: var(--bg-panel-alt);
+            border: 1px solid rgba(37, 99, 235, 0.12);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+        }
+
+        .stat-title {
+            font-size: 12px;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+        }
+
+        .primary-btn,
+        .secondary-btn,
+        .danger-btn {
+            border: none;
+            padding: 10px 18px;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .primary-btn {
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+            color: #fff;
+            box-shadow: 0 18px 35px rgba(37, 99, 235, 0.28);
+        }
+
+        .primary-btn:hover {
+            transform: translateY(-1px);
+        }
+
+        .secondary-btn {
+            background: linear-gradient(135deg, rgba(37, 99, 235, 0.08), rgba(37, 99, 235, 0.12));
+            color: var(--brand-dark);
+        }
+
+        .danger-btn {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.12), rgba(239, 68, 68, 0.18));
+            color: var(--danger);
+        }
+
+        input[type="text"],
+        input[type="search"],
+        input[type="password"],
+        input[type="number"],
+        input[type="color"],
+        textarea,
+        select {
+            width: 100%;
+            padding: 12px 14px;
+            border-radius: 12px;
+            border: 1px solid var(--border-soft);
+            background: #f8fafc;
+            font-size: 14px;
+            transition: border 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        input:focus,
+        select:focus,
+        textarea:focus {
+            outline: none;
+            border-color: rgba(37, 99, 235, 0.7);
+            box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: var(--shadow-soft);
+            background: var(--bg-panel);
+        }
+
+        th,
+        td {
+            padding: 14px 18px;
+            font-size: 13px;
+            border-bottom: 1px solid #edf0f7;
+            text-align: left;
+        }
+
+        th {
+            background: rgba(37, 99, 235, 0.05);
+            text-transform: uppercase;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            color: var(--text-secondary);
+        }
+
+        tr:hover td {
+            background: rgba(37, 99, 235, 0.04);
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border-radius: 8px;
+            padding: 4px 10px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .badge-info { background: rgba(37, 99, 235, 0.12); color: var(--brand-dark); }
+        .badge-muted { background: rgba(148, 163, 184, 0.16); color: rgba(15, 23, 42, 0.65); }
+        .badge-positive { background: rgba(16, 185, 129, 0.12); color: var(--success); }
+        .badge-negative { background: rgba(239, 68, 68, 0.12); color: var(--danger); }
+        .badge-unused { background: rgba(37, 99, 235, 0.12); color: var(--brand-dark); }
+        .badge-active { background: rgba(16, 185, 129, 0.12); color: var(--success); }
+        .badge-revoked { background: rgba(239, 68, 68, 0.12); color: var(--danger); }
+        .badge-expired { background: rgba(245, 158, 11, 0.15); color: var(--warning); }
+
+        .grid-two-columns {
+            display: grid;
+            grid-template-columns: minmax(320px, 360px) 1fr;
+            gap: 28px;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+        }
+
+        .form-grid .full-row {
+            grid-column: 1 / -1;
+        }
+
+        .flash {
+            border-radius: 14px;
+            padding: 14px 18px;
+            font-size: 13px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .flash-info { background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(37, 99, 235, 0.08)); color: var(--brand-dark); border: 1px solid rgba(37, 99, 235, 0.18); box-shadow: var(--shadow-card); }
+        .flash-success { background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(59, 130, 246, 0.06)); color: var(--success); border: 1px solid rgba(16, 185, 129, 0.24); }
+        .flash-warning { background: linear-gradient(135deg, rgba(245, 158, 11, 0.18), rgba(252, 211, 77, 0.16)); color: #b45309; border: 1px solid rgba(245, 158, 11, 0.28); }
+        .flash-danger { background: linear-gradient(135deg, rgba(239, 68, 68, 0.14), rgba(248, 113, 113, 0.16)); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.26); }
+
+        .empty-state {
+            border: 1px dashed rgba(37, 99, 235, 0.18);
+            border-radius: 16px;
+            padding: 32px;
+            text-align: center;
+            color: var(--text-secondary);
+        }
+
+        footer {
+            text-align: center;
+            padding: 18px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        @media (max-width: 1080px) {
+            :root { --sidebar-width: 82px; }
+            .app-shell { display: block; }
+            .app-sidebar {
+                position: fixed;
+                inset: 0 auto 0 0;
+                height: 100vh;
+                transform: translateX(-100%);
+                transition: transform 0.3s ease;
+            }
+            .app-sidebar.is-open {
+                transform: translateX(0);
+            }
+            .sidebar-nav a { justify-content: center; }
+            .sidebar-nav a span.label { display: none; }
+            .topbar-inner { padding: 18px 24px; }
+            .app-content { padding: 28px 24px 48px; }
+        }
+    </style>
+    {% block head_extra %}{% endblock %}
+</head>
+<body>
+<div class="app-shell">
+    {% set __nav_items = nav_items if nav_items is defined else [
+        {"code": "dashboard", "label": "总览", "href": "/admin"},
+        {"code": "licenses", "label": "卡密列表", "href": "/admin/licenses"},
+        {"code": "license-types", "label": "卡密类型", "href": "/admin/license-types"},
+        {"code": "users", "label": "用户管理", "href": "/admin/users"},
+        {"code": "software", "label": "软件位", "href": "/admin/software"},
+        {"code": "cdn", "label": "CDN 管理", "href": "/admin/cdn"},
+        {"code": "settings", "label": "系统设置", "href": "/admin/settings"}
+    ] %}
+    {% include "admin/partials/sidebar.html" with nav_items=__nav_items, active_page=(active_page if active_page is defined else "") %}
+    <div class="app-main">
+        <header class="topbar">
+            <div class="topbar-inner">
+                <div class="topbar-title">
+                    <h2>{{ page_title | default("授权管理后台") }}</h2>
+                    {% if page_subtitle is defined and page_subtitle %}
+                        <p>{{ page_subtitle }}</p>
+                    {% elif page_description is defined and page_description %}
+                        <p>{{ page_description }}</p>
+                    {% endif %}
+                </div>
+                <div class="topbar-actions">
+                    {% block topbar_actions %}{% endblock %}
+                </div>
+            </div>
+        </header>
+        <main class="app-content">
+            {% include "admin/partials/flash_messages.html" %}
+            {% block content %}{% endblock %}
+        </main>
+        <footer>
+            VMPSelf Admin · 构建日期 {{ build_date | default("2025") }}
+        </footer>
+    </div>
+</div>
+{% block scripts %}{% endblock %}
+</body>
+</html>

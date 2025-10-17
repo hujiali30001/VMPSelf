@@ -126,3 +126,38 @@ def test_generate_offline_license_respects_expiry_and_logs():
     assert offline_log is not None
     assert "device-123" in (offline_log.message or "")
     assert effective_expiry.isoformat() in (offline_log.message or "")
+
+
+def test_create_licenses_with_type_and_customizations():
+    with SessionLocal() as session:
+        card_type = models.LicenseCardType(
+            code="enterprise",
+            display_name="企业授权",
+            default_duration_days=180,
+            card_prefix="E-",
+            color="#0ea5e9",
+            is_active=True,
+        )
+        session.add(card_type)
+        session.commit()
+
+        service = LicenseService(session)
+        licenses, batch_id = service.create_licenses(
+            type_code="enterprise",
+            quantity=2,
+            custom_prefix="VIP-",
+            custom_ttl_days=200,
+        )
+
+        assert batch_id
+        assert len(licenses) == 2
+        for license_obj in licenses:
+            assert license_obj.card_type_id == card_type.id
+            assert license_obj.card_prefix == "VIP-"
+            assert license_obj.custom_duration_days == 200
+            assert license_obj.expire_at is not None
+            if license_obj.expire_at:
+                expire_at = license_obj.expire_at
+                if expire_at.tzinfo is None:
+                    expire_at = expire_at.replace(tzinfo=timezone.utc)
+                assert (expire_at - datetime.now(timezone.utc)).days >= 199

@@ -29,6 +29,7 @@ class LicenseService:
         *,
         status: Optional[str] = None,
         search: Optional[str] = None,
+        type_code: Optional[str] = None,
         offset: int = 0,
         limit: int = 100,
     ) -> List[models.License]:
@@ -40,33 +41,150 @@ class LicenseService:
             stmt = stmt.where(models.License.status == status)
         if search:
             stmt = stmt.where(models.License.card_code.ilike(f"%{search.strip()}%"))
+        if type_code:
+            stmt = stmt.join(models.License.card_type).where(models.LicenseCardType.code == type_code)
 
         stmt = stmt.offset(offset).limit(limit)
         return list(self.db.scalars(stmt).all())
 
-    def create_license(self, card_code: Optional[str], ttl_days: int) -> models.License:
-        if card_code and not card_code.strip():
-            raise ValueError("card_code must not be blank")
+    def _normalize_card_code(self, card_code: str) -> str:
+        normalized = card_code.strip()
+        if not normalized:
+            raise ValueError("card_code_blank")
+        if len(normalized) > 64:
+            raise ValueError("card_code_too_long")
+        return normalized
 
-        code = card_code.strip() if card_code else secrets.token_hex(8).upper()
-        secret = secrets.token_urlsafe(32)
+    @staticmethod
+    def _normalize_prefix(prefix: Optional[str]) -> Optional[str]:
+        if prefix is None:
+            return None
+        trimmed = prefix.strip()
+        if not trimmed:
+            return None
+        if len(trimmed) > 16:
+            raise ValueError("prefix_too_long")
+        allowed = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
+        if any(char not in allowed for char in trimmed):
+            raise ValueError("prefix_invalid")
+        return trimmed
+
+    def _generate_card_code(self, prefix: Optional[str]) -> str:
+        token = secrets.token_hex(8).upper()
+        if prefix:
+            return f"{prefix}{token}"
+        return token
+
+    def _resolve_card_type(self, type_code: Optional[str]) -> Optional[models.LicenseCardType]:
+        if not type_code:
+            return None
+        stmt = select(models.LicenseCardType).where(models.LicenseCardType.code == type_code)
+        card_type = self.db.scalar(stmt)
+        if not card_type:
+            raise ValueError("card_type_not_found")
+        if not card_type.is_active:
+            raise ValueError("card_type_disabled")
+        return card_type
+
+    def create_licenses(
+        self,
+        *,
+        type_code: Optional[str] = None,
+        card_code: Optional[str] = None,
+        quantity: int = 1,
+        custom_prefix: Optional[str] = None,
+        ttl_days: Optional[int] = None,
+        custom_ttl_days: Optional[int] = None,
+    ) -> tuple[list[models.License], str]:
+        if quantity <= 0:
+            raise ValueError("quantity_invalid")
+        if quantity > 500:
+            raise ValueError("quantity_too_large")
+        if card_code and quantity != 1:
+            raise ValueError("card_code_requires_single_quantity")
+
+        card_type = self._resolve_card_type(type_code)
+
+        prefix = self._normalize_prefix(custom_prefix)
+        if prefix is None and card_type and card_type.card_prefix:
+            prefix = card_type.card_prefix
+
+        if custom_ttl_days is not None and custom_ttl_days < 0:
+            raise ValueError("custom_ttl_invalid")
+        if ttl_days is not None and ttl_days < 0:
+            raise ValueError("ttl_invalid")
+
+        if card_code:
+            normalized_code = self._normalize_card_code(card_code)
+            if self.get_license(normalized_code):
+                raise ValueError("card_code_exists")
+        else:
+            normalized_code = None
+
+        base_duration = custom_ttl_days
+        if base_duration is None:
+            if card_type and card_type.default_duration_days is not None:
+                base_duration = card_type.default_duration_days
+            else:
+                base_duration = ttl_days
+
         now = datetime.now(timezone.utc)
-        expires = None
-        if ttl_days > 0:
-            expires = now + timedelta(days=ttl_days)
+        created: list[models.License] = []
+        batch_id = secrets.token_hex(4).upper()
 
-        license_obj = models.License(
-            card_code=code,
-            secret=secret,
-            expire_at=expires,
-            status=models.LicenseStatus.UNUSED.value,
-        )
-        self.db.add(license_obj)
+        for index in range(quantity):
+            if index == 0 and normalized_code:
+                code = normalized_code
+            else:
+                attempt = self._generate_card_code(prefix)
+                while self.get_license(attempt):
+                    attempt = self._generate_card_code(prefix)
+                code = attempt
+
+            secret = secrets.token_urlsafe(32)
+            expire_at = None
+            if base_duration is not None and base_duration > 0:
+                expire_at = now + timedelta(days=base_duration)
+
+            license_obj = models.License(
+                card_code=code,
+                secret=secret,
+                expire_at=expire_at,
+                status=models.LicenseStatus.UNUSED.value,
+                card_prefix=prefix,
+            )
+
+            if card_type:
+                license_obj.card_type = card_type
+                if custom_ttl_days is not None:
+                    license_obj.custom_duration_days = custom_ttl_days
+            elif ttl_days is not None:
+                license_obj.custom_duration_days = ttl_days
+
+            self.db.add(license_obj)
+            created.append(license_obj)
+
         self.db.flush()
-        self.log_event(license_obj, "create", f"License created with ttl_days={ttl_days}")
+
+        for license_obj in created:
+            meta = {
+                "type": card_type.code if card_type else None,
+                "custom_prefix": prefix,
+                "ttl_days": base_duration,
+                "batch_id": batch_id,
+            }
+            self.log_event(license_obj, "create", f"License created: {json.dumps(meta, ensure_ascii=False)}")
+
         self.db.commit()
-        self.db.refresh(license_obj)
-        return license_obj
+
+        for license_obj in created:
+            self.db.refresh(license_obj)
+
+        return created, batch_id
+
+    def create_license(self, card_code: Optional[str], ttl_days: int) -> models.License:
+        licenses, _ = self.create_licenses(card_code=card_code, ttl_days=ttl_days, quantity=1)
+        return licenses[0]
 
     def log_event(self, license_obj: models.License, event_type: str, message: str) -> None:
         log = models.AuditLog(

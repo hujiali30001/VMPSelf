@@ -1,0 +1,27 @@
+<aside class="app-sidebar">
+    <div class="sidebar-brand">
+        <div class="sidebar-logo">VM</div>
+        <div class="sidebar-meta">
+            <h1>VMPSelf</h1>
+            <span>管理控制台</span>
+        </div>
+    </div>
+    <nav class="sidebar-nav" aria-label="主导航">
+        {% for item in nav_items %}
+            {% set is_active = (active_page == item.code) %}
+            <a href="{{ item.href }}" class="{{ 'is-active' if is_active else '' }}" data-nav-code="{{ item.code }}">
+                <span class="sidebar-icon">{{ item.icon if item.icon is defined else item.code[:2]|upper }}</span>
+                <span class="label">{{ item.label }}</span>
+                {% if item.badge is defined and item.badge %}
+                    <span class="badge badge-{{ item.badge_type | default('info') }}">{{ item.badge }}</span>
+                {% endif %}
+            </a>
+        {% else %}
+            <div class="empty-state">暂无导航项</div>
+        {% endfor %}
+    </nav>
+    <div class="sidebar-footer">
+        <div>版本 {{ admin_version | default('v1') }}</div>
+        <div>{{ admin_identity.name if admin_identity is defined else '欢迎回来' }}</div>
+    </div>
+</aside>

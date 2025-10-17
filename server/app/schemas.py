@@ -6,25 +6,47 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
-class LicenseBase(BaseModel):
-    card_code: str = Field(..., max_length=64)
-    secret: str = Field(..., max_length=128)
-    expire_at: Optional[datetime] = None
-
-
-class LicenseCreate(LicenseBase):
-    pass
-
-
-class LicenseResponse(LicenseBase):
+class LicenseCardTypeResponse(BaseModel):
     id: int
-    status: str
-    bound_fingerprint: Optional[str]
+    code: str = Field(..., max_length=32)
+    display_name: str = Field(..., max_length=64)
+    default_duration_days: Optional[int] = None
+    card_prefix: Optional[str] = Field(None, max_length=16)
+    color: Optional[str] = Field(None, max_length=16)
+    description: Optional[str] = None
+    is_active: bool
+    sort_order: int
     created_at: datetime
     updated_at: datetime
 
     class Config:
         orm_mode = True
+
+
+class LicenseCardTypeCreateRequest(BaseModel):
+    code: str = Field(..., max_length=32)
+    display_name: str = Field(..., max_length=64)
+    default_duration_days: Optional[int] = Field(None, ge=0, le=3650)
+    card_prefix: Optional[str] = Field(None, max_length=16)
+    description: Optional[str] = Field(None, max_length=500)
+    color: Optional[str] = Field(None, max_length=16)
+    sort_order: Optional[int] = Field(None, ge=0, le=1000)
+    is_active: bool = True
+
+
+class LicenseCardTypeUpdateRequest(BaseModel):
+    display_name: Optional[str] = Field(None, max_length=64)
+    default_duration_days: Optional[int] = Field(None, ge=0, le=3650)
+    card_prefix: Optional[str] = Field(None, max_length=16)
+    description: Optional[str] = Field(None, max_length=500)
+    color: Optional[str] = Field(None, max_length=16)
+    sort_order: Optional[int] = Field(None, ge=0, le=1000)
+    is_active: Optional[bool] = None
+
+
+class LicenseCardTypeListResponse(BaseModel):
+    items: List[LicenseCardTypeResponse]
+    total: int
 
 
 class ActivationRequest(BaseModel):
@@ -111,7 +133,11 @@ class UserUpdateRequest(BaseModel):
 
 class LicenseCreateRequest(BaseModel):
     card_code: Optional[str] = Field(None, max_length=64)
-    ttl_days: int = Field(30, ge=0, le=3650)
+    ttl_days: Optional[int] = Field(30, ge=0, le=3650)
+    type_code: Optional[str] = Field(None, max_length=32)
+    quantity: int = Field(1, ge=1, le=500)
+    custom_prefix: Optional[str] = Field(None, max_length=16)
+    custom_ttl_days: Optional[int] = Field(None, ge=0, le=3650)
 
 
 class LicenseUpdateRequest(BaseModel):
@@ -130,6 +156,9 @@ class LicenseAdminResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     user: Optional[UserDetailResponse]
+    card_type: Optional[LicenseCardTypeResponse]
+    card_prefix: Optional[str]
+    custom_duration_days: Optional[int]
 
     class Config:
         orm_mode = True
@@ -140,3 +169,9 @@ class LicenseListResponse(BaseModel):
     total: int
     offset: int
     limit: int
+
+
+class LicenseBatchCreateResponse(BaseModel):
+    items: List[LicenseAdminResponse]
+    batch_id: str
+    quantity: int

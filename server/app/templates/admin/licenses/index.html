@@ -1,0 +1,438 @@
+{% extends "admin/layout.html" %}
+{% set active_page = "licenses" %}
+{% set page_title = "卡密中心" %}
+{% set page_subtitle = "集中查看卡密状态、注册用户与激活设备" %}
+
+{% block title %}卡密列表 - 授权管理后台{% endblock %}
+
+{% block head_extra %}
+<style>
+    .type-panel {
+        display: grid;
+        gap: 18px;
+    }
+    .type-panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+    }
+    .type-panel-header h2 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 600;
+    }
+    .type-summary-text {
+        font-size: 13px;
+        color: var(--text-secondary);
+    }
+    .type-chips {
+        display: flex;
+        gap: 12px;
+        overflow-x: auto;
+        padding-bottom: 4px;
+    }
+    .type-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 16px;
+        border-radius: 999px;
+        border: 1px solid rgba(37, 99, 235, 0.18);
+        background: rgba(37, 99, 235, 0.06);
+        color: var(--brand-dark);
+        font-size: 13px;
+        font-weight: 600;
+        text-decoration: none;
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+        white-space: nowrap;
+    }
+    .type-chip:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 12px 20px rgba(37, 99, 235, 0.18);
+    }
+    .type-chip .count {
+        font-size: 12px;
+        font-weight: 500;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.6);
+    }
+    .type-chip.selected {
+        background: linear-gradient(135deg, rgba(37, 99, 235, 0.85), rgba(59, 130, 246, 0.75));
+        color: #fff;
+        border-color: transparent;
+        box-shadow: 0 16px 32px rgba(37, 99, 235, 0.28);
+    }
+    .type-chip.selected .count {
+        background: rgba(15, 23, 42, 0.25);
+        color: #f8fafc;
+    }
+    .type-chip.inactive {
+        border-style: dashed;
+        color: var(--text-secondary);
+        background: rgba(148, 163, 184, 0.12);
+    }
+    .type-chip-total {
+        background: linear-gradient(135deg, rgba(16, 185, 129, 0.14), rgba(14, 165, 233, 0.14));
+        border: 1px solid rgba(16, 185, 129, 0.28);
+    }
+    .filters {
+        display: grid;
+        gap: 16px;
+    }
+    .filters > div {
+        display: grid;
+        gap: 8px;
+    }
+    .type-cell {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .type-text {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+    .type-text span {
+        font-size: 11px;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+    .type-flag {
+        font-size: 11px;
+        color: var(--danger);
+        border: 1px solid rgba(239, 68, 68, 0.32);
+        border-radius: 999px;
+        padding: 2px 8px;
+    }
+    .type-none {
+        color: var(--text-secondary);
+        font-size: 12px;
+    }
+    .link-btn {
+        text-decoration: none;
+        color: var(--brand);
+        font-weight: 600;
+    }
+    .danger-btn {
+        border: none;
+        background: none;
+        color: var(--danger);
+        font-weight: 600;
+        cursor: pointer;
+    }
+    .actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    .pagination-controls {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 18px;
+        margin-top: 18px;
+        font-size: 13px;
+    }
+    .pagination-controls .buttons {
+        display: flex;
+        gap: 10px;
+    }
+    .floating-action {
+        position: fixed;
+        bottom: 36px;
+        right: 36px;
+        background: linear-gradient(135deg, #2563eb, #7c3aed);
+        color: #fff;
+        padding: 14px 20px;
+        border-radius: 18px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        text-decoration: none;
+        box-shadow: 0 24px 40px rgba(124, 58, 237, 0.3);
+    }
+    .floating-action:hover {
+        transform: translateY(-2px);
+    }
+    @media (max-width: 1080px) {
+        .floating-action {
+            right: 22px;
+            left: 22px;
+            bottom: 24px;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block topbar_actions %}
+<form method="get" action="/admin/licenses" style="display:flex; gap:10px; align-items:center;">
+    <input type="hidden" name="status" value="{{ status }}" />
+    <input type="hidden" name="page_size" value="{{ page_size }}" />
+    <input type="hidden" name="type_code" value="{{ selected_type_code }}" />
+    <input type="hidden" name="page" value="1" />
+    <input type="search" name="q" value="{{ query }}" placeholder="全局搜索卡密..." />
+    <button class="secondary-btn" type="submit">搜索</button>
+</form>
+<a class="primary-btn" href="/admin/license-types">管理卡密类型</a>
+{% endblock %}
+
+{% block content %}
+{% set return_to = request.url.path + ('?' + request.url.query if request.url.query else '') %}
+
+<section class="stats">
+    <div class="stat-card">
+        <div class="stat-title">总卡密</div>
+        <div class="stat-value">{{ total }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-title">未使用</div>
+        <div class="stat-value">{{ status_counts.get('unused', 0) }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-title">已激活</div>
+        <div class="stat-value">{{ status_counts.get('active', 0) }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-title">已过期</div>
+        <div class="stat-value">{{ status_counts.get('expired', 0) }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-title">已撤销</div>
+        <div class="stat-value">{{ status_counts.get('revoked', 0) }}</div>
+    </div>
+</section>
+
+<section class="panel type-panel">
+    <div class="type-panel-header">
+        <h2>类型分布</h2>
+        <div class="type-summary-text">
+            {% if selected_card_type %}
+                当前筛选：<strong>{{ selected_card_type.display_name }}</strong> 共 {{ selected_type_total }} 个卡密
+            {% elif selected_type_code == '__none__' %}
+                当前筛选：<strong>未设置类型</strong> 共 {{ selected_type_total }} 个卡密
+            {% else %}
+                已匹配 {{ selected_type_total }} 个卡密（按状态与搜索条件）
+            {% endif %}
+        </div>
+    </div>
+    <div class="type-chips">
+        {% for item in type_breakdown %}
+        <a class="type-chip {% if item.is_selected %}selected{% endif %} {% if item.code == '' %}type-chip-total{% endif %} {% if not item.is_active %}inactive{% endif %}" href="{{ item.url }}">
+            <span>{{ item.label }}</span>
+            <span class="count">{{ item.count }}</span>
+        </a>
+        {% endfor %}
+    </div>
+</section>
+
+<div class="grid-two-columns">
+    <section class="panel">
+        <h2>快速创建卡密</h2>
+        <form method="post" action="/admin/licenses/create">
+            <div class="form-grid">
+                <div class="full-row">
+                    <label>卡密类型</label>
+                    <select name="type_code">
+                        <option value="">自定义 / 无类型</option>
+                        {% for card_type in active_card_types %}
+                        <option value="{{ card_type.code }}" {% if selected_type_code == card_type.code %}selected{% endif %}>
+                            {{ card_type.display_name }}（{{ card_type.code }}）
+                        </option>
+                        {% endfor %}
+                    </select>
+                    {% if selected_card_type %}
+                    <div class="hint">
+                        默认有效期：{{ selected_card_type.default_duration_days if selected_card_type.default_duration_days is not none else '不限' }} 天 · 默认前缀：{{ selected_card_type.card_prefix or '无' }}
+                    </div>
+                    {% endif %}
+                </div>
+                <div>
+                    <label>生成数量</label>
+                    <input type="number" name="quantity" value="1" min="1" max="500" />
+                    <div class="hint">最多一次生成 500 个</div>
+                </div>
+                <div>
+                    <label>自定义卡密（可选，仅限单个）</label>
+                    <input type="text" name="card_code" placeholder="留空自动生成" maxlength="64" />
+                </div>
+                <div>
+                    <label>自定义前缀</label>
+                    <input type="text" name="custom_prefix" maxlength="16" placeholder="覆盖类型默认前缀" value="{{ selected_card_type.card_prefix if selected_card_type and selected_card_type.card_prefix else '' }}" />
+                </div>
+                <div>
+                    <label>默认有效期（天）</label>
+                    <input type="number" name="ttl_days" min="0" max="3650" value="{{ selected_card_type.default_duration_days if selected_card_type and selected_card_type.default_duration_days is not none else 30 }}" />
+                    <div class="hint">未选择类型时生效；0 表示不限</div>
+                </div>
+                <div>
+                    <label>自定义有效期（天）</label>
+                    <input type="number" name="custom_ttl_days" min="0" max="3650" placeholder="覆盖类型默认有效期" />
+                    <div class="hint">留空则沿用类型设置</div>
+                </div>
+            </div>
+            <input type="hidden" name="return_to" value="{{ return_to }}" />
+            <button class="primary-btn" type="submit">创建卡密</button>
+        </form>
+    </section>
+
+    <section class="panel">
+        <h2>筛选卡密</h2>
+        <form class="filters" method="get" action="/admin/licenses">
+            <div>
+                <label>状态</label>
+                <select name="status">
+                    {% for value, label in statuses %}
+                    <option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>卡密类型</label>
+                <select name="type_code">
+                    <option value="" {% if not selected_type_code %}selected{% endif %}>全部类型</option>
+                    <option value="__none__" {% if selected_type_code == '__none__' %}selected{% endif %}>未设置类型</option>
+                    {% for card_type in card_types %}
+                    <option value="{{ card_type.code }}" {% if selected_type_code == card_type.code %}selected{% endif %}>
+                        {{ card_type.display_name }}{% if not card_type.is_active %}（停用）{% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>卡密关键字</label>
+                <input type="search" name="q" value="{{ query }}" placeholder="支持模糊搜索" />
+            </div>
+            <div>
+                <label>每页条数</label>
+                <select name="page_size">
+                    {% for size in [10, 20, 50, 100] %}
+                    <option value="{{ size }}" {% if page_size == size %}selected{% endif %}>{{ size }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <input type="hidden" name="page" value="1" />
+            <div>
+                <button class="secondary-btn" type="submit">应用筛选</button>
+            </div>
+        </form>
+    </section>
+</div>
+
+<section class="panel">
+    <h2>卡密列表</h2>
+    {% if licenses %}
+    <table>
+        <thead>
+            <tr>
+                <th>卡密</th>
+                <th>类型</th>
+                <th>状态</th>
+                <th>注册用户</th>
+                <th>绑定指纹</th>
+                <th>激活次数</th>
+                <th>到期时间</th>
+                <th>最近心跳</th>
+                <th>创建时间</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in licenses %}
+            {% set license = row.license %}
+            <tr>
+                <td><strong>{{ license.card_code }}</strong></td>
+                <td>
+                    {% if license.card_type %}
+                    {% set type_url = type_filter_urls.get(license.card_type.code) %}
+                    <div class="type-cell">
+                        {% if type_url %}<a class="type-link" href="{{ type_url }}">{% endif %}
+                            {% if license.card_type.color %}
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18">
+                                <rect x="0" y="0" width="18" height="18" rx="6" ry="6" fill="{{ license.card_type.color }}" stroke="rgba(15, 23, 42, 0.08)" stroke-width="1" />
+                            </svg>
+                            {% endif %}
+                            <div class="type-text">
+                                <strong>{{ license.card_type.display_name }}</strong>
+                                <span>{{ license.card_type.code }}</span>
+                            </div>
+                        {% if type_url %}</a>{% endif %}
+                        {% if not license.card_type.is_active %}
+                        <span class="type-flag">停用</span>
+                        {% endif %}
+                    </div>
+                    {% else %}
+                    {% set none_url = type_filter_urls.get('__none__') %}
+                    {% if none_url %}
+                    <a class="type-link type-none" href="{{ none_url }}">未设置</a>
+                    {% else %}
+                    <span class="type-none">--</span>
+                    {% endif %}
+                    {% endif %}
+                </td>
+                <td>
+                    <span class="badge badge-{{ license.status }}">{{ status_labels.get(license.status, license.status) }}</span>
+                </td>
+                <td>{{ row.user.username if row.user else '-' }}</td>
+                <td>{{ license.bound_fingerprint or '-' }}</td>
+                <td>{{ row.activation_count }}</td>
+                <td>{{ license.expire_at.isoformat() if license.expire_at else '-' }}</td>
+                <td>{{ row.latest_seen.isoformat() if row.latest_seen else '-' }}</td>
+                <td>{{ license.created_at.isoformat() }}</td>
+                <td>
+                    <div class="actions">
+                        <a class="link-btn" href="/admin/licenses/{{ license.card_code }}">详情</a>
+                        <form method="post" action="/admin/licenses/revoke">
+                            <input type="hidden" name="card_code" value="{{ license.card_code }}" />
+                            <input type="hidden" name="return_to" value="{{ return_to }}" />
+                            <button class="danger-btn" type="submit" onclick="return confirm('确认撤销 {{ license.card_code }} 吗？');">撤销</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <div class="pagination-controls">
+        <div>第 {{ page }} / {{ total_pages }} 页</div>
+        <div class="buttons">
+            <form method="get" action="/admin/licenses">
+                <input type="hidden" name="status" value="{{ status }}" />
+                <input type="hidden" name="q" value="{{ query }}" />
+                <input type="hidden" name="type_code" value="{{ selected_type_code }}" />
+                <input type="hidden" name="page_size" value="{{ page_size }}" />
+                <input type="hidden" name="page" value="{{ prev_page if has_prev else 1 }}" />
+                <button class="secondary-btn" type="submit" {% if not has_prev %}disabled{% endif %}>上一页</button>
+            </form>
+            <form method="get" action="/admin/licenses">
+                <input type="hidden" name="status" value="{{ status }}" />
+                <input type="hidden" name="q" value="{{ query }}" />
+                <input type="hidden" name="type_code" value="{{ selected_type_code }}" />
+                <input type="hidden" name="page_size" value="{{ page_size }}" />
+                <input type="hidden" name="page" value="{{ next_page if has_next else total_pages }}" />
+                <button class="secondary-btn" type="submit" {% if not has_next %}disabled{% endif %}>下一页</button>
+            </form>
+        </div>
+    </div>
+    {% else %}
+    <div class="empty-state">当前筛选条件下没有卡密记录。</div>
+    {% endif %}
+</section>
+
+<section class="panel">
+    <h2>安全提示</h2>
+    <p style="margin:0; font-size:13px; color:var(--text-secondary);">
+        本界面受 HTTP Basic 认证保护。请在 <code>.env</code> 中配置 <code>VMP_ADMIN_USER</code> 与 <code>VMP_ADMIN_PASS</code>，并推荐部署在受保护的网络环境中。
+    </p>
+</section>
+
+<a class="floating-action" href="/admin/licenses?status=unused&page=1&page_size=20{% if selected_type_code %}&type_code={{ selected_type_code }}{% endif %}">
+    <span>查看未使用卡密</span>
+</a>
+{% endblock %}
