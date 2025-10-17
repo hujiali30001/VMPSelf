@@ -27,6 +27,19 @@
 	```
 	打开 `http://127.0.0.1:8000/docs` 确认 API 可用，再访问 `http://127.0.0.1:8000/admin/` 查看统一控制台；通过侧边导航可进入卡密、用户等管理页面。
 
+## 管理后台模块总览
+
+后台首页采用统一的侧边导航，当前版本已经提供如下模块：
+
+- **总览面板**：汇总卡密、用户、激活等关键指标，展示最近创建的账号与卡密。
+- **卡密中心**：支持卡密筛选、明细查看与批量生成，列表页可直接跳转到类型管理。
+- **用户管理**：提供注册、密码重置、卡密重新绑定等日常操作，同时展示激活状态统计。
+- **软件位管理**：用于维护各产品线/渠道的软件位，支持创建槽位、上传安装包、一键发布或下线，并可查看灰度比例与当前版本。
+- **CDN 管理**：集中展示 CDN 节点状态，支持新增节点、切换启用/暂停、发起刷新或预取任务，并追踪近期任务结果。
+- **系统设置**：管理后台管理员账号，支持新增成员、启用/停用以及重置密码，同时展示由环境变量注入的超级管理员信息。
+
+所有操作均通过 Flash 消息反馈结果，并保持返回原页面便于继续操作。
+
 ## 环境要求
 - Python 3.10 及以上版本（官方环境使用 3.13.7）
 - Windows Server 2012 / 2016、Windows 10+ 或常见 Linux 发行版（Ubuntu 22.04、Debian 12 等）
@@ -133,9 +146,9 @@ powershell -ExecutionPolicy Bypass -File tools\winserver2012_deploy.ps1 -Install
 脚本将自动创建虚拟环境、安装依赖、生成/更新 `.env`、注册 NSSM 服务并输出后台访问信息。更多参数说明见《[WinServer 2012 部署指南](../docs/deployment/winserver2012.md)》。
 
 ## 发布前检查
-- 执行回归测试，确保核心授权流程正常：
+- 执行回归测试，确保核心授权流程以及新增后台模块可用：
   ```powershell
-  D:/old/projects/VMPSelf/.venv/Scripts/python.exe -m pytest tests/test_admin_api_crud.py tests/test_admin_service.py
+		D:/old/projects/VMPSelf/.venv/Scripts/python.exe -m pytest tests/test_admin_api_crud.py tests/test_admin_service.py tests/test_admin_modules.py
   ```
 - 确认 `.env` 中的 `VMP_ADMIN_PASS`、`VMP_HMAC_SECRET`、`VMP_SQLITE_PATH` 等已替换为生产值。
 - 备份 `data/license.db` 与生成的离线授权 JSON，必要时配置异地备份。

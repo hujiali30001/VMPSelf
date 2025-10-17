@@ -1,5 +1,22 @@
 from app.db.base import Base
-from app.db.models import Activation, AuditLog, License, LicenseCardType, LicenseStatus, User
+from app.db.models import (
+    Activation,
+    AdminUser,
+    AuditLog,
+    CDNEndpoint,
+    CDNEndpointStatus,
+    CDNTask,
+    CDNTaskStatus,
+    CDNTaskType,
+    License,
+    LicenseCardType,
+    LicenseStatus,
+    SoftwarePackage,
+    SoftwarePackageStatus,
+    SoftwareSlot,
+    SoftwareSlotStatus,
+    User,
+)
 
 __all__ = [
     "Base",
@@ -8,5 +25,15 @@ __all__ = [
     "LicenseCardType",
     "Activation",
     "AuditLog",
+    "CDNEndpoint",
+    "CDNEndpointStatus",
+    "CDNTask",
+    "CDNTaskStatus",
+    "CDNTaskType",
+    "SoftwareSlot",
+    "SoftwareSlotStatus",
+    "SoftwarePackage",
+    "SoftwarePackageStatus",
+    "AdminUser",
     "User",
 ]

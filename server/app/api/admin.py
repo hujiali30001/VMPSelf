@@ -17,7 +17,16 @@ from starlette.status import HTTP_303_SEE_OTHER, HTTP_401_UNAUTHORIZED
 
 from app.api.deps import get_db
 from app.core.settings import get_settings
-from app.db import License, LicenseStatus, models
+from app.db import (
+    CDNEndpointStatus,
+    CDNTaskStatus,
+    CDNTaskType,
+    License,
+    LicenseStatus,
+    SoftwarePackageStatus,
+    SoftwareSlotStatus,
+    models,
+)
 from app.schemas import (
     LicenseAdminResponse,
     LicenseBatchCreateResponse,
@@ -32,13 +41,16 @@ from app.schemas import (
     UserListResponse,
     UserUpdateRequest,
 )
+from app.services.admin_user_service import AdminUserService
 from app.services.card_type_service import LicenseCardTypeService
+from app.services.cdn_service import CDNService
 from app.services.license_service import LicenseService
+from app.services.software_service import SoftwareService
 from app.services.user_service import UserService
 
 router = APIRouter()
 settings = get_settings()
-security = HTTPBasic()
+basic_auth = HTTPBasic()
 
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
 
@@ -47,6 +59,29 @@ STATUS_LABELS = {
     LicenseStatus.ACTIVE.value: "已激活",
     LicenseStatus.REVOKED.value: "已撤销",
     LicenseStatus.EXPIRED.value: "已过期",
+}
+
+CDN_STATUS_LABELS = {
+    CDNEndpointStatus.ACTIVE.value: "活跃",
+    CDNEndpointStatus.PAUSED.value: "已暂停",
+    CDNEndpointStatus.ERROR.value: "异常",
+}
+
+CDN_TASK_STATUS_LABELS = {
+    CDNTaskStatus.PENDING.value: "排队中",
+    CDNTaskStatus.COMPLETED.value: "已完成",
+    CDNTaskStatus.FAILED.value: "失败",
+}
+
+SOFTWARE_SLOT_STATUS_LABELS = {
+    SoftwareSlotStatus.ACTIVE.value: "上线中",
+    SoftwareSlotStatus.PAUSED.value: "暂停",
+}
+
+SOFTWARE_PACKAGE_STATUS_LABELS = {
+    SoftwarePackageStatus.DRAFT.value: "草稿",
+    SoftwarePackageStatus.ACTIVE.value: "已上线",
+    SoftwarePackageStatus.RETIRED.value: "已下线",
 }
 
 DEFAULT_NAV_ITEMS: tuple[dict[str, str], ...] = (
@@ -62,10 +97,11 @@ DEFAULT_NAV_ITEMS: tuple[dict[str, str], ...] = (
 
 def _base_context(request: Request, **extra: object) -> dict[str, object]:
     nav_items = extra.pop("nav_items", None)
+    admin_identity = getattr(request.state, "admin_identity", None)
     context: dict[str, object] = {
         "request": request,
         "nav_items": nav_items if nav_items is not None else [item.copy() for item in DEFAULT_NAV_ITEMS],
-        "admin_identity": {"name": settings.admin_username},
+        "admin_identity": admin_identity if admin_identity else {"name": settings.admin_username},
         "admin_version": "v1",
         "page_description": extra.get("page_description"),
     }
@@ -288,16 +324,36 @@ def _build_user_detail_context(
     )
 
 
-def require_admin(credentials: HTTPBasicCredentials = Depends(security)) -> HTTPBasicCredentials:
+def require_admin(
+    request: Request,
+    credentials: HTTPBasicCredentials = Depends(basic_auth),
+    db: Session = Depends(get_db),
+) -> HTTPBasicCredentials:
+    admin_service = AdminUserService(db)
+    admin = admin_service.verify_credentials(credentials.username, credentials.password)
+    if admin:
+        request.state.admin_identity = {
+            "id": admin.id,
+            "name": admin.username,
+            "role": admin.role,
+            "last_login_at": admin.last_login_at,
+        }
+        return credentials
+
     username_match = secrets.compare_digest(credentials.username, settings.admin_username)
     password_match = secrets.compare_digest(credentials.password, settings.admin_password)
-    if not (username_match and password_match):
-        raise HTTPException(
-            status_code=HTTP_401_UNAUTHORIZED,
-            detail="Unauthorized",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    return credentials
+    if username_match and password_match:
+        request.state.admin_identity = {
+            "name": settings.admin_username,
+            "role": "superadmin",
+        }
+        return credentials
+
+    raise HTTPException(
+        status_code=HTTP_401_UNAUTHORIZED,
+        detail="Unauthorized",
+        headers={"WWW-Authenticate": "Basic"},
+    )
 
 
 @router.get("/")
@@ -1645,3 +1701,504 @@ def reset_license_action(
 
     target = _append_message(_sanitize_return_path(return_to), msg)
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+
+@router.get("/cdn")
+def cdn_page(
+    request: Request,
+    message: Optional[str] = None,
+    db: Session = Depends(get_db),
+    _: HTTPBasicCredentials = Depends(require_admin),
+):
+    service = CDNService(db)
+    endpoints = service.list_endpoints()
+    tasks = service.list_recent_tasks(limit=20)
+@router.post("/cdn/endpoints")
+def create_cdn_endpoint_action(
+    request: Request,
+    name: str = Form(...),
+    domain: str = Form(...),
+    provider: str = Form(...),
+    origin: str = Form(...),
+    notes: Optional[str] = Form(None),
+    return_to: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    _: HTTPBasicCredentials = Depends(require_admin),
+):
+    service = CDNService(db)
+    try:
+        service.create_endpoint(name=name, domain=domain, provider=provider, origin=origin, notes=notes)
+    except ValueError as exc:
+        db.rollback()
+        error_map = {
+            "name_too_short": "名称至少需要 3 个字符",
+            "domain_invalid": "域名格式不正确",
+            "provider_required": "请选择或填写加速服务提供商",
+            "origin_required": "请填写源站地址",
+            "domain_exists": "域名已存在，请勿重复添加",
+        }
+        message = error_map.get(str(exc), f"创建失败: {exc}")
+    else:
+        message = "已创建新的 CDN 节点"
+
+    target = _append_message(_sanitize_return_path(return_to, fallback="/admin/cdn"), message)
+    return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+
+
+@router.post("/cdn/endpoints/{endpoint_id}/status")
+def update_cdn_endpoint_status_action(
+    request: Request,
+    endpoint_id: int,
+    status: str = Form(...),
+    return_to: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    _: HTTPBasicCredentials = Depends(require_admin),
+):
+    service = CDNService(db)
+    message: str
+    try:
+        enum_status = CDNEndpointStatus(status)
+    except ValueError:
+        message = "状态值无效"
+    else:
+        try:
+            service.set_endpoint_status(endpoint_id, enum_status)
+        except ValueError as exc:
+            db.rollback()
+            if str(exc) == "endpoint_not_found":
+                message = "未找到指定的 CDN 节点"
+            else:
+                message = f"更新失败: {exc}"
+        else:
+            message = "节点状态已更新"
+
+    target = _append_message(_sanitize_return_path(return_to, fallback="/admin/cdn"), message)
+    return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+
+
+@router.post("/cdn/endpoints/{endpoint_id}/tasks")
+def create_cdn_task_action(
+    request: Request,
+    endpoint_id: int,
+    task_type: str = Form(...),
+    payload: Optional[str] = Form(None),
+    return_to: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    _: HTTPBasicCredentials = Depends(require_admin),
+):
+    service = CDNService(db)
+    try:
+        enum_type = CDNTaskType(task_type)
+    except ValueError:
+        enum_type = None
+
+    if not enum_type:
+        message = "任务类型无效"
+    else:
+        try:
+            service.create_task(endpoint_id=endpoint_id, task_type=enum_type, payload=payload)
+        except ValueError as exc:
+            db.rollback()
+            error = str(exc)
+            if error == "endpoint_not_found":
+                message = "未找到指定的 CDN 节点"
+            else:
+                message = f"创建任务失败: {exc}"
+        else:
+            message = "任务已提交"
+
+    target = _append_message(_sanitize_return_path(return_to, fallback="/admin/cdn"), message)
+    return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+
+
+@router.get("/software")
+def software_page(
+    request: Request,
+    message: Optional[str] = None,
+    db: Session = Depends(get_db),
+    _: HTTPBasicCredentials = Depends(require_admin),
+):
+    service = SoftwareService(db)
+    slots = service.list_slots()
+
+    slot_rows = []
+    active_slots = 0
+    paused_slots = 0
+    total_packages = 0
+
+    for slot in slots:
+        if slot.status == SoftwareSlotStatus.ACTIVE.value:
+            active_slots += 1
+        elif slot.status == SoftwareSlotStatus.PAUSED.value:
+            paused_slots += 1
+
+        packages = service.list_packages(slot.id, limit=6)
+        total_packages += len(packages)
+
+        slot_rows.append(
+            {
+                "slot": slot,
+                "packages": packages,
+            }
+        )
+
+    context = _base_context(
+        request,
+        message=message,
+        page_title="软件位管理",
+        page_subtitle="配置灰度与线上版本，快速创建新包与发布。",
+        page_description="统一管理软件位与安装包版本，支持一键发布与回滚。",
+        active_page="software",
+        slots=slot_rows,
+        slot_count=len(slots),
+        active_slots=active_slots,
+        paused_slots=paused_slots,
+        total_packages=total_packages,
+        slot_status_labels=SOFTWARE_SLOT_STATUS_LABELS,
+        package_status_labels=SOFTWARE_PACKAGE_STATUS_LABELS,
+    )
+    return templates.TemplateResponse(request, "admin/software/index.html", context)
+
+
+@router.post("/software/slots")
+def create_software_slot_action(
+    request: Request,
+    code: str = Form(...),
+    name: str = Form(...),
+    product_line: Optional[str] = Form(None),
+    channel: Optional[str] = Form(None),
+    gray_ratio: Optional[int] = Form(None),
+    notes: Optional[str] = Form(None),
+    return_to: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    _: HTTPBasicCredentials = Depends(require_admin),
+):
+    service = SoftwareService(db)
+    try:
+        service.create_slot(
+            code=code,
+            name=name,
+            product_line=product_line,
+            channel=channel,
+            gray_ratio=gray_ratio,
+            notes=notes,
+        )
+    except ValueError as exc:
+        db.rollback()
+        error_map = {
+            "code_too_short": "标识至少需要 2 个字符",
+            "name_too_short": "名称至少需要 3 个字符",
+            "gray_ratio_invalid": "灰度比例应在 0-100 之间",
+            "slot_code_exists": "该标识已存在，请使用其他标识",
+        }
+        message = error_map.get(str(exc), f"创建失败: {exc}")
+    else:
+        message = "已创建软件位"
+
+    target = _append_message(_sanitize_return_path(return_to, fallback="/admin/software"), message)
+    return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+
+
+@router.post("/software/slots/{slot_id}/status")
+def update_software_slot_status_action(
+    request: Request,
+    slot_id: int,
+    status: str = Form(...),
+    return_to: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    _: HTTPBasicCredentials = Depends(require_admin),
+):
+    try:
+        enum_status = SoftwareSlotStatus(status)
+    except ValueError:
+        enum_status = None
+
+    service = SoftwareService(db)
+    if not enum_status:
+        message = "状态值无效"
+    else:
+        try:
+            service.set_slot_status(slot_id, enum_status)
+        except ValueError as exc:
+            db.rollback()
+            if str(exc) == "slot_not_found":
+                message = "未找到指定的软件位"
+            else:
+                message = f"更新失败: {exc}"
+        else:
+            message = "状态已更新"
+
+    target = _append_message(_sanitize_return_path(return_to, fallback="/admin/software"), message)
+    return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+
+
+@router.post("/software/slots/{slot_id}/packages")
+def create_software_package_action(
+    request: Request,
+    slot_id: int,
+    version: str = Form(...),
+    file_url: Optional[str] = Form(None),
+    checksum: Optional[str] = Form(None),
+    release_notes: Optional[str] = Form(None),
+    promote: Optional[bool] = Form(False),
+    mark_critical: Optional[bool] = Form(False),
+    return_to: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    _: HTTPBasicCredentials = Depends(require_admin),
+):
+    promote_flag = bool(promote)
+    critical_flag = bool(mark_critical)
+    service = SoftwareService(db)
+    try:
+        service.create_package(
+            slot_id=slot_id,
+            version=version,
+            file_url=file_url,
+            checksum=checksum,
+            release_notes=release_notes,
+            promote=promote_flag,
+            mark_critical=critical_flag,
+        )
+    except ValueError as exc:
+        db.rollback()
+        error = str(exc)
+        if error == "slot_not_found":
+            message = "未找到指定的软件位"
+        elif error == "version_required":
+            message = "请输入版本号"
+        elif error == "version_exists":
+            message = "该版本已存在"
+        else:
+            message = f"创建安装包失败: {exc}"
+    else:
+        message = "安装包创建成功"
+
+    target = _append_message(_sanitize_return_path(return_to, fallback="/admin/software"), message)
+    return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+
+
+@router.post("/software/packages/{package_id}/promote")
+def promote_software_package_action(
+    request: Request,
+    package_id: int,
+    return_to: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    _: HTTPBasicCredentials = Depends(require_admin),
+):
+    service = SoftwareService(db)
+    try:
+        service.promote_package(package_id)
+    except ValueError as exc:
+        db.rollback()
+        if str(exc) == "package_not_found":
+            message = "未找到安装包"
+        else:
+            message = f"发布失败: {exc}"
+    else:
+        message = "已发布为当前版本"
+
+    target = _append_message(_sanitize_return_path(return_to, fallback="/admin/software"), message)
+    return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+
+
+@router.post("/software/packages/{package_id}/retire")
+def retire_software_package_action(
+    request: Request,
+    package_id: int,
+    return_to: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    _: HTTPBasicCredentials = Depends(require_admin),
+):
+    service = SoftwareService(db)
+    try:
+        service.retire_package(package_id)
+    except ValueError as exc:
+        db.rollback()
+        if str(exc) == "package_not_found":
+            message = "未找到安装包"
+        else:
+            message = f"下线失败: {exc}"
+    else:
+        message = "安装包已下线"
+
+    target = _append_message(_sanitize_return_path(return_to, fallback="/admin/software"), message)
+    return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+
+
+@router.get("/settings")
+def settings_page(
+    request: Request,
+    message: Optional[str] = None,
+    db: Session = Depends(get_db),
+    _: HTTPBasicCredentials = Depends(require_admin),
+):
+    admin_service = AdminUserService(db)
+    admins = admin_service.list_admins()
+
+    context = _base_context(
+        request,
+        message=message,
+        page_title="系统设置",
+        page_subtitle="维护后台管理员账号与关键配置。",
+        page_description="管理管理员账号、重置密码与启用状态，查看系统基础配置。",
+        active_page="settings",
+        admins=admins,
+        super_admin={
+            "username": settings.admin_username,
+            "role": "superadmin",
+        },
+    )
+    return templates.TemplateResponse(request, "admin/settings/index.html", context)
+
+
+@router.post("/settings/admins")
+def create_admin_user_action(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    confirm_password: str = Form(...),
+    role: str = Form("admin"),
+    return_to: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    _: HTTPBasicCredentials = Depends(require_admin),
+):
+    username = (username or "").strip()
+    role = (role or "admin").strip() or "admin"
+    if password != confirm_password:
+        message = "两次密码不一致"
+    else:
+        service = AdminUserService(db)
+        try:
+            service.create_admin(username=username, password=password, role=role)
+        except ValueError as exc:
+            db.rollback()
+            error = str(exc)
+            if error == "username_too_short":
+                message = "用户名至少 3 个字符"
+            elif error == "password_too_short":
+                message = "密码至少 8 位"
+            elif error == "username_taken":
+                message = "用户名已存在"
+            else:
+                message = f"创建失败: {exc}"
+        else:
+            message = f"已创建管理员 {username}"
+
+    target = _append_message(_sanitize_return_path(return_to, fallback="/admin/settings"), message)
+    return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+
+
+@router.post("/settings/admins/{admin_id}/password")
+def reset_admin_password_action(
+    request: Request,
+    admin_id: int,
+    password: str = Form(...),
+    confirm_password: str = Form(...),
+    return_to: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    _: HTTPBasicCredentials = Depends(require_admin),
+):
+    if password != confirm_password:
+        message = "两次密码不一致"
+    else:
+        service = AdminUserService(db)
+        try:
+            service.reset_password(admin_id, password)
+        except ValueError as exc:
+            db.rollback()
+            if str(exc) == "password_too_short":
+                message = "密码至少 8 位"
+            elif str(exc) == "admin_not_found":
+                message = "未找到管理员"
+            else:
+                message = f"重置失败: {exc}"
+        else:
+            message = "密码已重置"
+
+    target = _append_message(_sanitize_return_path(return_to, fallback="/admin/settings"), message)
+    return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+
+
+@router.post("/settings/admins/{admin_id}/status")
+def toggle_admin_status_action(
+    request: Request,
+    admin_id: int,
+    is_active: bool = Form(...),
+    return_to: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    _: HTTPBasicCredentials = Depends(require_admin),
+):
+    service = AdminUserService(db)
+    try:
+        service.set_active(admin_id, is_active)
+    except ValueError as exc:
+        db.rollback()
+        if str(exc) == "admin_not_found":
+            message = "未找到管理员"
+        else:
+            message = f"更新失败: {exc}"
+    else:
+        message = "状态已更新"
+
+    target = _append_message(_sanitize_return_path(return_to, fallback="/admin/settings"), message)
+    return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+
+    endpoint_rows = []
+    provider_stats: dict[str, int] = {}
+    active_count = 0
+    paused_count = 0
+    error_count = 0
+
+    for endpoint in endpoints:
+        provider_stats[endpoint.provider] = provider_stats.get(endpoint.provider, 0) + 1
+        if endpoint.status == CDNEndpointStatus.ACTIVE.value:
+            active_count += 1
+        elif endpoint.status == CDNEndpointStatus.PAUSED.value:
+            paused_count += 1
+        elif endpoint.status == CDNEndpointStatus.ERROR.value:
+            error_count += 1
+
+        last_task = None
+        if endpoint.tasks:
+            last_task = max(endpoint.tasks, key=lambda t: t.created_at or datetime.min.replace(tzinfo=timezone.utc))
+
+        endpoint_rows.append(
+            {
+                "endpoint": endpoint,
+                "last_task": last_task,
+                "task_count": len(endpoint.tasks or []),
+            }
+        )
+
+    task_rows = []
+    for task in tasks:
+        task_rows.append(
+            {
+                "task": task,
+                "endpoint": getattr(task, "endpoint", None),
+            }
+        )
+
+    context = _base_context(
+        request,
+        message=message,
+        page_title="CDN 管理",
+        page_subtitle="维护加速域名与刷新任务，确保资源及时更新。",
+        page_description="统一管理 CDN 加速节点，快速发起刷新与预取任务。",
+        active_page="cdn",
+        endpoints=endpoint_rows,
+        endpoint_count=len(endpoints),
+        provider_stats=provider_stats,
+        endpoint_statuses={
+            "active": active_count,
+            "paused": paused_count,
+            "error": error_count,
+        },
+        tasks=task_rows,
+        status_labels=CDN_STATUS_LABELS,
+        task_status_labels=CDN_TASK_STATUS_LABELS,
+        task_types=[
+            (CDNTaskType.PURGE.value, "刷新缓存"),
+            (CDNTaskType.PREFETCH.value, "预取内容"),
+        ],
+    )
+    return templates.TemplateResponse(request, "admin/cdn/index.html", context)

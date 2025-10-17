@@ -1,0 +1,173 @@
+{% extends "admin/layout.html" %}
+{% set active_page = "settings" %}
+{% set page_title = "系统设置" %}
+{% set page_subtitle = "维护后台管理员账号与关键配置。" %}
+
+{% block title %}系统设置 - 授权管理后台{% endblock %}
+
+{% block head_extra %}
+<style>
+    .settings-grid {
+        display: grid;
+        grid-template-columns: minmax(320px, 360px) 1fr;
+        gap: 28px;
+        align-items: start;
+    }
+    .config-card {
+        border-radius: 18px;
+        padding: 20px;
+        background: var(--bg-panel);
+        border: 1px solid rgba(37, 99, 235, 0.12);
+        box-shadow: var(--shadow-soft);
+    }
+    .config-card h3 {
+        margin: 0 0 12px;
+        font-size: 16px;
+    }
+    .config-meta {
+        font-size: 13px;
+        color: var(--text-secondary);
+        display: grid;
+        gap: 10px;
+    }
+    .admins-table td {
+        vertical-align: middle;
+    }
+    .admin-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+    @media (max-width: 1080px) {
+        .settings-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block topbar_actions %}
+<div class="admin-actions">
+    <span class="badge badge-info">管理员 {{ admins|length }} 人</span>
+    <span class="badge badge-positive">超级管理员 {{ super_admin.username }}</span>
+</div>
+{% endblock %}
+
+{% block content %}
+{% set return_to = request.url.path + ('?' + request.url.query if request.url.query else '') %}
+
+<div class="settings-grid">
+    <section class="panel">
+        <h2>新增后台管理员</h2>
+        <form class="form-grid" method="post" action="/admin/settings/admins">
+            <div class="full-row">
+                <label>用户名</label>
+                <input type="text" name="username" placeholder="至少 3 个字符" required minlength="3" />
+            </div>
+            <div class="full-row">
+                <label>角色</label>
+                <input type="text" name="role" value="admin" />
+            </div>
+            <div class="full-row">
+                <label>密码</label>
+                <input type="password" name="password" placeholder="至少 8 位" required minlength="8" />
+            </div>
+            <div class="full-row">
+                <label>确认密码</label>
+                <input type="password" name="confirm_password" placeholder="再次输入" required minlength="8" />
+            </div>
+            <input type="hidden" name="return_to" value="{{ return_to }}" />
+            <div class="full-row">
+                <button class="primary-btn" type="submit">创建管理员</button>
+            </div>
+        </form>
+    </section>
+
+    <section class="panel">
+        <h2>系统信息</h2>
+        <div class="config-card">
+            <h3>内置管理员</h3>
+            <div class="config-meta">
+                <div>用户名：<strong>{{ super_admin.username }}</strong></div>
+                <div>说明：该账号来源于环境配置文件，无法在此处修改密码。</div>
+                <div>如需禁用，可在配置文件中调整账号信息。</div>
+            </div>
+        </div>
+        <div class="config-card" style="margin-top: 16px;">
+            <h3>运行参数</h3>
+            <div class="config-meta">
+                <div>发版版本：{{ admin_version }}</div>
+                <div>静态资源：使用系统内置样式，无需额外配置。</div>
+            </div>
+        </div>
+    </section>
+</div>
+
+<section class="panel">
+    <h2>管理员列表</h2>
+    {% if admins %}
+    <table class="admins-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>用户名</th>
+                <th>角色</th>
+                <th>状态</th>
+                <th>最近登录</th>
+                <th>创建时间</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for admin in admins %}
+            <tr>
+                <td>{{ admin.id }}</td>
+                <td>{{ admin.username }}</td>
+                <td>{{ admin.role }}</td>
+                <td>
+                    {% if admin.is_active %}
+                        <span class="badge badge-positive">启用</span>
+                    {% else %}
+                        <span class="badge badge-muted">停用</span>
+                    {% endif %}
+                </td>
+                <td>{{ admin.last_login_at.isoformat() if admin.last_login_at else '-' }}</td>
+                <td>{{ admin.created_at.isoformat() }}</td>
+                <td>
+                    <div class="admin-actions">
+                        <details>
+                            <summary class="secondary-btn" style="cursor: pointer;">重置密码</summary>
+                            <form class="form-grid" method="post" action="/admin/settings/admins/{{ admin.id }}/password" style="margin-top: 10px;">
+                                <div class="full-row">
+                                    <input type="password" name="password" placeholder="新密码" required minlength="8" />
+                                </div>
+                                <div class="full-row">
+                                    <input type="password" name="confirm_password" placeholder="确认密码" required minlength="8" />
+                                </div>
+                                <input type="hidden" name="return_to" value="{{ return_to }}" />
+                                <div class="full-row">
+                                    <button class="primary-btn" type="submit">保存</button>
+                                </div>
+                            </form>
+                        </details>
+                        <form method="post" action="/admin/settings/admins/{{ admin.id }}/status">
+                            <input type="hidden" name="return_to" value="{{ return_to }}" />
+                            {% if admin.is_active %}
+                            <input type="hidden" name="is_active" value="false" />
+                            <button class="danger-btn" type="submit" {% if admin.username == super_admin.username %}disabled{% endif %}>停用</button>
+                            {% else %}
+                            <input type="hidden" name="is_active" value="true" />
+                            <button class="secondary-btn" type="submit">启用</button>
+                            {% endif %}
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">暂无数据库管理员，右上方可创建新的后台账号。</div>
+    {% endif %}
+</section>
+{% endblock %}

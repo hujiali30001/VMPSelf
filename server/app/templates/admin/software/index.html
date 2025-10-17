@@ -1,0 +1,269 @@
+{% extends "admin/layout.html" %}
+{% set active_page = "software" %}
+{% set page_title = "软件位管理" %}
+{% set page_subtitle = "配置灰度与线上版本，快速创建新包与发布。" %}
+
+{% block title %}软件位管理 - 授权管理后台{% endblock %}
+
+{% block head_extra %}
+<style>
+    .software-grid {
+        display: grid;
+        grid-template-columns: minmax(320px, 360px) 1fr;
+        gap: 28px;
+        align-items: start;
+    }
+    .slot-card {
+        border-radius: 18px;
+        background: var(--bg-panel);
+        border: 1px solid rgba(37, 99, 235, 0.12);
+        padding: 18px;
+        box-shadow: var(--shadow-soft);
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+    .slot-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+    }
+    .slot-meta {
+        font-size: 12px;
+        color: var(--text-secondary);
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+    .packages-list {
+        display: grid;
+        gap: 12px;
+    }
+    .package-card {
+        border-radius: 14px;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        padding: 12px 14px;
+        background: rgba(248, 250, 252, 0.85);
+    }
+    .package-card.active {
+        border-color: rgba(16, 185, 129, 0.35);
+        background: linear-gradient(135deg, rgba(16, 185, 129, 0.14), rgba(59, 130, 246, 0.08));
+        box-shadow: 0 16px 35px rgba(16, 185, 129, 0.18);
+    }
+    .slot-actions,
+    .package-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+    .package-meta {
+        font-size: 12px;
+        color: var(--text-secondary);
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+    @media (max-width: 1080px) {
+        .software-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block topbar_actions %}
+<div class="slot-actions">
+    <span class="badge badge-info">共 {{ slot_count }} 个软件位</span>
+    <span class="badge badge-positive">上线 {{ active_slots }}</span>
+    <span class="badge badge-muted">暂停 {{ paused_slots }}</span>
+    <span class="badge badge-info">累计包 {{ total_packages }}</span>
+</div>
+{% endblock %}
+
+{% block content %}
+{% set return_to = request.url.path + ('?' + request.url.query if request.url.query else '') %}
+
+<section class="stats">
+    <div class="stat-card">
+        <div class="stat-title">软件位数量</div>
+        <div class="stat-value">{{ slot_count }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-title">当前上线</div>
+        <div class="stat-value">{{ active_slots }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-title">暂停中</div>
+        <div class="stat-value">{{ paused_slots }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-title">安装包数量</div>
+        <div class="stat-value">{{ total_packages }}</div>
+    </div>
+</section>
+
+<div class="software-grid">
+    <section class="panel">
+        <h2>创建软件位</h2>
+        <form class="form-grid" method="post" action="/admin/software/slots">
+            <div>
+                <label>标识</label>
+                <input type="text" name="code" placeholder="例如 win-client" required minlength="2" />
+            </div>
+            <div>
+                <label>展示名称</label>
+                <input type="text" name="name" placeholder="例如 Windows 客户端" required minlength="3" />
+            </div>
+            <div>
+                <label>产品线</label>
+                <input type="text" name="product_line" placeholder="可选" />
+            </div>
+            <div>
+                <label>渠道</label>
+                <input type="text" name="channel" placeholder="可选" />
+            </div>
+            <div>
+                <label>灰度比例 (%)</label>
+                <input type="number" name="gray_ratio" min="0" max="100" step="1" placeholder="0-100" />
+            </div>
+            <div class="full-row">
+                <label>备注</label>
+                <textarea name="notes" rows="3" placeholder="可补充发版说明、依赖等信息"></textarea>
+            </div>
+            <input type="hidden" name="return_to" value="{{ return_to }}" />
+            <div class="full-row">
+                <button class="primary-btn" type="submit">创建软件位</button>
+            </div>
+        </form>
+    </section>
+
+    <section class="panel">
+        <h2>软件位列表</h2>
+        {% if slots %}
+        <div class="packages-list">
+            {% for row in slots %}
+            {% set slot = row.slot %}
+            <article class="slot-card">
+                <div class="slot-header">
+                    <div>
+                        <strong>{{ slot.name }}</strong>
+                        <div class="slot-meta">
+                            <span>ID: {{ slot.id }}</span>
+                            <span>标识: {{ slot.code }}</span>
+                            {% if slot.product_line %}<span>产品线: {{ slot.product_line }}</span>{% endif %}
+                            {% if slot.channel %}<span>渠道: {{ slot.channel }}</span>{% endif %}
+                            {% if slot.gray_ratio is not none %}<span>灰度: {{ slot.gray_ratio }}%</span>{% endif %}
+                        </div>
+                    </div>
+                    <span class="badge badge-{{ slot.status }}">{{ slot_status_labels.get(slot.status, slot.status) }}</span>
+                </div>
+
+                <div class="slot-actions">
+                    {% if slot.status != 'active' %}
+                    <form method="post" action="/admin/software/slots/{{ slot.id }}/status">
+                        <input type="hidden" name="return_to" value="{{ return_to }}" />
+                        <input type="hidden" name="status" value="active" />
+                        <button class="secondary-btn" type="submit">启用</button>
+                    </form>
+                    {% endif %}
+                    {% if slot.status != 'paused' %}
+                    <form method="post" action="/admin/software/slots/{{ slot.id }}/status">
+                        <input type="hidden" name="return_to" value="{{ return_to }}" />
+                        <input type="hidden" name="status" value="paused" />
+                        <button class="secondary-btn" type="submit">暂停</button>
+                    </form>
+                    {% endif %}
+                </div>
+
+                <div>
+                    {% if slot.notes %}
+                    <div style="font-size: 12px; color: var(--text-secondary);">备注：{{ slot.notes }}</div>
+                    {% endif %}
+                    <div style="font-size: 12px; color: var(--text-secondary);">创建于 {{ slot.created_at.isoformat() }}</div>
+                </div>
+
+                <details>
+                    <summary style="cursor: pointer; font-weight: 600;">创建安装包</summary>
+                    <form class="form-grid" method="post" action="/admin/software/slots/{{ slot.id }}/packages" style="margin-top: 14px;">
+                        <div>
+                            <label>版本号</label>
+                            <input type="text" name="version" placeholder="如 1.0.0" required />
+                        </div>
+                        <div>
+                            <label>下载地址</label>
+                            <input type="text" name="file_url" placeholder="可选" />
+                        </div>
+                        <div>
+                            <label>文件校验</label>
+                            <input type="text" name="checksum" placeholder="可选" />
+                        </div>
+                        <div class="full-row">
+                            <label>发布说明</label>
+                            <textarea name="release_notes" rows="3" placeholder="简要描述更新内容"></textarea>
+                        </div>
+                        <div>
+                            <label class="slot-meta"><input type="checkbox" name="promote" value="1" /> 创建后直接发布</label>
+                        </div>
+                        <div>
+                            <label class="slot-meta"><input type="checkbox" name="mark_critical" value="1" /> 标记为强制更新</label>
+                        </div>
+                        <input type="hidden" name="return_to" value="{{ return_to }}" />
+                        <div class="full-row">
+                            <button class="primary-btn" type="submit">提交安装包</button>
+                        </div>
+                    </form>
+                </details>
+
+                <div class="packages-list">
+                    {% if row.packages %}
+                        {% for package in row.packages %}
+                        <section class="package-card {% if slot.current_package_id == package.id %}active{% endif %}">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <strong>版本 {{ package.version }}</strong>
+                                    <div class="package-meta">
+                                        <span>状态: {{ package_status_labels.get(package.status, package.status) }}</span>
+                                        {% if package.is_critical %}<span>强制</span>{% endif %}
+                                    </div>
+                                </div>
+                                <div class="package-actions">
+                                    {% if package.status != 'active' %}
+                                    <form method="post" action="/admin/software/packages/{{ package.id }}/promote">
+                                        <input type="hidden" name="return_to" value="{{ return_to }}" />
+                                        <button class="secondary-btn" type="submit">发布</button>
+                                    </form>
+                                    {% endif %}
+                                    {% if package.status != 'retired' %}
+                                    <form method="post" action="/admin/software/packages/{{ package.id }}/retire" onsubmit="return confirm('确认将版本 {{ package.version }} 下线吗？');">
+                                        <input type="hidden" name="return_to" value="{{ return_to }}" />
+                                        <button class="danger-btn" type="submit">下线</button>
+                                    </form>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="package-meta">
+                                <span>创建于 {{ package.created_at.isoformat() }}</span>
+                                {% if package.promoted_at %}<span>发布于 {{ package.promoted_at.isoformat() }}</span>{% endif %}
+                            </div>
+                            {% if package.file_url %}
+                                <div class="package-meta">下载：{{ package.file_url }}</div>
+                            {% endif %}
+                            {% if package.release_notes %}
+                                <div style="font-size: 12px; color: var(--text-secondary); white-space: pre-line;">{{ package.release_notes }}</div>
+                            {% endif %}
+                        </section>
+                        {% endfor %}
+                    {% else %}
+                        <div class="empty-state">暂无安装包，展开上方表单创建一个版本。</div>
+                    {% endif %}
+                </div>
+            </article>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">尚未创建软件位，使用左侧表单配置第一个上线位。</div>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

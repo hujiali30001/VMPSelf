@@ -93,3 +93,124 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     license: Mapped[License] = relationship(back_populates="user")
+
+
+class CDNEndpointStatus(str, Enum):
+    ACTIVE = "active"
+    PAUSED = "paused"
+    ERROR = "error"
+
+
+class CDNTaskStatus(str, Enum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class CDNTaskType(str, Enum):
+    PURGE = "purge"
+    PREFETCH = "prefetch"
+
+
+class CDNEndpoint(Base):
+    __tablename__ = "cdn_endpoints"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    domain: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    origin: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default=CDNEndpointStatus.ACTIVE.value)
+    last_checked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+    tasks: Mapped[list["CDNTask"]] = relationship(back_populates="endpoint", cascade="all, delete-orphan")
+
+
+class CDNTask(Base):
+    __tablename__ = "cdn_tasks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    endpoint_id: Mapped[int] = mapped_column(ForeignKey("cdn_endpoints.id"), nullable=False, index=True)
+    task_type: Mapped[str] = mapped_column(String(16), default=CDNTaskType.PURGE.value)
+    status: Mapped[str] = mapped_column(String(16), default=CDNTaskStatus.PENDING.value)
+    payload: Mapped[Optional[str]] = mapped_column(Text)
+    message: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    endpoint: Mapped[CDNEndpoint] = relationship(back_populates="tasks")
+
+
+class SoftwareSlotStatus(str, Enum):
+    ACTIVE = "active"
+    PAUSED = "paused"
+
+
+class SoftwarePackageStatus(str, Enum):
+    DRAFT = "draft"
+    ACTIVE = "active"
+    RETIRED = "retired"
+
+
+class SoftwareSlot(Base):
+    __tablename__ = "software_slots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    product_line: Mapped[Optional[str]] = mapped_column(String(128))
+    channel: Mapped[Optional[str]] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(16), default=SoftwareSlotStatus.ACTIVE.value)
+    gray_ratio: Mapped[Optional[int]] = mapped_column(Integer)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+    current_package_id: Mapped[Optional[int]] = mapped_column(ForeignKey("software_packages.id"))
+
+    packages: Mapped[list["SoftwarePackage"]] = relationship(
+        back_populates="slot",
+        cascade="all, delete-orphan",
+        foreign_keys="SoftwarePackage.slot_id",
+    )
+    current_package: Mapped[Optional["SoftwarePackage"]] = relationship(
+        back_populates="current_for_slots",
+        foreign_keys=[current_package_id],
+        post_update=True,
+    )
+
+
+class SoftwarePackage(Base):
+    __tablename__ = "software_packages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    slot_id: Mapped[int] = mapped_column(ForeignKey("software_slots.id"), nullable=False, index=True)
+    version: Mapped[str] = mapped_column(String(64), nullable=False)
+    file_url: Mapped[Optional[str]] = mapped_column(String(255))
+    checksum: Mapped[Optional[str]] = mapped_column(String(128))
+    release_notes: Mapped[Optional[str]] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(16), default=SoftwarePackageStatus.DRAFT.value)
+    is_critical: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    promoted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    slot: Mapped[SoftwareSlot] = relationship(back_populates="packages", foreign_keys=[slot_id])
+    current_for_slots: Mapped[list[SoftwareSlot]] = relationship(
+        back_populates="current_package",
+        foreign_keys="SoftwareSlot.current_package_id",
+    )
+
+
+class AdminUser(Base):
+    __tablename__ = "admin_users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[str] = mapped_column(String(32), default="admin")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
