@@ -115,6 +115,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
 | `-PythonExe` | 指向目标主机上的 Python 可执行文件。 |
 | `-ServiceName` | Windows 服务名称，默认 `VMPAuthService`。 |
 | `-Port` | Uvicorn 监听端口。 |
+| `-Host` / `-ListenHost` | 绑定监听地址，默认 `0.0.0.0`；`-Host` 为向后兼容别名。 |
 | `-AdminUser` | （可选）指定后台 HTTP Basic 用户名，未提供时沿用 `.env` 或默认 `admin`。 |
 | `-AdminPassword` | （可选）自定义后台密码，未提供时脚本会自动生成高强度随机值。 |
 | `-HmacSecret` | （可选）自定义授权 HMAC 密钥，未提供时若检测到默认占位值将自动生成。 |
@@ -124,18 +125,16 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
 
 ```powershell
 cd C:\Services\VMPSelf\server
+C:\Python313\python.exe -m venv .venv
 .\.venv\Scripts\Activate.ps1
-powershell -ExecutionPolicy Bypass -File tools\winserver2012_deploy.ps1 `
-	-InstallRoot "C:\Services\VMPSelf\server" `
-	-PythonExe "C:\Python313\python.exe" `
-	-ServiceName "VMPAuthService" `
-	-Port 8000 `
-	-AdminUser "ops-admin"
+powershell -ExecutionPolicy Bypass -File tools\winserver2012_deploy.ps1 -InstallRoot "C:\Services\VMPSelf\server" -PythonExe "C:\Python313\python.exe" -ServiceName "VMPAuthService" -Port 8000 -ListenHost "0.0.0.0" -AdminUser "ops-admin"
 ```
 
 > 提示：若不传 `-AdminPassword`，脚本会在控制台输出自动生成的密码，请在窗口关闭前妥善保存；同理，检测到默认占位值时也会生成新的 `VMP_HMAC_SECRET` 并打印提示。
 
 脚本执行成功后，服务将自动启动并设置为开机自启。控制台会输出后台地址、用户管理入口、HTTP Basic 凭据以及是否生成新的 HMAC 密钥。日志位于 `C:\Services\VMPSelf\server\logs\`。
+
+> 若从历史版本升级，请先执行 `git pull` 确认脚本更新到最新提交（含 `-ListenHost` 参数），再运行上述命令。
 
 ---
 

@@ -3,7 +3,8 @@ param(
     [string]$PythonExe = "C:\\Python313\\python.exe",
     [string]$ServiceName = "VMPAuthService",
     [int]$Port = 8000,
-    [string]$Host = "0.0.0.0",
+    [Alias("Host")]
+    [string]$ListenHost = "0.0.0.0",
     [string]$NssmUrl = "https://nssm.cc/release/nssm-2.24.zip",
     [string]$AdminUser,
     [string]$AdminPassword,
@@ -287,7 +288,7 @@ if ($ServiceExists) {
     Start-Process -FilePath $NssmExe -ArgumentList @("remove", $ServiceName, "confirm") -NoNewWindow -Wait | Out-Null
 }
 
-$AppArgs = "-m", "uvicorn", "app.main:app", "--host", $Host, "--port", $Port.ToString(), "--env-file", $EnvFile, "--log-level", "info"
+$AppArgs = "-m", "uvicorn", "app.main:app", "--host", $ListenHost, "--port", $Port.ToString(), "--env-file", $EnvFile, "--log-level", "info"
 Invoke-Nssm -Arguments @("install", $ServiceName, $VenvPython) + $AppArgs
 Invoke-Nssm -Arguments @("set", $ServiceName, "AppDirectory", $InstallRoot)
 Invoke-Nssm -Arguments @("set", $ServiceName, "DisplayName", "VMP Auth Service")
@@ -312,11 +313,11 @@ if (-not $existingRule) {
 Write-Step "启动服务"
 Invoke-Nssm -Arguments @("start", $ServiceName)
 
-Write-Step "部署完成。当前监听地址: http://$Host:$Port"
+Write-Step "部署完成。当前监听地址: http://$ListenHost:$Port"
 
 Write-Host "" 
-Write-Host "后台登录地址: http://$Host:$Port/admin/licenses" -ForegroundColor Green
-Write-Host "用户管理入口: http://$Host:$Port/admin/users" -ForegroundColor Green
+Write-Host "后台登录地址: http://$ListenHost:$Port/admin/licenses" -ForegroundColor Green
+Write-Host "用户管理入口: http://$ListenHost:$Port/admin/users" -ForegroundColor Green
 Write-Host "HTTP Basic 用户名: $FinalAdminUser"
 if ($GeneratedAdminPassword) {
     Write-Host "HTTP Basic 密码: $FinalAdminPass (已自动生成，请立即备份)" -ForegroundColor Yellow
