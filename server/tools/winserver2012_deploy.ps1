@@ -269,7 +269,7 @@ function Invoke-Nssm {
     param([string[]]$Arguments)
     $process = Start-Process -FilePath $NssmExe -ArgumentList $Arguments -NoNewWindow -Wait -PassThru
     if ($process.ExitCode -ne 0) {
-    throw ("NSSM 命令失败: {0}" -f ($Arguments -join ' '));
+        throw ("NSSM 命令失败: {0}" -f ($Arguments -join ' '))
     }
 }
 
@@ -313,11 +313,11 @@ if (-not $existingRule) {
 Write-Step "启动服务"
 Invoke-Nssm -Arguments @("start", $ServiceName)
 
-Write-Step "部署完成。当前监听地址: http://${ListenHost}:${Port}"
+Write-Step ("部署完成。当前监听地址: http://{0}:{1}" -f $ListenHost, $Port)
 
 Write-Host "" 
-Write-Host "后台登录地址: http://${ListenHost}:${Port}/admin/licenses" -ForegroundColor Green
-Write-Host "用户管理入口: http://${ListenHost}:${Port}/admin/users" -ForegroundColor Green
+Write-Host ("后台登录地址: http://{0}:{1}/admin/licenses" -f $ListenHost, $Port) -ForegroundColor Green
+Write-Host ("用户管理入口: http://{0}:{1}/admin/users" -f $ListenHost, $Port) -ForegroundColor Green
 Write-Host ("HTTP Basic 用户名: {0}" -f $FinalAdminUser)
 if ($GeneratedAdminPassword) {
     Write-Host ("HTTP Basic 密码: {0} (已自动生成，请立即备份)" -f $FinalAdminPass) -ForegroundColor Yellow
