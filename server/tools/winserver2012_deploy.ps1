@@ -422,6 +422,7 @@ $BaseUrl = "http://{0}:{1}" -f $ListenHost, $Port
 Write-Step ("Deployment finished. Listening on {0}" -f $BaseUrl)
 
 Write-Host ""
+Write-Host (" Admin dashboard: {0}/admin/" -f $BaseUrl) -ForegroundColor Green
 Write-Host (" Admin portal: {0}/admin/licenses" -f $BaseUrl) -ForegroundColor Green
 Write-Host (" Users portal: {0}/admin/users" -f $BaseUrl) -ForegroundColor Green
 Write-Host (" HTTP Basic user: {0}" -f $FinalAdminUser)
