@@ -59,6 +59,17 @@ python -m pip install -r requirements.txt
 python manage.py init-db
 ```
 
+## 数据库迁移
+- 默认执行 `python manage.py init-db` 会自动调用 Alembic，将数据库结构迁移到最新版本。
+- 如需单独运行迁移，可执行：
+	```powershell
+	.\.venv\Scripts\python -m alembic upgrade head
+	```
+- 开发新特性时，建议使用 Alembic 生成迁移文件并提交。例如：
+	```powershell
+	.\.venv\Scripts\python -m alembic revision --autogenerate -m "describe change"
+	```
+
 ## 创建卡密
 ```powershell
 # 生成 10 张月卡（使用默认天数与前缀）

@@ -279,6 +279,14 @@ if (-not (Test-Path -LiteralPath $ManagePy)) {
 }
 & $VenvPython $ManagePy init-db
 
+$AlembicIni = Join-Path $InstallRoot "alembic.ini"
+if (-not (Test-Path -LiteralPath $AlembicIni)) {
+    throw "alembic.ini was not found in the install directory."
+}
+
+Write-Step "Running Alembic migrations"
+& $VenvPython -m alembic -c $AlembicIni upgrade head
+
 Write-Step "Preparing NSSM"
 $NssmDir = Join-Path $InstallRoot "tools\nssm"
 $NssmExe = Join-Path $NssmDir "nssm.exe"

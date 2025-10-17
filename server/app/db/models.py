@@ -168,18 +168,29 @@ class SoftwareSlot(Base):
     notes: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
-    current_package_id: Mapped[Optional[int]] = mapped_column(ForeignKey("software_packages.id"))
 
     packages: Mapped[list["SoftwarePackage"]] = relationship(
         back_populates="slot",
         cascade="all, delete-orphan",
         foreign_keys="SoftwarePackage.slot_id",
     )
-    current_package: Mapped[Optional["SoftwarePackage"]] = relationship(
-        back_populates="current_for_slots",
-        foreign_keys=[current_package_id],
-        post_update=True,
+    current_package_link: Mapped[Optional["SoftwareSlotCurrentPackage"]] = relationship(
+        back_populates="slot",
+        cascade="all, delete-orphan",
+        uselist=False,
     )
+
+    @property
+    def current_package(self) -> Optional["SoftwarePackage"]:
+        if self.current_package_link:
+            return self.current_package_link.package
+        return None
+
+    @property
+    def current_package_id(self) -> Optional[int]:
+        if self.current_package_link:
+            return self.current_package_link.package_id
+        return None
 
 
 class SoftwarePackage(Base):
@@ -197,10 +208,27 @@ class SoftwarePackage(Base):
     promoted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     slot: Mapped[SoftwareSlot] = relationship(back_populates="packages", foreign_keys=[slot_id])
-    current_for_slots: Mapped[list[SoftwareSlot]] = relationship(
-        back_populates="current_package",
-        foreign_keys="SoftwareSlot.current_package_id",
+    slot_current_link: Mapped[Optional["SoftwareSlotCurrentPackage"]] = relationship(
+        back_populates="package",
+        uselist=False,
     )
+
+
+class SoftwareSlotCurrentPackage(Base):
+    __tablename__ = "software_slot_current_packages"
+
+    slot_id: Mapped[int] = mapped_column(
+        ForeignKey("software_slots.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    package_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("software_packages.id", ondelete="SET NULL"),
+        unique=True,
+    )
+    assigned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    slot: Mapped[SoftwareSlot] = relationship(back_populates="current_package_link")
+    package: Mapped[Optional[SoftwarePackage]] = relationship(back_populates="slot_current_link")
 
 
 class AdminUser(Base):

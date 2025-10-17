@@ -177,7 +177,8 @@
 | `admin_users`            | `id`, `username`, `password_hash`, `role_id`, `is_active`, `last_login_at`, `created_at`, `updated_at`                              | 管理员账号                                      |
 | `roles`                  | `id`, `code`, `display_name`, `description`                                                                                         | 角色定义（admin/operator/viewer 等）            |
 | `role_permissions`       | `id`, `role_id`, `module`, `action`                                                                                                 | RBAC 权限表                                     |
-| `software_slots`         | `id`, `code`, `name`, `product_line`, `channel`, `current_version_id`, `status`, `gray_ratio`, `notes`, `created_at`, `updated_at` | 软件位主体                                      |
+| `software_slots`         | `id`, `code`, `name`, `product_line`, `channel`, `status`, `gray_ratio`, `notes`, `created_at`, `updated_at`                       | 软件位主体，当前版本由关联表维护                |
+| `software_slot_current_packages` | `slot_id`, `package_id`, `assigned_at`                                                                                    | 软件位当前上线版本指针，消除双向外键循环       |
 | `package_versions`       | `id`, `slot_id`, `version`, `file_path`, `checksum`, `size`, `release_notes`, `uploaded_by`, `uploaded_at`, `status`                | 版本仓库记录                                    |
 | `deployments`            | `id`, `slot_id`, `version_id`, `strategy`, `status`, `progress`, `scheduled_at`, `started_at`, `finished_at`, `rollback_from_id`   | 灰度/发布流程                                   |
 | `cdn_endpoints`          | `id`, `domain`, `provider`, `origin`, `cache_rules(JSON)`, `status`, `notes`, `created_at`, `updated_at`                           | CDN 节点配置                                    |

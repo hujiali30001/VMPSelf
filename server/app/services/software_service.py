@@ -10,6 +10,7 @@ from app.db import (
     SoftwarePackage,
     SoftwarePackageStatus,
     SoftwareSlot,
+    SoftwareSlotCurrentPackage,
     SoftwareSlotStatus,
 )
 
@@ -77,8 +78,24 @@ class SoftwareService:
         return slot
 
     def set_slot_current_package(self, slot: SoftwareSlot, package: Optional[SoftwarePackage]) -> None:
-        slot.current_package = package
-        slot.updated_at = datetime.now(timezone.utc)
+        link = slot.current_package_link
+        now = datetime.now(timezone.utc)
+
+        if package is None:
+            if link:
+                self.db.delete(link)
+            slot.updated_at = now
+            self.db.flush()
+            return
+
+        if link is None:
+            link = SoftwareSlotCurrentPackage(slot=slot, package=package, assigned_at=now)
+            self.db.add(link)
+        else:
+            link.package = package
+            link.assigned_at = now
+
+        slot.updated_at = now
         self.db.flush()
 
     # Packages ------------------------------------------------------------------
@@ -164,7 +181,7 @@ class SoftwareService:
         package.promoted_at = None
         slot = package.slot
         if slot.current_package_id == package.id:
-            slot.current_package = None
+            self.set_slot_current_package(slot, None)
         self.db.commit()
         self.db.refresh(package)
         return package

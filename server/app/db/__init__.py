@@ -15,6 +15,7 @@ from app.db.models import (
     SoftwarePackageStatus,
     SoftwareSlot,
     SoftwareSlotStatus,
+    SoftwareSlotCurrentPackage,
     User,
 )
 
@@ -34,6 +35,7 @@ __all__ = [
     "SoftwareSlotStatus",
     "SoftwarePackage",
     "SoftwarePackageStatus",
+    "SoftwareSlotCurrentPackage",
     "AdminUser",
     "User",
 ]

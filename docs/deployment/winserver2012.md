@@ -90,10 +90,14 @@ notepad .env
 
 ```powershell
 python manage.py init-db
+# 可选：针对升级场景执行 Alembic 迁移（init-db 已自动执行，此处便于单独排查）
+alembic upgrade head
 python manage.py create-license --card DEMO-0001 --ttl 30
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
 ```
 
+- `python manage.py init-db` 会在 SQLite 中创建/升级基础表结构，并自动触发 Alembic 迁移到最新版本（包括新引入的 `software_slot_current_packages` 关联表以消除软件位循环外键告警）。
+- 如果你希望单独检查迁移日志，可执行 `alembic upgrade head`（若命令未命中，可改用 `..\.venv\Scripts\alembic.exe upgrade head`），其效果与 `init-db` 内部调用一致。
 - 打开浏览器访问 `http://192.168.132.132:8000/docs`，查看 Swagger 文档确认接口可访问。
 - 访问 `http://192.168.132.132:8000/admin/`，进入统一控制台查看核心统计、即将到期提醒，并从卡片快速跳转到各管理模块。
 - 访问 `http://192.168.132.132:8000/admin/licenses`，浏览器会弹出 HTTP Basic 登录框，使用 `.env` 中的 `VMP_ADMIN_USER` / `VMP_ADMIN_PASS` 登录。新版模块化卡密管理界面支持快速创建卡密、批量筛选、快捷导向详情页以延期或重置授权。
@@ -101,7 +105,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
 - 访问 `http://192.168.132.132:8000/admin/card-types`，管理卡密类型与时长模板；界面与其他后台页面采用统一布局，便于后续扩展。
 - 在仪表盘「功能模块一览」区域核对卡片状态：卡密管理、用户中心、卡密类型应显示“前往页面”，CDN/软件位/系统设置卡片标记为“规划中”属正常现象。
 - 验证完毕后在终端按 `Ctrl+C` 停止 Uvicorn。
-- 可选：保持虚拟环境激活状态执行 `python -m pytest tests/test_admin_api_crud.py tests/test_admin_service.py`，快速确认后台接口的关键用例。
+- 可选：保持虚拟环境激活状态执行 `python -m pytest tests/test_admin_api_crud.py tests/test_admin_service.py`，快速确认后台接口的关键用例与仪表盘 HTML。
 
 ---
 
@@ -110,7 +114,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
 项目内提供 `server/tools/winserver2012_deploy.ps1`，脚本现已全英文输出，并可自动完成以下操作：
 
 1. 创建/更新虚拟环境并安装依赖；
-2. 初始化数据库（若已存在则跳过）；
+2. 初始化数据库并执行 Alembic 迁移（若已存在则升级到最新 schema）；
 3. 强制启用 TLS 1.2 后下载并解压 NSSM；
 4. 注册名为 `VMPAuthService` 的 Windows 服务，使用 Uvicorn 启动 API；
 5. 创建日志目录 `logs/`，将 stdout/stderr 轮转写入；
@@ -144,7 +148,7 @@ powershell -ExecutionPolicy Bypass -File tools\winserver2012_deploy.ps1 -Install
 
 脚本执行成功后，服务将自动启动并设置为开机自启。控制台会输出后台地址、用户管理入口、HTTP Basic 凭据以及是否生成新的 HMAC 密钥，同时在安装目录保留更新后的 `.env`。日志位于 `C:\Services\VMPSelf\server\logs\`，已启用 NSSM 轮转（单文件 10 MB）。
 
-> 若从历史版本升级，请先执行 `git pull` 确认脚本更新到最新提交（含 `-ListenHost` 参数），再运行上述命令；脚本会复用已有 `.env` 并保留 `data\license.db` 等数据文件。
+> 若从历史版本升级，请先执行 `git pull` 确认脚本更新到最新提交（含 `-ListenHost` 参数），再运行上述命令；脚本会先运行 `manage.py init-db` 并调用 `alembic upgrade head`，从而迁移已有数据库，同时复用 `.env` 与 `data\license.db` 等数据文件。
 
 ---
 
@@ -214,7 +218,7 @@ pong    2025-10-16T19:28:29.680446+00:00
 ## Step 10. 发布前复核清单
 
 - 检查 `.env` 中的 `VMP_ADMIN_PASS`、`VMP_HMAC_SECRET`、`VMP_SQLITE_PATH` 等关键字段是否已替换为生产值，并将该文件纳入受控备份。
-- 在虚拟环境内执行核心回归测试（包含统一仪表盘的 HTML 断言）：
+- 在虚拟环境内执行核心回归测试（包含统一仪表盘与软件位关联逻辑的断言）：
 	```powershell
 	.\.venv\Scripts\Activate.ps1
 	python -m pytest tests/test_admin_api_crud.py tests/test_admin_service.py

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
 from sqlalchemy import inspect, select, text
 
@@ -9,8 +10,13 @@ from sqlalchemy import select
 
 from app.core.settings import get_settings
 from app.db import Base, License, LicenseCardType, LicenseStatus
-from app.db.session import SessionLocal, engine
+from app.db.session import SessionLocal, engine, database_url
 from app.services.license_service import LicenseService
+
+from alembic import command
+from alembic.config import Config
+
+BASE_DIR = Path(__file__).resolve().parent
 
 
 settings = get_settings()
@@ -77,6 +83,14 @@ def _ensure_card_type_schema() -> None:
             conn.execute(text("ALTER TABLE licenses ADD COLUMN custom_duration_days INTEGER"))
         if "card_prefix" not in license_columns:
             conn.execute(text("ALTER TABLE licenses ADD COLUMN card_prefix VARCHAR(16)"))
+
+    _run_alembic_upgrade()
+
+
+def _run_alembic_upgrade() -> None:
+    alembic_cfg = Config(str(BASE_DIR / "alembic.ini"))
+    alembic_cfg.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(alembic_cfg, "head")
 
 
 def _seed_default_card_types() -> None:
