@@ -123,7 +123,7 @@ if (-not (Test-Path -LiteralPath $InstallRoot)) {
 Set-Location -Path $InstallRoot
 
 if (-not (Test-Path -LiteralPath $PythonExe)) {
-    throw "未找到 Python 可执行文件：$PythonExe"
+    throw ("未找到 Python 可执行文件：{0}" -f $PythonExe)
 }
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -269,7 +269,7 @@ function Invoke-Nssm {
     param([string[]]$Arguments)
     $process = Start-Process -FilePath $NssmExe -ArgumentList $Arguments -NoNewWindow -Wait -PassThru
     if ($process.ExitCode -ne 0) {
-        throw "NSSM 命令失败: $($Arguments -join ' ')";
+    throw ("NSSM 命令失败: {0}" -f ($Arguments -join ' '));
     }
 }
 
@@ -318,9 +318,9 @@ Write-Step "部署完成。当前监听地址: http://${ListenHost}:${Port}"
 Write-Host "" 
 Write-Host "后台登录地址: http://${ListenHost}:${Port}/admin/licenses" -ForegroundColor Green
 Write-Host "用户管理入口: http://${ListenHost}:${Port}/admin/users" -ForegroundColor Green
-Write-Host "HTTP Basic 用户名: $FinalAdminUser"
+Write-Host ("HTTP Basic 用户名: {0}" -f $FinalAdminUser)
 if ($GeneratedAdminPassword) {
-    Write-Host "HTTP Basic 密码: $FinalAdminPass (已自动生成，请立即备份)" -ForegroundColor Yellow
+    Write-Host ("HTTP Basic 密码: {0} (已自动生成，请立即备份)" -f $FinalAdminPass) -ForegroundColor Yellow
 } elseif ($AdminPassword) {
     Write-Host "HTTP Basic 密码已更新为参数指定值" -ForegroundColor Yellow
 } else {
@@ -328,7 +328,7 @@ if ($GeneratedAdminPassword) {
 }
 
 if ($GeneratedHmacSecret) {
-    Write-Host "HMAC 密钥已自动生成：$FinalHmacSecret" -ForegroundColor Yellow
+    Write-Host ("HMAC 密钥已自动生成：{0}" -f $FinalHmacSecret) -ForegroundColor Yellow
 } elseif ($HmacSecret) {
     Write-Host "HMAC 密钥已按参数更新" -ForegroundColor Yellow
 } else {
