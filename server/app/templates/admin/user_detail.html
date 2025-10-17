@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <title>用户详情 - 授权管理后台</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg-surface: #f5f7fb;
+            --bg-panel: #ffffff;
+            --bg-panel-alt: linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%);
+            --border-soft: #e5e7f1;
+            --shadow-soft: 0 24px 55px rgba(15, 23, 42, 0.12);
+            --text-primary: #1f2937;
+            --text-secondary: #6b7280;
+            --brand: #2563eb;
+            --brand-dark: #1d4ed8;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: var(--bg-surface);
+            font-family: "Inter", "PingFang SC", "Segoe UI", sans-serif;
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            background: var(--bg-panel);
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            box-shadow: 0 18px 45px rgba(37, 99, 235, 0.12);
+        }
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 20px 48px;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+        }
+
+        .brand-logo {
+            width: 48px;
+            height: 48px;
+            border-radius: 16px;
+            background: linear-gradient(135deg, rgba(37, 99, 235, 0.9), rgba(59, 130, 246, 0.8));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-weight: 700;
+            font-size: 18px;
+            box-shadow: 0 22px 36px rgba(59, 130, 246, 0.35);
+        }
+
+        .brand h1 {
+            margin: 0;
+            font-size: 22px;
+            font-weight: 700;
+        }
+
+        .brand-subtitle {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .status-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 18px;
+            border-radius: 999px;
+            background: linear-gradient(135deg, rgba(37, 99, 235, 0.1), rgba(37, 99, 235, 0.05));
+            color: var(--brand-dark);
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        .status-chip.neutral {
+            background: linear-gradient(135deg, rgba(107, 114, 128, 0.12), rgba(148, 163, 184, 0.08));
+            color: var(--text-secondary);
+        }
+
+        .back-link {
+            border-radius: 16px;
+            background: linear-gradient(135deg, rgba(37, 99, 235, 0.08), rgba(59, 130, 246, 0.08));
+            padding: 10px 16px;
+            color: var(--brand);
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        main {
+            flex: 1;
+            padding: 32px 48px 64px;
+            display: grid;
+            gap: 32px;
+        }
+
+        .message {
+            padding: 18px 22px;
+            border-radius: 16px;
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(37, 99, 235, 0.1));
+            color: var(--brand-dark);
+            border: 1px solid rgba(37, 99, 235, 0.22);
+            box-shadow: 0 24px 48px rgba(37, 99, 235, 0.18);
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 20px;
+        }
+
+        .summary-card {
+            padding: 18px 20px;
+            border-radius: 18px;
+            background: var(--bg-panel-alt);
+            border: 1px solid rgba(37, 99, 235, 0.14);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+        }
+
+        .summary-title {
+            text-transform: uppercase;
+            font-size: 12px;
+            color: var(--text-secondary);
+            letter-spacing: 0.05em;
+            margin-bottom: 6px;
+        }
+
+        .summary-value {
+            font-size: 24px;
+            font-weight: 700;
+            display: block;
+            word-break: break-all;
+        }
+
+        .summary-link {
+            color: var(--brand-dark);
+            font-size: 14px;
+            font-weight: 600;
+            text-decoration: none;
+        }
+
+        .summary-sub {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 6px;
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: minmax(360px, 420px) 1fr;
+            gap: 28px;
+        }
+
+        .panel {
+            background: var(--bg-panel);
+            border-radius: 24px;
+            padding: 28px;
+            box-shadow: var(--shadow-soft);
+            display: grid;
+            gap: 20px;
+        }
+
+        .panel h2 {
+            margin: 0;
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 18px 20px;
+        }
+
+        .info-item {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .info-label {
+            text-transform: uppercase;
+            font-size: 12px;
+            color: var(--text-secondary);
+            letter-spacing: 0.05em;
+        }
+
+        .info-value {
+            font-weight: 600;
+            font-size: 15px;
+        }
+
+        form {
+            display: grid;
+            gap: 16px;
+        }
+
+        input[type="text"],
+        input[type="password"],
+        input[type="number"] {
+            padding: 12px 14px;
+            border-radius: 14px;
+            border: 1px solid var(--border-soft);
+            background: #f8fafc;
+            font-size: 14px;
+            transition: border 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: rgba(37, 99, 235, 0.7);
+            box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+        }
+
+        .primary-btn,
+        .danger-btn,
+        .secondary-btn {
+            border: none;
+            padding: 12px 20px;
+            border-radius: 14px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .primary-btn {
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+            color: #fff;
+            box-shadow: 0 20px 35px rgba(37, 99, 235, 0.25);
+        }
+
+        .secondary-btn {
+            background: linear-gradient(135deg, rgba(37, 99, 235, 0.08), rgba(37, 99, 235, 0.12));
+            color: var(--brand-dark);
+        }
+
+        .danger-btn {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            color: #fff;
+            box-shadow: 0 18px 30px rgba(220, 38, 38, 0.25);
+        }
+
+        .danger-zone {
+            border: 1px dashed rgba(239, 68, 68, 0.35);
+            border-radius: 18px;
+            padding: 20px;
+            background: rgba(254, 226, 226, 0.6);
+            display: grid;
+            gap: 14px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            border-radius: 20px;
+            overflow: hidden;
+            background: var(--bg-panel);
+            box-shadow: var(--shadow-soft);
+        }
+
+        th,
+        td {
+            padding: 14px 18px;
+            border-bottom: 1px solid #edf0f7;
+            font-size: 13px;
+            text-align: left;
+        }
+
+        th {
+            background: rgba(37, 99, 235, 0.05);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        .empty {
+            padding: 32px;
+            border-radius: 20px;
+            border: 1px dashed rgba(37, 99, 235, 0.25);
+            text-align: center;
+            color: var(--text-secondary);
+            background: rgba(37, 99, 235, 0.04);
+        }
+
+        .timeline {
+            display: grid;
+            gap: 16px;
+        }
+
+        .timeline-item {
+            border-left: 3px solid rgba(37, 99, 235, 0.25);
+            padding: 12px 18px;
+            background: rgba(248, 250, 252, 0.9);
+            border-radius: 16px;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+        }
+
+        .timeline-title {
+            font-weight: 600;
+            margin-bottom: 6px;
+            font-size: 14px;
+        }
+
+        .timeline-time {
+            font-size: 11px;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            letter-spacing: 0.05em;
+        }
+
+        @media (max-width: 1080px) {
+            .topbar {
+                padding: 18px 24px;
+            }
+
+            main {
+                padding: 24px;
+            }
+
+            .layout {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .summary-value {
+                font-size: 20px;
+            }
+
+            form {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="topbar">
+            <div class="brand">
+                <div class="brand-logo">VM</div>
+                <div>
+                    <h1>用户详情</h1>
+                    <div class="brand-subtitle">管理账号信息、关联卡密与安全操作。</div>
+                </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
+                <a class="back-link" href="/admin/users">返回用户列表</a>
+                {% if license %}
+                <div class="status-chip">
+                    <span>卡密状态</span>
+                    <strong>{{ status_labels.get(license.status, license.status) }}</strong>
+                </div>
+                {% else %}
+                <div class="status-chip neutral">未绑定卡密</div>
+                {% endif %}
+            </div>
+        </div>
+    </header>
+
+    {% set return_to = request.url.path + ('?' + request.url.query if request.url.query else '') %}
+
+    <main>
+        {% if message %}
+        <div class="message">{{ message }}</div>
+        {% endif %}
+
+        <div class="summary-grid">
+            <div class="summary-card">
+                <div class="summary-title">用户名</div>
+                <span class="summary-value">{{ user_obj.username }}</span>
+                <div class="summary-sub">用户编号 #{{ user_obj.id }}</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-title">关联卡密</div>
+                {% if license %}
+                <a class="summary-link" href="/admin/licenses/{{ license.card_code }}">{{ license.card_code }}</a>
+                <div class="summary-sub">状态：{{ status_labels.get(license.status, license.status) }}</div>
+                {% else %}
+                <span class="summary-value">未绑定</span>
+                {% endif %}
+            </div>
+            <div class="summary-card">
+                <div class="summary-title">注册时间</div>
+                <span class="summary-value">{{ user_obj.created_at.isoformat() }}</span>
+            </div>
+            <div class="summary-card">
+                <div class="summary-title">激活设备</div>
+                <span class="summary-value">{{ activations|length if activations else 0 }}</span>
+                {% if latest_seen %}
+                <div class="summary-sub">最近心跳：{{ latest_seen.isoformat() }}</div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="layout">
+            <section class="panel">
+                <div>
+                    <h2>账户信息</h2>
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <span class="info-label">用户名</span>
+                            <span class="info-value">{{ user_obj.username }}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">注册时间</span>
+                            <span class="info-value">{{ user_obj.created_at.isoformat() }}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">绑定卡密</span>
+                            <span class="info-value">{{ license.card_code if license else '-' }}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">卡密状态</span>
+                            <span class="info-value">{{ status_labels.get(license.status, license.status) if license else '未绑定' }}</span>
+                        </div>
+                        {% if license and license.expire_at %}
+                        <div class="info-item">
+                            <span class="info-label">卡密到期</span>
+                            <span class="info-value">{{ license.expire_at.isoformat() }}</span>
+                        </div>
+                        {% endif %}
+                        {% if expires_in_days is not none %}
+                        <div class="info-item">
+                            <span class="info-label">剩余天数</span>
+                            <span class="info-value">{{ expires_in_days }}</span>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div>
+                    <h2>快速更新</h2>
+                    <form method="post" action="/admin/users/{{ user_obj.id }}/profile">
+                        <div>
+                            <label class="info-label" for="profile-username">新的用户名</label>
+                            <input id="profile-username" type="text" name="username" placeholder="保持不变请留空" />
+                        </div>
+                        <div>
+                            <label class="info-label" for="profile-card">重新绑定卡密</label>
+                            <input id="profile-card" type="text" name="card_code" placeholder="输入卡密编号" />
+                        </div>
+                        <input type="hidden" name="return_to" value="{{ return_to }}" />
+                        <div style="display:flex; gap:12px; flex-wrap:wrap;">
+                            <button class="primary-btn" type="submit">保存修改</button>
+                            {% if license %}
+                            <a class="secondary-btn" href="/admin/licenses/{{ license.card_code }}">查看关联卡密</a>
+                            {% endif %}
+                        </div>
+                    </form>
+                </div>
+
+                <div>
+                    <h2>安全设置</h2>
+                    <form method="post" action="/admin/users/{{ user_obj.id }}/password">
+                        <div>
+                            <label class="info-label" for="password-new">新密码</label>
+                            <input id="password-new" type="password" name="password" minlength="8" placeholder="至少 8 位" required />
+                        </div>
+                        <div>
+                            <label class="info-label" for="password-confirm">确认新密码</label>
+                            <input id="password-confirm" type="password" name="confirm_password" minlength="8" placeholder="再次输入" required />
+                        </div>
+                        <input type="hidden" name="return_to" value="{{ return_to }}" />
+                        <button class="primary-btn" type="submit">更新密码</button>
+                    </form>
+                </div>
+
+                <div class="danger-zone">
+                    <div style="font-weight:600;">危险操作</div>
+                    <div style="color: var(--danger); font-size: 13px;">删除用户将解绑卡密并清空相关激活记录，操作不可恢复。</div>
+                    <form method="post" action="/admin/users/{{ user_obj.id }}/delete" onsubmit="return confirm('确认删除该用户并解绑卡密吗？');">
+                        <input type="hidden" name="return_to" value="/admin/users" />
+                        <button class="danger-btn" type="submit">删除用户</button>
+                    </form>
+                </div>
+            </section>
+
+            <section class="panel">
+                <div>
+                    <h2>卡密概览</h2>
+                    {% if license %}
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <span class="info-label">卡密编号</span>
+                            <span class="info-value">{{ license.card_code }}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">绑定指纹</span>
+                            <span class="info-value">{{ license.bound_fingerprint or '-' }}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">创建时间</span>
+                            <span class="info-value">{{ license.created_at.isoformat() }}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">更新时间</span>
+                            <span class="info-value">{{ license.updated_at.isoformat() }}</span>
+                        </div>
+                    </div>
+                    {% else %}
+                    <div class="empty">该用户暂未绑定卡密，可通过上方表单重新绑定。</div>
+                    {% endif %}
+                </div>
+
+                <div>
+                    <h2>激活设备</h2>
+                    {% if activations %}
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>设备指纹</th>
+                                <th>Token</th>
+                                <th>首次激活</th>
+                                <th>最近心跳</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for activation in activations %}
+                            <tr>
+                                <td>{{ activation.device_fingerprint }}</td>
+                                <td>{{ activation.token or '-' }}</td>
+                                <td>{{ activation.activated_at.isoformat() }}</td>
+                                <td>{{ activation.last_seen.isoformat() if activation.last_seen else '-' }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <div class="empty">暂无激活记录。</div>
+                    {% endif %}
+                </div>
+
+                <div>
+                    <h2>审计日志（最近 50 条）</h2>
+                    {% if audit_logs %}
+                    <div class="timeline">
+                        {% for log in audit_logs %}
+                        <div class="timeline-item">
+                            <div class="timeline-title">{{ log.event_type }}</div>
+                            <div>{{ log.message or '-' }}</div>
+                            <div class="timeline-time">{{ log.created_at.isoformat() }}</div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="empty">暂无审计记录。</div>
+                    {% endif %}
+                </div>
+            </section>
+        </div>
+    </main>
+</body>
+</html>

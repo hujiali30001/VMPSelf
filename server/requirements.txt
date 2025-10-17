@@ -4,7 +4,7 @@ pydantic==1.10.17
 SQLAlchemy==2.0.32
 alembic==1.13.1
 python-multipart==0.0.9
-passlib[bcrypt]==1.7.4
+passlib==1.7.4
 pyjwt==2.9.0
 pytest==8.3.2
 paramiko==3.4.0

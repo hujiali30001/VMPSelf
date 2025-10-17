@@ -32,6 +32,7 @@
   4. **反调试模块**（Ring3）：检查硬件断点、DbgPresent、异常处理链；可选延迟检测。
   5. **授权客户端 SDK**：
      - 设备指纹生成（CPU 序列、主板 UUID、MAC）→ SHA256。
+    - 首次注册：输入用户名、密码与卡密，提交至服务器校验卡密有效性并建立账号；注册成功后获取初始 token 并绑定卡密。
      - 首次激活：提交卡密 + 指纹，获取 JWT/token。
      - 心跳：定期带签名参数向服务器汇报状态。
      - 离线许可：本地存储签名文件，验证有效期。
@@ -59,6 +60,7 @@
   - CDN 启用 Web 应用防火墙（WAF）、DDoS 基础防护，对恶意流量进行速率限制和黑名单封禁。
   - 主服务器提供自动化部署脚本（`server/tools/deploy_cdn.py`），根据 JSON 配置批量推送 Nginx 代理、开放防火墙端口并重启服务，实现快速上线/扩容 CDN 节点。
 - **API 设计**：
+  - `/api/v1/users/register`：校验卡密有效性并创建账号，返回安全令牌及后续激活指引。
   - `/api/v1/license/activate`：验证卡密 + 指纹，返回 token 和策略。
   - `/api/v1/license/heartbeat`：心跳续期，更新 `last_seen`。
   - `/api/v1/license/offline`：生成离线授权文件。
@@ -85,6 +87,15 @@ CREATE TABLE licenses (
     expire_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  license_id INTEGER NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (license_id) REFERENCES licenses(id)
 );
 
 CREATE TABLE activations (

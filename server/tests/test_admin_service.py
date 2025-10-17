@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 
 from app.db import models
 from app.db.session import SessionLocal
 from app.services.license_service import LicenseService
+from app.services import security
 
 
 def test_create_license_generates_secret_and_expiry():
@@ -79,3 +81,48 @@ def test_reset_license_clears_fingerprint_and_activations():
 
         logs = service.get_audit_logs(refreshed)
         assert any(log.event_type == "reset" for log in logs)
+
+
+def test_generate_offline_license_respects_expiry_and_logs():
+    with SessionLocal() as session:
+        now = datetime.now(timezone.utc)
+        license_obj = models.License(
+            card_code="CARD-OFFLINE",
+            secret="secret-value",
+            expire_at=now + timedelta(days=5),
+            status=models.LicenseStatus.UNUSED.value,
+        )
+        session.add(license_obj)
+        session.commit()
+        session.refresh(license_obj)
+
+        service = LicenseService(session)
+        requested_expiry = now + timedelta(days=10)
+        blob, signature, effective_expiry, status = service.generate_offline_license(
+            license_obj.card_code,
+            "device-123",
+            requested_expiry,
+        )
+
+        assert status == "ok"
+        assert blob is not None and signature is not None and effective_expiry is not None
+        license_expiry = license_obj.expire_at
+        if license_expiry and license_expiry.tzinfo is None:
+            license_expiry = license_expiry.replace(tzinfo=timezone.utc)
+        assert license_expiry is not None
+        assert effective_expiry <= license_expiry
+
+        payload = json.loads(blob)
+        assert payload["card_code"] == license_obj.card_code
+        assert payload["fingerprint"] == "device-123"
+        assert payload["token"]
+        assert payload["expires_at"] == effective_expiry.isoformat()
+
+        expected_signature = security.sign_message(blob, shared_secret=license_obj.secret)
+        assert signature == expected_signature
+
+    logs = service.get_audit_logs(license_obj)
+    offline_log = next((log for log in logs if log.event_type == "offline_generate"), None)
+    assert offline_log is not None
+    assert "device-123" in (offline_log.message or "")
+    assert effective_expiry.isoformat() in (offline_log.message or "")

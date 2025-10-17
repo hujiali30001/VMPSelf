@@ -4,294 +4,724 @@
     <meta charset="UTF-8" />
     <title>卡密详情 - 授权管理后台</title>
     <style>
+        :root {
+            color-scheme: light;
+            --bg-surface: #f5f7fb;
+            --bg-panel: #ffffff;
+            --bg-panel-alt: linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%);
+            --border-soft: #e5e7f1;
+            --shadow-soft: 0 24px 55px rgba(15, 23, 42, 0.12);
+            --text-primary: #1f2937;
+            --text-secondary: #6b7280;
+            --brand: #2563eb;
+            --brand-dark: #1d4ed8;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
         body {
-            font-family: "Segoe UI", Arial, sans-serif;
-            margin: 32px;
-            background: #f4f6fb;
-            color: #20262e;
-        }
-        a {
-            color: #2563eb;
-            text-decoration: none;
-        }
-        a:hover {
-            text-decoration: underline;
-        }
-        header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 24px;
-        }
-        h1 {
             margin: 0;
-            font-size: 24px;
-        }
-        .message {
-            padding: 12px 16px;
-            background: #eef7ff;
-            border: 1px solid #b6dbff;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            color: #11508a;
-        }
-        .layout {
-            display: grid;
-            grid-template-columns: 1.2fr 1fr;
-            gap: 24px;
-        }
-        .card {
-            background: #fff;
-            border-radius: 12px;
-            padding: 20px;
-            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
-        }
-        .card h2 {
-            margin-top: 0;
-            font-size: 18px;
-            margin-bottom: 16px;
-        }
-        .info-grid {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 12px 18px;
-            font-size: 14px;
-        }
-        .info-item span {
-            display: block;
-        }
-        .info-label {
-            font-size: 12px;
-            text-transform: uppercase;
-            color: #6b7a8f;
-            letter-spacing: 0.05em;
-            margin-bottom: 4px;
-        }
-        .info-value {
-            font-weight: 600;
-        }
-        .badge {
-            border-radius: 12px;
-            padding: 4px 10px;
-            font-size: 12px;
-            display: inline-block;
-            text-transform: uppercase;
-        }
-        .badge-unused { background: #e0f2ff; color: #0366d6; }
-        .badge-active { background: #e6ffed; color: #1b7f46; }
-        .badge-revoked { background: #ffeceb; color: #b11c1c; }
-        .badge-expired { background: #fff5e6; color: #b36b00; }
-        .actions {
+            background: var(--bg-surface);
+            font-family: "Inter", "PingFang SC", "Segoe UI", sans-serif;
+            color: var(--text-primary);
+            min-height: 100vh;
             display: flex;
-            gap: 12px;
-            flex-wrap: wrap;
-            margin-top: 20px;
+            flex-direction: column;
         }
-        .actions form {
+
+        header {
+            background: var(--bg-panel);
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            box-shadow: 0 18px 45px rgba(37, 99, 235, 0.12);
+        }
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 20px 48px;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+        }
+
+        .brand-logo {
+            width: 48px;
+            height: 48px;
+            border-radius: 16px;
+            background: linear-gradient(135deg, rgba(37, 99, 235, 0.9), rgba(59, 130, 246, 0.8));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-weight: 700;
+            font-size: 18px;
+            box-shadow: 0 22px 36px rgba(59, 130, 246, 0.35);
+        }
+
+        .brand h1 {
+            margin: 0;
+            font-size: 22px;
+            font-weight: 700;
+        }
+
+        .brand-subtitle {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .status-chip {
             display: inline-flex;
             align-items: center;
-            gap: 8px;
-        }
-        .actions input[type="number"] {
-            width: 120px;
-            padding: 6px 10px;
-            border-radius: 6px;
-            border: 1px solid #cfd8dc;
-        }
-        button {
-            border: none;
-            background: linear-gradient(135deg, #4c8df6, #2563eb);
-            color: #fff;
-            padding: 8px 14px;
-            border-radius: 6px;
+            gap: 10px;
+            padding: 10px 18px;
+            border-radius: 999px;
+            background: linear-gradient(135deg, rgba(37, 99, 235, 0.1), rgba(37, 99, 235, 0.05));
+            color: var(--brand-dark);
+            font-weight: 600;
             font-size: 13px;
+        }
+
+        main {
+            flex: 1;
+            padding: 32px 48px 64px;
+            display: grid;
+            gap: 32px;
+        }
+
+        .message {
+            padding: 18px 22px;
+            border-radius: 16px;
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(37, 99, 235, 0.1));
+            color: var(--brand-dark);
+            border: 1px solid rgba(37, 99, 235, 0.22);
+            box-shadow: 0 24px 48px rgba(37, 99, 235, 0.18);
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 20px;
+        }
+
+        .summary-card {
+            padding: 18px 20px;
+            border-radius: 18px;
+            background: var(--bg-panel-alt);
+            border: 1px solid rgba(37, 99, 235, 0.14);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+        }
+
+        .summary-title {
+            text-transform: uppercase;
+            font-size: 12px;
+            color: var(--text-secondary);
+            letter-spacing: 0.05em;
+            margin-bottom: 6px;
+        }
+
+        .summary-value {
+            font-size: 24px;
+            font-weight: 700;
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: minmax(360px, 420px) 1fr;
+            gap: 28px;
+        }
+
+        .panel {
+            background: var(--bg-panel);
+            border-radius: 24px;
+            padding: 28px;
+            box-shadow: var(--shadow-soft);
+        }
+
+        .panel h2 {
+            margin: 0 0 18px;
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 18px 20px;
+        }
+
+        .info-item {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .info-label {
+            text-transform: uppercase;
+            font-size: 12px;
+            color: var(--text-secondary);
+            letter-spacing: 0.05em;
+        }
+
+        .info-value {
+            font-weight: 600;
+            font-size: 15px;
+        }
+
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin-top: 24px;
+        }
+
+        .actions form {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        input[type="number"],
+        input[type="text"],
+        textarea,
+        select {
+            padding: 12px 14px;
+            border-radius: 14px;
+            border: 1px solid var(--border-soft);
+            background: #f8fafc;
+            font-size: 14px;
+            transition: border 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        input:focus,
+        textarea:focus,
+        select:focus {
+            outline: none;
+            border-color: rgba(37, 99, 235, 0.7);
+            box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+        }
+
+        .primary-btn {
+            border: none;
+            padding: 12px 20px;
+            border-radius: 14px;
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+            color: #fff;
+            font-size: 14px;
+            font-weight: 600;
             cursor: pointer;
+            box-shadow: 0 20px 35px rgba(37, 99, 235, 0.25);
         }
-        button.danger {
-            background: linear-gradient(135deg, #f87171, #dc2626);
+
+        .danger-btn {
+            border: none;
+            padding: 12px 20px;
+            border-radius: 14px;
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            color: #fff;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 18px 30px rgba(220, 38, 38, 0.25);
+
+        .summary-link {
+            color: var(--brand-dark);
+            font-size: 16px;
+            font-weight: 600;
+            text-decoration: none;
         }
+
+        .summary-sub {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 6px;
+        }
+        }
+
+        .danger-btn:disabled,
+        .primary-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .offline-panel {
+            display: grid;
+            gap: 20px;
+        }
+
+        .offline-panel p {
+            margin: 0;
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        .form-grid {
+            display: grid;
+            gap: 18px;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        }
+
+        .result-box {
+            border-radius: 18px;
+            border: 1px solid rgba(59, 130, 246, 0.2);
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(37, 99, 235, 0.05));
+            padding: 20px;
+            display: grid;
+            gap: 16px;
+        }
+
+        .copy-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .copy-button {
+            border: none;
+            border-radius: 12px;
+            padding: 10px 16px;
+            background: linear-gradient(135deg, #34d399, #059669);
+            color: #fff;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 16px 28px rgba(34, 197, 94, 0.2);
+        }
+
+        .download-button {
+            border: none;
+            border-radius: 12px;
+            padding: 12px 18px;
+            background: linear-gradient(135deg, #fbbf24, #f59e0b);
+            color: #1f2937;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 18px 28px rgba(245, 158, 11, 0.25);
+        }
+
         table {
             width: 100%;
             border-collapse: collapse;
-            background: #fff;
-            border-radius: 12px;
+            border-radius: 20px;
             overflow: hidden;
-            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
-            margin-top: 24px;
+            background: var(--bg-panel);
+            box-shadow: var(--shadow-soft);
         }
-        th, td {
-            padding: 12px 14px;
-            border-bottom: 1px solid #ecf0f5;
-            text-align: left;
+
+        th,
+        td {
+            padding: 14px 18px;
+            border-bottom: 1px solid #edf0f7;
             font-size: 13px;
+            text-align: left;
         }
+
         th {
-            background: #f3f6fb;
+            background: rgba(37, 99, 235, 0.05);
             text-transform: uppercase;
-            font-weight: 600;
-            font-size: 12px;
             letter-spacing: 0.04em;
-            color: #556070;
+            color: var(--text-secondary);
+            font-weight: 600;
         }
+
         tr:last-child td {
             border-bottom: none;
         }
+
         .empty {
-            padding: 18px;
+            padding: 32px;
+            border-radius: 20px;
+            border: 1px dashed rgba(37, 99, 235, 0.25);
             text-align: center;
-            color: #607d8b;
+            color: var(--text-secondary);
+            background: rgba(37, 99, 235, 0.04);
         }
-        .audit-list {
-            margin-top: 24px;
+
+        .timeline {
+            display: grid;
+            gap: 16px;
         }
-        .audit-item {
-            border-left: 3px solid #c7d2fe;
-            padding: 12px 16px;
-            background: #f8fafc;
-            border-radius: 10px;
-            margin-bottom: 12px;
+
+        .timeline-item {
+            border-left: 3px solid rgba(37, 99, 235, 0.25);
+            padding: 12px 18px;
+            background: rgba(248, 250, 252, 0.9);
+            border-radius: 16px;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
         }
-        .audit-title {
-            font-size: 13px;
+
+        .timeline-title {
             font-weight: 600;
-            margin-bottom: 4px;
+            margin-bottom: 6px;
+            font-size: 14px;
         }
-        .audit-time {
+
+        .timeline-time {
             font-size: 11px;
             text-transform: uppercase;
-            color: #6b7a8f;
+            color: var(--text-secondary);
             letter-spacing: 0.05em;
         }
+
         .back-link {
-            font-size: 13px;
+            border-radius: 16px;
+            background: linear-gradient(135deg, rgba(37, 99, 235, 0.08), rgba(59, 130, 246, 0.08));
+            padding: 10px 16px;
+            color: var(--brand);
+            text-decoration: none;
+            font-weight: 600;
         }
-        @media (max-width: 1024px) {
+
+        @media (max-width: 1080px) {
+            .topbar {
+                padding: 18px 24px;
+                flex-wrap: wrap;
+                gap: 16px;
+            }
+
+            main {
+                padding: 24px;
+            }
+
             .layout {
                 grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .summary-value {
+                font-size: 20px;
+            }
+
+            .actions form {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 10px;
+            }
+
+            .copy-row {
+                flex-direction: column;
+                align-items: stretch;
             }
         }
     </style>
 </head>
 <body>
     <header>
-        <div>
-            <div class="back-link"><a href="/admin/licenses">&larr; 返回列表</a></div>
-            <h1>卡密详情</h1>
-        </div>
-        <div>
-            <span class="badge badge-{{ license.status }}">{{ status_labels.get(license.status, license.status) }}</span>
+        <div class="topbar">
+            <div class="brand">
+                <div class="brand-logo">VM</div>
+                <div>
+                    <h1>卡密详情</h1>
+                    <div class="brand-subtitle">追踪授权变化，管理绑定用户与设备指纹。</div>
+                </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
+                <a class="back-link" href="/admin/licenses">返回卡密列表</a>
+                <div class="status-chip">
+                    <span>状态</span>
+                    <strong>{{ status_labels.get(license.status, license.status) }}</strong>
+                </div>
+            </div>
         </div>
     </header>
 
     {% set return_to = request.url.path + ('?' + request.url.query if request.url.query else '') %}
 
-    {% if message %}
-    <div class="message">{{ message }}</div>
-    {% endif %}
+    <main>
+        {% if message %}
+        <div class="message">{{ message }}</div>
+        {% endif %}
 
-    <div class="layout">
-        <section class="card">
-            <h2>基础信息</h2>
-            <div class="info-grid">
-                <div class="info-item">
-                    <span class="info-label">卡密</span>
-                    <span class="info-value">{{ license.card_code }}</span>
-                </div>
-                <div class="info-item">
-                    <span class="info-label">当前状态</span>
-                    <span class="info-value">{{ status_labels.get(license.status, license.status) }}</span>
-                </div>
-                <div class="info-item">
-                    <span class="info-label">绑定指纹</span>
-                    <span class="info-value">{{ license.bound_fingerprint or '-' }}</span>
-                </div>
-                <div class="info-item">
-                    <span class="info-label">最近心跳</span>
-                    <span class="info-value">{{ latest_seen.isoformat() if latest_seen else '-' }}</span>
-                </div>
-                <div class="info-item">
-                    <span class="info-label">到期时间</span>
-                    <span class="info-value">{{ license.expire_at.isoformat() if license.expire_at else '未设置' }}</span>
-                </div>
-                <div class="info-item">
-                    <span class="info-label">剩余天数</span>
-                    <span class="info-value">{{ expires_in_days if expires_in_days is not none else '未知' }}</span>
-                </div>
-                <div class="info-item">
-                    <span class="info-label">创建时间</span>
-                    <span class="info-value">{{ license.created_at.isoformat() }}</span>
-                </div>
-                <div class="info-item">
-                    <span class="info-label">更新时间</span>
-                    <span class="info-value">{{ license.updated_at.isoformat() }}</span>
-                </div>
+        <div class="summary-grid">
+            <div class="summary-card">
+                <div class="summary-title">卡密</div>
+                <div class="summary-value">{{ license.card_code }}</div>
             </div>
-
-            <div class="actions">
-                <form method="post" action="/admin/licenses/{{ license.card_code }}/extend">
-                    <label for="extend-days" class="info-label">延期天数</label>
-                    <input id="extend-days" type="number" name="extra_days" value="30" min="1" max="365" />
-                    <input type="hidden" name="return_to" value="{{ return_to }}" />
-                    <button type="submit">执行延期</button>
-                </form>
-
-                <form method="post" action="/admin/licenses/{{ license.card_code }}/reset" onsubmit="return confirm('确认重置并清空所有激活记录吗？');">
-                    <input type="hidden" name="return_to" value="{{ return_to }}" />
-                    <button class="danger" type="submit">重置卡密</button>
-                </form>
-
-                <form method="post" action="/admin/licenses/revoke" onsubmit="return confirm('确认撤销 {{ license.card_code }} 吗？');">
-                    <input type="hidden" name="card_code" value="{{ license.card_code }}" />
-                    <input type="hidden" name="return_to" value="{{ return_to }}" />
-                    <button class="danger" type="submit">撤销授权</button>
-                </form>
-            </div>
-        </section>
-
-        <section class="card">
-            <h2>审计日志（最近 100 条）</h2>
-            <div class="audit-list">
-                {% if audit_logs %}
-                {% for log in audit_logs %}
-                <div class="audit-item">
-                    <div class="audit-title">{{ log.event_type }}</div>
-                    <div>{{ log.message or '-' }}</div>
-                    <div class="audit-time">{{ log.created_at.isoformat() }}</div>
-                </div>
-                {% endfor %}
+            <div class="summary-card">
+                <div class="summary-title">注册用户</div>
+                {% if registered_user %}
+                <a class="summary-link" href="/admin/users/{{ registered_user.id }}">{{ registered_user.username }}</a>
+                <div class="summary-sub">用户编号 #{{ registered_user.id }}</div>
                 {% else %}
-                <div class="empty">暂无审计记录。</div>
+                <div class="summary-value">未注册</div>
                 {% endif %}
             </div>
-        </section>
-    </div>
+            <div class="summary-card">
+                <div class="summary-title">到期时间</div>
+                <div class="summary-value">{{ license.expire_at.isoformat() if license.expire_at else '未设置' }}</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-title">剩余天数</div>
+                <div class="summary-value">{{ expires_in_days if expires_in_days is not none else '未知' }}</div>
+            </div>
+        </div>
 
-    <section>
-        <h2>激活设备</h2>
-        {% if activations %}
-        <table>
-            <thead>
-                <tr>
-                    <th>设备指纹</th>
-                    <th>Token</th>
-                    <th>首次激活</th>
-                    <th>最近心跳</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for activation in activations %}
-                <tr>
-                    <td>{{ activation.device_fingerprint }}</td>
-                    <td>{{ activation.token or '-' }}</td>
-                    <td>{{ activation.activated_at.isoformat() }}</td>
-                    <td>{{ activation.last_seen.isoformat() if activation.last_seen else '-' }}</td>
-                </tr>
+        <div class="layout">
+            <section class="panel">
+                <h2>基础信息</h2>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <span class="info-label">卡密</span>
+                        <span class="info-value">{{ license.card_code }}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">绑定指纹</span>
+                        <span class="info-value">{{ license.bound_fingerprint or '-' }}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">注册时间</span>
+                        <span class="info-value">{{ registered_user.created_at.isoformat() if registered_user else '-' }}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">最近心跳</span>
+                        <span class="info-value">{{ latest_seen.isoformat() if latest_seen else '-' }}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">创建时间</span>
+                        <span class="info-value">{{ license.created_at.isoformat() }}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">更新时间</span>
+                        <span class="info-value">{{ license.updated_at.isoformat() }}</span>
+                    </div>
+                </div>
+
+                <div class="actions">
+                    <form method="post" action="/admin/licenses/{{ license.card_code }}/extend">
+                        <label class="info-label" for="extend-days">延期天数</label>
+                        <input id="extend-days" type="number" name="extra_days" value="30" min="1" max="365" />
+                        <input type="hidden" name="return_to" value="{{ return_to }}" />
+                        <button class="primary-btn" type="submit">执行延期</button>
+                    </form>
+
+                    <form method="post" action="/admin/licenses/{{ license.card_code }}/reset" onsubmit="return confirm('确认重置并清空所有激活记录吗？');">
+                        <input type="hidden" name="return_to" value="{{ return_to }}" />
+                        <button class="danger-btn" type="submit">重置卡密</button>
+                    </form>
+
+                    <form method="post" action="/admin/licenses/revoke" onsubmit="return confirm('确认撤销 {{ license.card_code }} 吗？');">
+                        <input type="hidden" name="card_code" value="{{ license.card_code }}" />
+                        <input type="hidden" name="return_to" value="{{ return_to }}" />
+                        <button class="danger-btn" type="submit">撤销授权</button>
+                    </form>
+                </div>
+            </section>
+
+            <section class="panel offline-panel">
+                <h2>生成离线授权</h2>
+                <p>为断网环境生成离线授权包，数据受限于卡密本身的到期时间。建议生成后立即分发给目标终端。</p>
+
+                <form method="post" action="/admin/licenses/{{ license.card_code }}/offline">
+                    <div class="form-grid">
+                        <div>
+                            <label class="info-label" for="offline-fingerprint">设备指纹</label>
+                            <input
+                                id="offline-fingerprint"
+                                type="text"
+                                name="fingerprint"
+                                required
+                                placeholder="请输入目标设备指纹"
+                                value="{{ offline_result.fingerprint if offline_result else (license.bound_fingerprint or '') }}"
+                            />
+                        </div>
+                        <div>
+                            <label class="info-label" for="offline-ttl">有效天数</label>
+                            <input id="offline-ttl" type="number" name="ttl_days" value="7" min="1" max="365" />
+                        </div>
+                    </div>
+                    <input type="hidden" name="return_to" value="{{ return_to }}" />
+                    <div style="margin-top:18px;">
+                        <button class="primary-btn" type="submit">生成离线授权</button>
+                    </div>
+                </form>
+
+                {% if offline_result %}
+                <div class="result-box">
+                    <div>
+                        <span class="info-label">设备指纹</span>
+                        <input type="text" value="{{ offline_result.fingerprint }}" readonly />
+                    </div>
+                    <div>
+                        <span class="info-label">离线授权到期</span>
+                        <input type="text" value="{{ offline_result.expires_at }}" readonly />
+                    </div>
+                    <div>
+                        <span class="info-label">授权数据</span>
+                        <div class="copy-row">
+                            <textarea id="license-blob" readonly>{{ offline_result.license_blob }}</textarea>
+                            <button type="button" class="copy-button" data-copy-target="license-blob">复制</button>
+                        </div>
+                    </div>
+                    <div>
+                        <span class="info-label">授权签名</span>
+                        <div class="copy-row">
+                            <textarea id="license-signature" readonly>{{ offline_result.signature }}</textarea>
+                            <button type="button" class="copy-button" data-copy-target="license-signature">复制</button>
+                        </div>
+                    </div>
+                    <div>
+                        <button
+                            type="button"
+                            class="download-button"
+                            data-offline='{{ {
+                                "card_code": license.card_code,
+                                "fingerprint": offline_result.fingerprint,
+                                "expires_at": offline_result.expires_at,
+                                "license_blob": offline_result.license_blob,
+                                "signature": offline_result.signature
+                            } | tojson }}'
+                        >下载离线包</button>
+                    </div>
+                </div>
+                {% endif %}
+            </section>
+        </div>
+
+        <section class="panel">
+            <h2>激活设备</h2>
+            {% if activations %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>设备指纹</th>
+                        <th>Token</th>
+                        <th>首次激活</th>
+                        <th>最近心跳</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for activation in activations %}
+                    <tr>
+                        <td>{{ activation.device_fingerprint }}</td>
+                        <td>{{ activation.token or '-' }}</td>
+                        <td>{{ activation.activated_at.isoformat() }}</td>
+                        <td>{{ activation.last_seen.isoformat() if activation.last_seen else '-' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="empty">该卡密暂无激活记录。</div>
+            {% endif %}
+        </section>
+
+        <section class="panel">
+            <h2>审计日志（最近 100 条）</h2>
+            {% if audit_logs %}
+            <div class="timeline">
+                {% for log in audit_logs %}
+                <div class="timeline-item">
+                    <div class="timeline-title">{{ log.event_type }}</div>
+                    <div>{{ log.message or '-' }}</div>
+                    <div class="timeline-time">{{ log.created_at.isoformat() }}</div>
+                </div>
                 {% endfor %}
-            </tbody>
-        </table>
-        {% else %}
-        <div class="empty">该卡密暂无激活记录。</div>
-        {% endif %}
-    </section>
+            </div>
+            {% else %}
+            <div class="empty">暂无审计记录。</div>
+            {% endif %}
+        </section>
+    </main>
+
+    <script>
+        (function () {
+            var copyButtons = document.querySelectorAll('[data-copy-target]');
+            copyButtons.forEach(function (button) {
+                button.addEventListener('click', function () {
+                    var targetId = button.getAttribute('data-copy-target');
+                    if (!targetId) {
+                        return;
+                    }
+                    var field = document.getElementById(targetId);
+                    if (!field) {
+                        return;
+                    }
+                    var text = field.value;
+                    var done = function () {
+                        button.textContent = '已复制';
+                        setTimeout(function () {
+                            button.textContent = '复制';
+                        }, 2000);
+                    };
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(text).then(done).catch(function () {
+                            field.select();
+                            field.setSelectionRange(0, text.length);
+                            if (document.execCommand('copy')) {
+                                done();
+                            }
+                        });
+                    } else {
+                        field.select();
+                        field.setSelectionRange(0, text.length);
+                        if (document.execCommand('copy')) {
+                            done();
+                        }
+                    }
+                });
+            });
+
+            var downloadButton = document.querySelector('.download-button[data-offline]');
+            if (downloadButton) {
+                downloadButton.addEventListener('click', function () {
+                    var payloadRaw = downloadButton.getAttribute('data-offline');
+                    if (!payloadRaw) {
+                        return;
+                    }
+                    var payload;
+                    try {
+                        payload = JSON.parse(payloadRaw);
+                    } catch (error) {
+                        console.warn('无法解析离线授权数据', error);
+                        return;
+                    }
+                    var exportData = {
+                        card_code: payload.card_code,
+                        fingerprint: payload.fingerprint,
+                        expires_at: payload.expires_at,
+                        license_blob: payload.license_blob,
+                        signature: payload.signature,
+                    };
+                    var jsonText = JSON.stringify(exportData, null, 2);
+                    var blob = new Blob([jsonText], { type: 'application/json' });
+                    var url = URL.createObjectURL(blob);
+                    var filenameParts = [payload.card_code || 'license', payload.fingerprint || 'offline'];
+                    var filename = filenameParts
+                        .map(function (part) {
+                            return String(part).trim().replace(/[^A-Za-z0-9_-]+/g, '-');
+                        })
+                        .filter(Boolean)
+                        .join('_');
+                    if (!filename) {
+                        filename = 'offline-license';
+                    }
+                    filename += '.json';
+
+                    var link = document.createElement('a');
+                    link.href = url;
+                    link.download = filename;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(url);
+                });
+            }
+        })();
+    </script>
 </body>
 </html>

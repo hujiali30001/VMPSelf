@@ -4,7 +4,11 @@ param(
     [string]$ServiceName = "VMPAuthService",
     [int]$Port = 8000,
     [string]$Host = "0.0.0.0",
-    [string]$NssmUrl = "https://nssm.cc/release/nssm-2.24.zip"
+    [string]$NssmUrl = "https://nssm.cc/release/nssm-2.24.zip",
+    [string]$AdminUser,
+    [string]$AdminPassword,
+    [string]$HmacSecret,
+    [string]$SqlitePath
 )
 
 $ErrorActionPreference = "Stop"
@@ -33,6 +37,68 @@ function Resolve-AbsolutePath {
         return (Resolve-Path -LiteralPath $Path).Path
     }
     return [System.IO.Path]::GetFullPath($Path)
+}
+
+function New-RandomToken {
+    param([int]$Bytes = 32)
+    $buffer = New-Object byte[] ($Bytes -lt 8 ? 8 : $Bytes)
+    [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($buffer)
+    return ([Convert]::ToBase64String($buffer)).TrimEnd('=')
+}
+
+function Get-EnvMap {
+    param([string]$FilePath)
+    $map = @{}
+    if (-not (Test-Path -LiteralPath $FilePath)) {
+        return $map
+    }
+
+    foreach ($line in Get-Content -Path $FilePath -Encoding UTF8) {
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+        $trimmed = $line.Trim()
+        if ($trimmed.StartsWith("#")) {
+            continue
+        }
+        $parts = $trimmed -split "=", 2
+        if ($parts.Length -eq 2) {
+            $map[$parts[0].Trim()] = $parts[1].Trim()
+        }
+    }
+
+    return $map
+}
+
+function Update-EnvFile {
+    param(
+        [string]$FilePath,
+        [hashtable]$Updates
+    )
+
+    $lines = @()
+    if (Test-Path -LiteralPath $FilePath) {
+        $lines = Get-Content -Path $FilePath -Encoding UTF8
+    }
+
+    $handled = @{}
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        foreach ($key in $Updates.Keys) {
+            $pattern = "^\s*{0}\s*=" -f [regex]::Escape($key)
+            if ($lines[$i] -match $pattern) {
+                $lines[$i] = "$key=$($Updates[$key])"
+                $handled[$key] = $true
+            }
+        }
+    }
+
+    foreach ($key in $Updates.Keys) {
+        if (-not $handled.ContainsKey($key)) {
+            $lines += "$key=$($Updates[$key])"
+        }
+    }
+
+    Set-Content -Path $FilePath -Value $lines -Encoding UTF8
 }
 
 Assert-Admin
@@ -84,6 +150,86 @@ if (-not (Test-Path -LiteralPath $EnvFile)) {
         Write-Step "未找到 .env.example，请手动创建 .env"
         New-Item -Path $EnvFile -ItemType File | Out-Null
     }
+}
+
+$ExistingEnv = Get-EnvMap -FilePath $EnvFile
+
+$FinalEnv = @{}
+$FinalEnv["VMP_ENV"] = "production"
+
+$resolvedSqlitePath = $null
+if ($SqlitePath) {
+    $resolvedSqlitePath = Resolve-AbsolutePath -Path $SqlitePath
+} elseif ($ExistingEnv.ContainsKey("VMP_SQLITE_PATH") -and $ExistingEnv["VMP_SQLITE_PATH"]) {
+    $resolvedSqlitePath = Resolve-AbsolutePath -Path $ExistingEnv["VMP_SQLITE_PATH"]
+    if ($ExistingEnv["VMP_SQLITE_PATH"] -eq "data/license.db") {
+        $resolvedSqlitePath = Join-Path $InstallRoot "data\license.db"
+    }
+} else {
+    $resolvedSqlitePath = Join-Path $InstallRoot "data\license.db"
+}
+
+if ($resolvedSqlitePath) {
+    $sqliteDir = Split-Path -Parent $resolvedSqlitePath
+    if ($sqliteDir -and -not (Test-Path -LiteralPath $sqliteDir)) {
+        New-Item -ItemType Directory -Path $sqliteDir -Force | Out-Null
+    }
+    $FinalEnv["VMP_SQLITE_PATH"] = ($resolvedSqlitePath -replace "\\", "/")
+}
+
+$existingHmac = $null
+if ($ExistingEnv.ContainsKey("VMP_HMAC_SECRET")) {
+    $existingHmac = $ExistingEnv["VMP_HMAC_SECRET"]
+}
+$FinalHmacSecret = if ($HmacSecret) { $HmacSecret } elseif ([string]::IsNullOrWhiteSpace($existingHmac) -or $existingHmac -in @("super-secret-key", "change-me")) { New-RandomToken -Bytes 48 } else { $existingHmac }
+$FinalEnv["VMP_HMAC_SECRET"] = $FinalHmacSecret
+$GeneratedHmacSecret = -not $HmacSecret -and ($FinalHmacSecret -ne $existingHmac)
+
+$existingAdminUser = $null
+if ($ExistingEnv.ContainsKey("VMP_ADMIN_USER")) {
+    $existingAdminUser = $ExistingEnv["VMP_ADMIN_USER"]
+}
+$FinalAdminUser = if ($AdminUser) { $AdminUser } elseif (-not [string]::IsNullOrWhiteSpace($existingAdminUser)) { $existingAdminUser } else { "admin" }
+$FinalEnv["VMP_ADMIN_USER"] = $FinalAdminUser
+
+$existingAdminPass = $null
+if ($ExistingEnv.ContainsKey("VMP_ADMIN_PASS")) {
+    $existingAdminPass = $ExistingEnv["VMP_ADMIN_PASS"]
+}
+$GeneratedAdminPassword = $false
+if ($AdminPassword) {
+    $FinalAdminPass = $AdminPassword
+} elseif ([string]::IsNullOrWhiteSpace($existingAdminPass) -or $existingAdminPass -in @("super-admin-password", "change-me", "password")) {
+    $FinalAdminPass = New-RandomToken -Bytes 36
+    $GeneratedAdminPassword = $true
+} else {
+    $FinalAdminPass = $existingAdminPass
+}
+$FinalEnv["VMP_ADMIN_PASS"] = $FinalAdminPass
+
+Update-EnvFile -FilePath $EnvFile -Updates $FinalEnv
+
+Write-Step "已更新 .env 关键信息"
+Write-Host "    VMP_ENV = $($FinalEnv["VMP_ENV"])"
+Write-Host "    VMP_SQLITE_PATH = $($FinalEnv["VMP_SQLITE_PATH"])"
+if ($GeneratedHmacSecret) {
+    Write-Host "    VMP_HMAC_SECRET 已生成新值" -ForegroundColor Yellow
+} elseif ($HmacSecret) {
+    Write-Host "    VMP_HMAC_SECRET 已按参数更新" -ForegroundColor Yellow
+} else {
+    Write-Host "    VMP_HMAC_SECRET 保留现有配置"
+}
+if ($AdminUser) {
+    Write-Host "    VMP_ADMIN_USER 已按参数更新" -ForegroundColor Yellow
+} else {
+    Write-Host "    VMP_ADMIN_USER = $FinalAdminUser"
+}
+if ($GeneratedAdminPassword) {
+    Write-Host "    VMP_ADMIN_PASS 已生成新值" -ForegroundColor Yellow
+} elseif ($AdminPassword) {
+    Write-Host "    VMP_ADMIN_PASS 已按参数更新" -ForegroundColor Yellow
+} else {
+    Write-Host "    VMP_ADMIN_PASS 保留现有配置"
 }
 
 Write-Step "初始化 SQLite 数据库"
@@ -161,3 +307,25 @@ Write-Step "启动服务"
 Invoke-Nssm -Arguments @("start", $ServiceName)
 
 Write-Step "部署完成。当前监听地址: http://$Host:$Port"
+
+Write-Host "" 
+Write-Host "后台登录地址: http://$Host:$Port/admin/licenses" -ForegroundColor Green
+Write-Host "用户管理入口: http://$Host:$Port/admin/users" -ForegroundColor Green
+Write-Host "HTTP Basic 用户名: $FinalAdminUser"
+if ($GeneratedAdminPassword) {
+    Write-Host "HTTP Basic 密码: $FinalAdminPass (已自动生成，请立即备份)" -ForegroundColor Yellow
+} elseif ($AdminPassword) {
+    Write-Host "HTTP Basic 密码已更新为参数指定值" -ForegroundColor Yellow
+} else {
+    Write-Host "HTTP Basic 密码保持当前配置"
+}
+
+if ($GeneratedHmacSecret) {
+    Write-Host "HMAC 密钥已自动生成：$FinalHmacSecret" -ForegroundColor Yellow
+} elseif ($HmacSecret) {
+    Write-Host "HMAC 密钥已按参数更新" -ForegroundColor Yellow
+} else {
+    Write-Host "HMAC 密钥保持当前配置"
+}
+
+Write-Host "如需变更服务配置，可编辑 $EnvFile 并执行： nssm restart $ServiceName"

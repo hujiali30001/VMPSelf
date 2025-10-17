@@ -1,5 +1,5 @@
 from app.db.base import Base
-from app.db.models import Activation, AuditLog, License, LicenseStatus
+from app.db.models import Activation, AuditLog, License, LicenseStatus, User
 
 __all__ = [
     "Base",
@@ -7,4 +7,5 @@ __all__ = [
     "LicenseStatus",
     "Activation",
     "AuditLog",
+    "User",
 ]

@@ -90,6 +90,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
 
 - 打开浏览器访问 `http://192.168.132.132:8000/docs`，查看 Swagger 文档确认接口可访问。
 - 访问 `http://192.168.132.132:8000/admin/licenses`，浏览器会弹出 HTTP Basic 登录框，使用 `.env` 中的 `VMP_ADMIN_USER` / `VMP_ADMIN_PASS` 登录，即可看到卡密管理后台：支持快速创建卡密、按状态/关键字筛选分页、查看激活次数与心跳、进入详情页延期或重置授权。
+- 访问 `http://192.168.132.132:8000/admin/users`，查看新上线的用户列表：可以快速搜索账号、跳转至用户详情页（含审计日志与激活设备）、手动解绑或删除账号。
 - 验证完毕后在终端按 `Ctrl+C` 停止 Uvicorn。
 
 ---
@@ -103,21 +104,38 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
 3. 下载并解压 NSSM；
 4. 注册名为 `VMPAuthService` 的 Windows 服务，使用 Uvicorn 启动 API；
 5. 创建日志目录 `logs/`，将 stdout/stderr 轮转写入；
-6. 设置防火墙规则放行指定端口。
+6. 设置防火墙规则放行指定端口；
+7. 自动把 `.env` 调整为生产配置（写入绝对路径的 SQLite、生成随机 HMAC/后台密码）。
 
-执行示例：
+常用参数：
+
+| 参数 | 说明 |
+| --- | --- |
+| `-InstallRoot` | 服务端代码所在目录，默认取脚本所在仓库的 `server/`。 |
+| `-PythonExe` | 指向目标主机上的 Python 可执行文件。 |
+| `-ServiceName` | Windows 服务名称，默认 `VMPAuthService`。 |
+| `-Port` | Uvicorn 监听端口。 |
+| `-AdminUser` | （可选）指定后台 HTTP Basic 用户名，未提供时沿用 `.env` 或默认 `admin`。 |
+| `-AdminPassword` | （可选）自定义后台密码，未提供时脚本会自动生成高强度随机值。 |
+| `-HmacSecret` | （可选）自定义授权 HMAC 密钥，未提供时若检测到默认占位值将自动生成。 |
+| `-SqlitePath` | （可选）自定义数据库文件位置，默认写入 `InstallRoot/data/license.db`。 |
+
+执行示例（让脚本生成随机密码与 HMAC，端口 8000）：
 
 ```powershell
 cd C:\Services\VMPSelf\server
 .\.venv\Scripts\Activate.ps1
 powershell -ExecutionPolicy Bypass -File tools\winserver2012_deploy.ps1 `
-		-InstallRoot "C:\Services\VMPSelf\server" `
-		-PythonExe "C:\Python313\python.exe" `
-		-ServiceName "VMPAuthService" `
-		-Port 8000
+	-InstallRoot "C:\Services\VMPSelf\server" `
+	-PythonExe "C:\Python313\python.exe" `
+	-ServiceName "VMPAuthService" `
+	-Port 8000 `
+	-AdminUser "ops-admin"
 ```
 
-脚本执行成功后，服务将自动启动并设置为开机自启。日志位于 `C:\Services\VMPSelf\server\logs\`。
+> 提示：若不传 `-AdminPassword`，脚本会在控制台输出自动生成的密码，请在窗口关闭前妥善保存；同理，检测到默认占位值时也会生成新的 `VMP_HMAC_SECRET` 并打印提示。
+
+脚本执行成功后，服务将自动启动并设置为开机自启。控制台会输出后台地址、用户管理入口、HTTP Basic 凭据以及是否生成新的 HMAC 密钥。日志位于 `C:\Services\VMPSelf\server\logs\`。
 
 ---
 
@@ -135,7 +153,7 @@ nssm stop VMPAuthService
 Get-Content -Path "C:\Services\VMPSelf\server\logs\uvicorn.log" -Wait
 ```
 
-若需调整端口或环境变量，可执行 `nssm edit VMPAuthService`，修改后再 `nssm restart VMPAuthService` 生效。
+若需调整端口或环境变量，可执行 `nssm edit VMPAuthService`，修改后再 `nssm restart VMPAuthService` 生效。后台新增的用户管理界面位于 `/admin/users`，可随时手动解绑账号或删除异常用户。
 
 ---
 

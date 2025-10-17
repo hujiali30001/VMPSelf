@@ -4,363 +4,499 @@
     <meta charset="UTF-8" />
     <title>授权管理后台</title>
     <style>
+        :root {
+            color-scheme: light;
+            --bg-surface: #f5f7fb;
+            --bg-panel: #ffffff;
+            --bg-panel-alt: linear-gradient(135deg, #f1f5ff 0%, #f8fafc 100%);
+            --border-soft: #e5e7f1;
+            --shadow-soft: 0 20px 45px rgba(15, 23, 42, 0.10);
+            --text-primary: #1f2937;
+            --text-secondary: #6b7280;
+            --brand: #2563eb;
+            --brand-dark: #1d4ed8;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
         body {
-            font-family: "Segoe UI", Arial, sans-serif;
-            margin: 32px;
-            background: #f5f6fa;
-            color: #222;
-        }
-        h1 {
-            margin-bottom: 16px;
-        }
-        h2 {
-            font-size: 18px;
-            margin: 0 0 12px;
-        }
-        a {
-            color: #0366d6;
-            text-decoration: none;
-        }
-        a:hover {
-            text-decoration: underline;
-        }
-        .grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 24px;
-            margin-bottom: 24px;
-        }
-        .card {
-            background: #fff;
-            border-radius: 12px;
-            padding: 20px;
-            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
-        }
-        .card form {
+            margin: 0;
+            background: var(--bg-surface);
+            font-family: "Inter", "PingFang SC", "Segoe UI", sans-serif;
+            color: var(--text-primary);
+            min-height: 100vh;
             display: flex;
             flex-direction: column;
-            gap: 12px;
         }
-        label {
-            font-size: 13px;
-            color: #52616b;
+
+        header {
+            background: var(--bg-panel);
+            box-shadow: 0 12px 30px rgba(37, 99, 235, 0.08);
+            position: sticky;
+            top: 0;
+            z-index: 20;
         }
-        input[type="text"], input[type="number"], select {
-            padding: 8px 12px;
-            border-radius: 6px;
-            border: 1px solid #cfd8dc;
-            font-size: 14px;
-            background: #fdfefe;
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 18px 48px;
         }
-        input[type="text"]:focus, input[type="number"]:focus, select:focus {
-            outline: none;
-            border-color: #4c8df6;
-            box-shadow: 0 0 0 2px rgba(76, 141, 246, 0.15);
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 14px;
         }
-        button {
-            border: none;
-            background: linear-gradient(135deg, #4c8df6, #2563eb);
+
+        .brand-logo {
+            width: 44px;
+            height: 44px;
+            border-radius: 14px;
+            background: linear-gradient(135deg, rgba(37, 99, 235, 0.85), rgba(59, 130, 246, 0.85));
+            display: flex;
+            align-items: center;
+            justify-content: center;
             color: #fff;
-            padding: 10px 16px;
-            border-radius: 6px;
-            font-size: 14px;
-            cursor: pointer;
-            transition: box-shadow 0.2s ease, transform 0.2s ease;
+            font-weight: 700;
+            font-size: 18px;
+            box-shadow: 0 16px 30px rgba(59, 130, 246, 0.35);
         }
-        button:hover {
-            box-shadow: 0 12px 24px rgba(37, 99, 235, 0.25);
+
+        .brand h1 {
+            margin: 0;
+            font-size: 22px;
+            font-weight: 700;
+        }
+
+        .top-actions {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .primary-btn {
+            border: none;
+            padding: 10px 18px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+            color: #fff;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 18px 35px rgba(37, 99, 235, 0.28);
+        }
+
+        .primary-btn:hover {
             transform: translateY(-1px);
         }
-        .message {
-            padding: 12px 16px;
-            background: #eef7ff;
-            border: 1px solid #b6dbff;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            color: #11508a;
-        }
-        .filters {
-            display: flex;
-            gap: 16px;
-            align-items: flex-end;
-            margin-bottom: 20px;
-        }
-        .filters .group {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
-        .filters input[type="search"] {
-            width: 240px;
-        }
-        .stats {
+
+        main {
+            flex: 1;
+            padding: 32px 48px 64px;
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-            gap: 12px;
-            margin-bottom: 16px;
+            gap: 32px;
         }
-        .stat {
-            background: #fff;
-            border-radius: 10px;
-            padding: 12px 16px;
-            border: 1px solid #e1e9f1;
+
+        .grid {
+            display: grid;
+            grid-template-columns: minmax(320px, 360px) 1fr;
+            gap: 28px;
         }
-        .stat-title {
-            font-size: 12px;
-            color: #6b7a8f;
-            letter-spacing: 0.05em;
-            text-transform: uppercase;
-            margin-bottom: 6px;
+
+        .panel {
+            background: var(--bg-panel);
+            border-radius: 20px;
+            padding: 24px;
+            box-shadow: var(--shadow-soft);
         }
-        .stat-value {
-            font-size: 20px;
+
+        .panel h2 {
+            margin: 0 0 16px;
+            font-size: 18px;
             font-weight: 600;
         }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 16px;
+        }
+
+        .stat-card {
+            border-radius: 18px;
+            padding: 18px;
+            background: var(--bg-panel-alt);
+            border: 1px solid rgba(37, 99, 235, 0.12);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+        }
+
+        .stat-title {
+            font-size: 12px;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+        }
+
+        form {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        label {
+            font-size: 13px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        input[type="text"],
+        input[type="search"],
+        input[type="number"],
+        select {
+            width: 100%;
+            padding: 12px 14px;
+            border-radius: 12px;
+            border: 1px solid var(--border-soft);
+            background: #f8fafc;
+            font-size: 14px;
+            transition: border 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        input:focus,
+        select:focus {
+            outline: none;
+            border-color: rgba(37, 99, 235, 0.7);
+            box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+        }
+
+        .secondary-btn {
+            border: none;
+            padding: 10px 18px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, rgba(37, 99, 235, 0.08), rgba(37, 99, 235, 0.08));
+            color: var(--brand-dark);
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .secondary-btn[disabled] {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+
         table {
             width: 100%;
             border-collapse: collapse;
-            background: #fff;
-            border-radius: 12px;
+            border-radius: 16px;
             overflow: hidden;
-            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+            box-shadow: var(--shadow-soft);
+            background: var(--bg-panel);
         }
-        th, td {
-            padding: 12px 14px;
-            border-bottom: 1px solid #ecf0f5;
-            text-align: left;
+
+        th,
+        td {
+            padding: 14px 18px;
             font-size: 13px;
-            vertical-align: middle;
+            border-bottom: 1px solid #edf0f7;
+            text-align: left;
         }
+
         th {
-            background: #f3f6fb;
+            background: rgba(37, 99, 235, 0.05);
             text-transform: uppercase;
             font-weight: 600;
-            font-size: 12px;
             letter-spacing: 0.04em;
-            color: #556070;
+            color: var(--text-secondary);
         }
-        tr:last-child td {
-            border-bottom: none;
+
+        tr:hover td {
+            background: rgba(37, 99, 235, 0.04);
         }
-        tr:hover {
-            background: #f9fbff;
-        }
+
         .badge {
-            border-radius: 12px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border-radius: 8px;
             padding: 4px 10px;
             font-size: 12px;
-            display: inline-block;
+            font-weight: 600;
             text-transform: uppercase;
         }
-        .badge-unused { background: #e0f2ff; color: #0366d6; }
-        .badge-active { background: #e6ffed; color: #1b7f46; }
-        .badge-revoked { background: #ffeceb; color: #b11c1c; }
-        .badge-expired { background: #fff5e6; color: #b36b00; }
+
+        .badge-unused { background: rgba(37, 99, 235, 0.12); color: var(--brand-dark); }
+        .badge-active { background: rgba(16, 185, 129, 0.12); color: var(--success); }
+        .badge-revoked { background: rgba(239, 68, 68, 0.12); color: var(--danger); }
+        .badge-expired { background: rgba(245, 158, 11, 0.15); color: var(--warning); }
+
         .actions {
             display: flex;
-            gap: 8px;
-            align-items: center;
+            gap: 12px;
         }
-        .actions form {
-            display: inline;
-        }
-        .btn-text {
-            background: none;
-            color: #b11c1c;
-            padding: 0;
-            font-size: 13px;
+
+        .link-btn {
+            text-decoration: none;
+            color: var(--brand);
             font-weight: 600;
         }
+
+        .danger-btn {
+            border: none;
+            background: none;
+            color: var(--danger);
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .message {
+            padding: 14px 18px;
+            border-radius: 14px;
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(37, 99, 235, 0.08));
+            color: var(--brand-dark);
+            border: 1px solid rgba(37, 99, 235, 0.18);
+            box-shadow: 0 20px 40px rgba(37, 99, 235, 0.15);
+        }
+
         .empty {
-            padding: 24px;
-            background: #fff;
-            border: 1px dashed #cfd8dc;
+            padding: 36px;
             text-align: center;
-            color: #607d8b;
-            border-radius: 12px;
+            border-radius: 18px;
+            border: 1px dashed rgba(59, 130, 246, 0.25);
+            color: var(--text-secondary);
+            background: rgba(59, 130, 246, 0.04);
         }
-        .pagination {
-            margin-top: 18px;
+
+        .floating-action {
+            position: fixed;
+            bottom: 36px;
+            right: 36px;
+            background: linear-gradient(135deg, #2563eb, #7c3aed);
+            color: #fff;
+            padding: 14px 20px;
+            border-radius: 18px;
+            font-weight: 600;
             display: flex;
-            justify-content: space-between;
             align-items: center;
-            font-size: 13px;
+            justify-content: center;
+            gap: 10px;
+            text-decoration: none;
+            box-shadow: 0 24px 40px rgba(124, 58, 237, 0.3);
         }
-        .pagination .controls {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .pagination button {
-            padding: 6px 10px;
-            font-size: 13px;
-        }
+
         footer {
-            margin-top: 32px;
+            text-align: center;
+            padding: 18px;
             font-size: 12px;
-            color: #7b8894;
+            color: var(--text-secondary);
         }
-        @media (max-width: 960px) {
+
+        @media (max-width: 1080px) {
             .grid {
                 grid-template-columns: 1fr;
             }
-            .filters {
-                flex-direction: column;
-                align-items: stretch;
+
+            .topbar {
+                padding: 18px 24px;
             }
-            .filters input[type="search"] {
-                width: 100%;
-            }
-            table {
-                font-size: 12px;
+
+            main {
+                padding: 24px;
             }
         }
     </style>
 </head>
 <body>
-    <h1>授权管理后台</h1>
+    <header>
+        <div class="topbar">
+            <div class="brand">
+                <div class="brand-logo">VM</div>
+                <div>
+                    <h1>授权管理后台</h1>
+                    <div style="font-size: 12px; color: var(--text-secondary);">集中查看卡密状态、注册用户与激活设备。</div>
+                </div>
+            </div>
+            <div class="top-actions">
+                <form method="get" action="/admin/licenses">
+                    <input type="hidden" name="status" value="{{ status }}" />
+                    <input type="hidden" name="page_size" value="{{ page_size }}" />
+                    <input type="hidden" name="page" value="1" />
+                    <input type="search" name="q" value="{{ query }}" placeholder="全局搜索卡密..." />
+                </form>
+            </div>
+        </div>
+    </header>
 
     {% set return_to = request.url.path + ('?' + request.url.query if request.url.query else '') %}
 
-    {% if message %}
-    <div class="message">{{ message }}</div>
-    {% endif %}
+    <main>
+        {% if message %}
+        <div class="message">{{ message }}</div>
+        {% endif %}
 
-    <div class="grid">
-        <section class="card">
-            <h2>创建新卡密</h2>
-            <form method="post" action="/admin/licenses/create">
-                <label>
-                    自定义卡密（可选）
-                    <input type="text" name="card_code" placeholder="留空则自动生成" maxlength="64" />
-                </label>
-                <label>
-                    有效期（天，0 表示不限）
-                    <input type="number" name="ttl_days" value="30" min="0" max="3650" />
-                </label>
-                <input type="hidden" name="return_to" value="{{ return_to }}" />
-                <button type="submit">创建卡密</button>
-            </form>
-        </section>
-        <section class="card">
-            <h2>筛选与搜索</h2>
-            <form class="filters" method="get" action="/admin/licenses">
-                <div class="group">
-                    <label for="status">状态</label>
-                    <select id="status" name="status">
-                        {% for value, label in statuses %}
-                        <option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ label }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="group">
-                    <label for="query">卡密关键字</label>
-                    <input id="query" type="search" name="q" value="{{ query }}" placeholder="支持模糊搜索" />
-                </div>
-                <div class="group">
-                    <label for="page_size">每页条数</label>
-                    <select id="page_size" name="page_size">
-                        {% for size in [10, 20, 50, 100] %}
-                        <option value="{{ size }}" {% if page_size == size %}selected{% endif %}>{{ size }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <input type="hidden" name="page" value="1" />
-                <button type="submit">应用</button>
-            </form>
-        </section>
-    </div>
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-title">总卡密</div>
+                <div class="stat-value">{{ total }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">未使用</div>
+                <div class="stat-value">{{ status_counts.get('unused', 0) }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">已激活</div>
+                <div class="stat-value">{{ status_counts.get('active', 0) }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">已过期</div>
+                <div class="stat-value">{{ status_counts.get('expired', 0) }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">已撤销</div>
+                <div class="stat-value">{{ status_counts.get('revoked', 0) }}</div>
+            </div>
+        </div>
 
-    <div class="stats">
-        <div class="stat">
-            <div class="stat-title">总计</div>
-            <div class="stat-value">{{ total }}</div>
-        </div>
-        <div class="stat">
-            <div class="stat-title">未使用</div>
-            <div class="stat-value">{{ status_counts.get('unused', 0) }}</div>
-        </div>
-        <div class="stat">
-            <div class="stat-title">已激活</div>
-            <div class="stat-value">{{ status_counts.get('active', 0) }}</div>
-        </div>
-        <div class="stat">
-            <div class="stat-title">已撤销</div>
-            <div class="stat-value">{{ status_counts.get('revoked', 0) }}</div>
-        </div>
-        <div class="stat">
-            <div class="stat-title">已过期</div>
-            <div class="stat-value">{{ status_counts.get('expired', 0) }}</div>
-        </div>
-    </div>
-
-    {% if licenses %}
-    <table>
-        <thead>
-            <tr>
-                <th>卡密</th>
-                <th>状态</th>
-                <th>绑定指纹</th>
-                <th>激活次数</th>
-                <th>到期时间</th>
-                <th>最近心跳</th>
-                <th>创建时间</th>
-                <th>操作</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for row in licenses %}
-            {% set license = row.license %}
-            <tr>
-                <td><strong>{{ license.card_code }}</strong></td>
-                <td>
-                    <span class="badge badge-{{ license.status }}">{{ status_labels.get(license.status, license.status) }}</span>
-                </td>
-                <td>{{ license.bound_fingerprint or "-" }}</td>
-                <td>{{ row.activation_count }}</td>
-                <td>{{ license.expire_at.isoformat() if license.expire_at else "-" }}</td>
-                <td>{{ row.latest_seen.isoformat() if row.latest_seen else "-" }}</td>
-                <td>{{ license.created_at.isoformat() }}</td>
-                <td>
-                    <div class="actions">
-                        <a href="/admin/licenses/{{ license.card_code }}">详情</a>
-                        <form method="post" action="/admin/licenses/revoke">
-                            <input type="hidden" name="card_code" value="{{ license.card_code }}" />
-                            <input type="hidden" name="return_to" value="{{ return_to }}" />
-                            <button class="btn-text" type="submit" onclick="return confirm('确认撤销 {{ license.card_code }} 吗？');">撤销</button>
-                        </form>
+        <div class="grid">
+            <section class="panel">
+                <h2>快速创建卡密</h2>
+                <form method="post" action="/admin/licenses/create">
+                    <div>
+                        <label>自定义卡密（可选）</label>
+                        <input type="text" name="card_code" placeholder="留空自动生成" maxlength="64" />
                     </div>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+                    <div>
+                        <label>有效期（天，0 表示不限）</label>
+                        <input type="number" name="ttl_days" value="30" min="0" max="3650" />
+                    </div>
+                    <input type="hidden" name="return_to" value="{{ return_to }}" />
+                    <div>
+                        <button class="primary-btn" type="submit">创建卡密</button>
+                    </div>
+                </form>
+            </section>
 
-    <div class="pagination">
-        <div>第 {{ page }} / {{ total_pages }} 页</div>
-        <div class="controls">
-            <form method="get" action="/admin/licenses">
-                <input type="hidden" name="status" value="{{ status }}" />
-                <input type="hidden" name="q" value="{{ query }}" />
-                <input type="hidden" name="page_size" value="{{ page_size }}" />
-                <input type="hidden" name="page" value="{{ prev_page if has_prev else 1 }}" />
-                <button type="submit" {% if not has_prev %}disabled{% endif %}>上一页</button>
-            </form>
-            <form method="get" action="/admin/licenses">
-                <input type="hidden" name="status" value="{{ status }}" />
-                <input type="hidden" name="q" value="{{ query }}" />
-                <input type="hidden" name="page_size" value="{{ page_size }}" />
-                <input type="hidden" name="page" value="{{ next_page if has_next else total_pages }}" />
-                <button type="submit" {% if not has_next %}disabled{% endif %}>下一页</button>
-            </form>
+            <section class="panel">
+                <h2>筛选卡密</h2>
+                <form class="filters" method="get" action="/admin/licenses">
+                    <div>
+                        <label>状态</label>
+                        <select name="status">
+                            {% for value, label in statuses %}
+                            <option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label>卡密关键字</label>
+                        <input type="search" name="q" value="{{ query }}" placeholder="支持模糊搜索" />
+                    </div>
+                    <div>
+                        <label>每页条数</label>
+                        <select name="page_size">
+                            {% for size in [10, 20, 50, 100] %}
+                            <option value="{{ size }}" {% if page_size == size %}selected{% endif %}>{{ size }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <input type="hidden" name="page" value="1" />
+                    <div>
+                        <button class="secondary-btn" type="submit">应用筛选</button>
+                    </div>
+                </form>
+            </section>
         </div>
-    </div>
-    {% else %}
-    <div class="empty">当前筛选条件下没有卡密记录。</div>
-    {% endif %}
+
+        <section class="panel">
+            <h2>卡密列表</h2>
+            {% if licenses %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>卡密</th>
+                        <th>状态</th>
+                        <th>注册用户</th>
+                        <th>绑定指纹</th>
+                        <th>激活次数</th>
+                        <th>到期时间</th>
+                        <th>最近心跳</th>
+                        <th>创建时间</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in licenses %}
+                    {% set license = row.license %}
+                    <tr>
+                        <td><strong>{{ license.card_code }}</strong></td>
+                        <td>
+                            <span class="badge badge-{{ license.status }}">{{ status_labels.get(license.status, license.status) }}</span>
+                        </td>
+                        <td>{{ row.user.username if row.user else '-' }}</td>
+                        <td>{{ license.bound_fingerprint or '-' }}</td>
+                        <td>{{ row.activation_count }}</td>
+                        <td>{{ license.expire_at.isoformat() if license.expire_at else '-' }}</td>
+                        <td>{{ row.latest_seen.isoformat() if row.latest_seen else '-' }}</td>
+                        <td>{{ license.created_at.isoformat() }}</td>
+                        <td>
+                            <div class="actions">
+                                <a class="link-btn" href="/admin/licenses/{{ license.card_code }}">详情</a>
+                                <form method="post" action="/admin/licenses/revoke">
+                                    <input type="hidden" name="card_code" value="{{ license.card_code }}" />
+                                    <input type="hidden" name="return_to" value="{{ return_to }}" />
+                                    <button class="danger-btn" type="submit" onclick="return confirm('确认撤销 {{ license.card_code }} 吗？');">撤销</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            <div style="display:flex; justify-content: space-between; align-items: center; margin-top: 18px; font-size: 13px;">
+                <div>第 {{ page }} / {{ total_pages }} 页</div>
+                <div style="display:flex; gap: 10px;">
+                    <form method="get" action="/admin/licenses">
+                        <input type="hidden" name="status" value="{{ status }}" />
+                        <input type="hidden" name="q" value="{{ query }}" />
+                        <input type="hidden" name="page_size" value="{{ page_size }}" />
+                        <input type="hidden" name="page" value="{{ prev_page if has_prev else 1 }}" />
+                        <button class="secondary-btn" type="submit" {% if not has_prev %}disabled{% endif %}>上一页</button>
+                    </form>
+                    <form method="get" action="/admin/licenses">
+                        <input type="hidden" name="status" value="{{ status }}" />
+                        <input type="hidden" name="q" value="{{ query }}" />
+                        <input type="hidden" name="page_size" value="{{ page_size }}" />
+                        <input type="hidden" name="page" value="{{ next_page if has_next else total_pages }}" />
+                        <button class="secondary-btn" type="submit" {% if not has_next %}disabled{% endif %}>下一页</button>
+                    </form>
+                </div>
+            </div>
+            {% else %}
+            <div class="empty">当前筛选条件下没有卡密记录。</div>
+            {% endif %}
+        </section>
+    </main>
 
     <footer>
-        通过 HTTP Basic 认证保护。请在 `.env` 中配置 <code>VMP_ADMIN_USER</code> 和 <code>VMP_ADMIN_PASS</code>。建议将此后台置于 VPN、前置 WAF 或 CDN 回源保护之后。
+        通过 HTTP Basic 认证保护。请在 `.env` 中配置 <code>VMP_ADMIN_USER</code> 与 <code>VMP_ADMIN_PASS</code>，并推荐放置于 VPN 或 CDN 回源保护之后。
     </footer>
+
+    <a class="floating-action" href="/admin/licenses?status=unused&page=1&page_size=20">
+        <span>查看未使用卡密</span>
+    </a>
 </body>
 </html>

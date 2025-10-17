@@ -61,3 +61,54 @@ def test_generate_offline_license():
     with SessionLocal() as session:
         logs = session.query(models.AuditLog).filter(models.AuditLog.license_id == license_obj.id).all()
         assert any(log.event_type == "offline_issue" for log in logs)
+
+
+def test_admin_generate_offline_license_success():
+    license_obj = _create_license("ADMIN-CARD-1", "admin-secret")
+    client = TestClient(app)
+
+    response = client.post(
+        f"/admin/licenses/{license_obj.card_code}/offline",
+        data={
+            "fingerprint": "ADMIN-FP-1",
+            "ttl_days": "3",
+        },
+        auth=("admin", "change-me"),
+    )
+
+    assert response.status_code == 200
+    html = response.text
+    assert "离线授权已生成" in html
+    assert "ADMIN-FP-1" in html
+    assert "license-blob" in html
+    assert "license-signature" in html
+    assert "下载离线包" in html
+
+    with SessionLocal() as session:
+        log = (
+            session.query(models.AuditLog)
+            .filter(models.AuditLog.license_id == license_obj.id, models.AuditLog.event_type == "offline_generate")
+            .order_by(models.AuditLog.created_at.desc())
+            .first()
+        )
+        assert log is not None
+        assert "ADMIN-FP-1" in (log.message or "")
+
+
+def test_admin_generate_offline_license_validation_error():
+    license_obj = _create_license("ADMIN-CARD-2", "admin-secret")
+    client = TestClient(app)
+
+    response = client.post(
+        f"/admin/licenses/{license_obj.card_code}/offline",
+        data={
+            "fingerprint": "ADMIN-FP-2",
+            "ttl_days": "0",
+        },
+        auth=("admin", "change-me"),
+    )
+
+    assert response.status_code == 200
+    html = response.text
+    assert "离线授权有效期必须大于 0 天" in html
+    assert "license-blob" not in html

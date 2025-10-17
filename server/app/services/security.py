@@ -7,10 +7,12 @@ from hashlib import sha256
 from typing import Optional, Tuple
 
 import jwt
+from passlib.context import CryptContext
 
 from app.core.settings import get_settings
 
 settings = get_settings()
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 def _derive_key(shared_secret: Optional[str] = None) -> bytes:
     secret = shared_secret or settings.hmac_secret
     return secret.encode("utf-8")
@@ -46,3 +48,14 @@ def issue_token(card_code: str, fingerprint: str) -> Tuple[str, datetime]:
     }
     token = jwt.encode(payload, settings.hmac_secret, algorithm="HS256")
     return token, expires_at
+
+
+def hash_password(password: str) -> str:
+    return pwd_context.hash(password)
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    try:
+        return pwd_context.verify(password, password_hash)
+    except Exception:
+        return False

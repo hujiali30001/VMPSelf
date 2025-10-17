@@ -34,6 +34,7 @@ class License(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     activations: Mapped[list["Activation"]] = relationship(back_populates="license", cascade="all, delete-orphan")
+    user: Mapped[Optional["User"]] = relationship(back_populates="license", uselist=False)
 
 
 class Activation(Base):
@@ -57,3 +58,15 @@ class AuditLog(Base):
     license_id: Mapped[Optional[int]] = mapped_column(Integer)
     message: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    license_id: Mapped[int] = mapped_column(ForeignKey("licenses.id"), nullable=False, unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    license: Mapped[License] = relationship(back_populates="user")
