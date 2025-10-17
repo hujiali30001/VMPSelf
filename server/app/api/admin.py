@@ -1712,6 +1712,71 @@ def cdn_page(
     service = CDNService(db)
     endpoints = service.list_endpoints()
     tasks = service.list_recent_tasks(limit=20)
+
+    endpoint_rows: list[dict[str, object]] = []
+    provider_stats: dict[str, int] = {}
+    active_count = 0
+    paused_count = 0
+    error_count = 0
+
+    for endpoint in endpoints:
+        provider_stats[endpoint.provider] = provider_stats.get(endpoint.provider, 0) + 1
+        if endpoint.status == CDNEndpointStatus.ACTIVE.value:
+            active_count += 1
+        elif endpoint.status == CDNEndpointStatus.PAUSED.value:
+            paused_count += 1
+        elif endpoint.status == CDNEndpointStatus.ERROR.value:
+            error_count += 1
+
+        last_task = None
+        if endpoint.tasks:
+            last_task = max(
+                endpoint.tasks,
+                key=lambda t: t.created_at or datetime.min.replace(tzinfo=timezone.utc),
+            )
+
+        endpoint_rows.append(
+            {
+                "endpoint": endpoint,
+                "last_task": last_task,
+                "task_count": len(endpoint.tasks or []),
+            }
+        )
+
+    task_rows = []
+    for task in tasks:
+        task_rows.append(
+            {
+                "task": task,
+                "endpoint": getattr(task, "endpoint", None),
+            }
+        )
+
+    context = _base_context(
+        request,
+        message=message,
+        page_title="CDN 管理",
+        page_subtitle="维护加速域名与刷新任务，确保资源及时更新。",
+        page_description="统一管理 CDN 加速节点，快速发起刷新与预取任务。",
+        active_page="cdn",
+        endpoints=endpoint_rows,
+        endpoint_count=len(endpoints),
+        provider_stats=provider_stats,
+        endpoint_statuses={
+            "active": active_count,
+            "paused": paused_count,
+            "error": error_count,
+        },
+        tasks=task_rows,
+        status_labels=CDN_STATUS_LABELS,
+        task_status_labels=CDN_TASK_STATUS_LABELS,
+        task_types=[
+            (CDNTaskType.PURGE.value, "刷新缓存"),
+            (CDNTaskType.PREFETCH.value, "预取内容"),
+        ],
+    )
+    return templates.TemplateResponse(request, "admin/cdn/index.html", context)
+
 @router.post("/cdn/endpoints")
 def create_cdn_endpoint_action(
     request: Request,
@@ -2141,64 +2206,3 @@ def toggle_admin_status_action(
 
     target = _append_message(_sanitize_return_path(return_to, fallback="/admin/settings"), message)
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
-
-    endpoint_rows = []
-    provider_stats: dict[str, int] = {}
-    active_count = 0
-    paused_count = 0
-    error_count = 0
-
-    for endpoint in endpoints:
-        provider_stats[endpoint.provider] = provider_stats.get(endpoint.provider, 0) + 1
-        if endpoint.status == CDNEndpointStatus.ACTIVE.value:
-            active_count += 1
-        elif endpoint.status == CDNEndpointStatus.PAUSED.value:
-            paused_count += 1
-        elif endpoint.status == CDNEndpointStatus.ERROR.value:
-            error_count += 1
-
-        last_task = None
-        if endpoint.tasks:
-            last_task = max(endpoint.tasks, key=lambda t: t.created_at or datetime.min.replace(tzinfo=timezone.utc))
-
-        endpoint_rows.append(
-            {
-                "endpoint": endpoint,
-                "last_task": last_task,
-                "task_count": len(endpoint.tasks or []),
-            }
-        )
-
-    task_rows = []
-    for task in tasks:
-        task_rows.append(
-            {
-                "task": task,
-                "endpoint": getattr(task, "endpoint", None),
-            }
-        )
-
-    context = _base_context(
-        request,
-        message=message,
-        page_title="CDN 管理",
-        page_subtitle="维护加速域名与刷新任务，确保资源及时更新。",
-        page_description="统一管理 CDN 加速节点，快速发起刷新与预取任务。",
-        active_page="cdn",
-        endpoints=endpoint_rows,
-        endpoint_count=len(endpoints),
-        provider_stats=provider_stats,
-        endpoint_statuses={
-            "active": active_count,
-            "paused": paused_count,
-            "error": error_count,
-        },
-        tasks=task_rows,
-        status_labels=CDN_STATUS_LABELS,
-        task_status_labels=CDN_TASK_STATUS_LABELS,
-        task_types=[
-            (CDNTaskType.PURGE.value, "刷新缓存"),
-            (CDNTaskType.PREFETCH.value, "预取内容"),
-        ],
-    )
-    return templates.TemplateResponse(request, "admin/cdn/index.html", context)
