@@ -112,6 +112,39 @@ function Ensure-Tls12 {
     }
 }
 
+function Expand-ZipArchiveCompat {
+    param(
+        [Parameter(Mandatory = $true)][string]$ZipPath,
+        [Parameter(Mandatory = $true)][string]$DestinationPath
+    )
+
+    $expandArchive = Get-Command -Name Expand-Archive -ErrorAction SilentlyContinue
+    if ($expandArchive) {
+        Expand-Archive -Path $ZipPath -DestinationPath $DestinationPath -Force
+        return
+    }
+
+    if (-not (Get-Command -Name "Add-Type" -ErrorAction SilentlyContinue)) {
+        throw "Current PowerShell environment cannot load compression assemblies for ZIP extraction."
+    }
+
+    try {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction Stop
+    } catch {
+        throw "Failed to load System.IO.Compression.FileSystem assembly: $($_.Exception.Message)"
+    }
+
+    if (-not (Test-Path -LiteralPath $DestinationPath)) {
+        New-Item -ItemType Directory -Path $DestinationPath -Force | Out-Null
+    }
+
+    try {
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($ZipPath, $DestinationPath)
+    } catch {
+        throw "Failed to extract archive using .NET zip APIs: $($_.Exception.Message)"
+    }
+}
+
 Assert-Admin
 
 $InstallRoot = Resolve-AbsolutePath -Path $InstallRoot
@@ -260,7 +293,7 @@ if (-not (Test-Path -LiteralPath $NssmExe)) {
     if (Test-Path -LiteralPath $TempDir) {
         Remove-Item -Path $TempDir -Recurse -Force
     }
-    Expand-Archive -Path $TempZip -DestinationPath $TempDir -Force
+    Expand-ZipArchiveCompat -ZipPath $TempZip -DestinationPath $TempDir
     $Candidate = Get-ChildItem -Path $TempDir -Recurse -Filter "nssm.exe" | Where-Object { $_.FullName -match "win64" } | Select-Object -First 1
     if (-not $Candidate) {
         throw "win64 nssm.exe was not found inside the archive."
