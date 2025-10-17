@@ -41,8 +41,14 @@ function Resolve-AbsolutePath {
 
 function New-RandomToken {
     param([int]$Bytes = 32)
-    $buffer = New-Object byte[] ($Bytes -lt 8 ? 8 : $Bytes)
-    [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($buffer)
+    $count = if ($Bytes -lt 8) { 8 } else { $Bytes }
+    $buffer = New-Object byte[] $count
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try {
+        $rng.GetBytes($buffer)
+    } finally {
+        $rng.Dispose()
+    }
     return ([Convert]::ToBase64String($buffer)).TrimEnd('=')
 }
 
