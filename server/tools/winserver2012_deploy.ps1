@@ -116,7 +116,7 @@ if (-not $InstallRoot) {
 }
 
 if (-not (Test-Path -LiteralPath $InstallRoot)) {
-    Write-Step "创建安装目录 $InstallRoot"
+    Write-Step ("创建安装目录 " + $InstallRoot)
     New-Item -ItemType Directory -Path $InstallRoot | Out-Null
 }
 
@@ -269,8 +269,8 @@ function Invoke-Nssm {
     param([string[]]$Arguments)
     $process = Start-Process -FilePath $NssmExe -ArgumentList $Arguments -NoNewWindow -Wait -PassThru
     if ($process.ExitCode -ne 0) {
-        $joinedArgs = $Arguments -join ' '
-        throw "NSSM 命令失败: $joinedArgs"
+    $joinedArgs = $Arguments -join ' '
+    throw ("NSSM 命令失败: " + $joinedArgs)
     }
 }
 
