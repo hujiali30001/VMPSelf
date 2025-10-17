@@ -313,11 +313,11 @@ if (-not $existingRule) {
 Write-Step "启动服务"
 Invoke-Nssm -Arguments @("start", $ServiceName)
 
-Write-Step "部署完成。当前监听地址: http://$ListenHost:$Port"
+Write-Step "部署完成。当前监听地址: http://${ListenHost}:${Port}"
 
 Write-Host "" 
-Write-Host "后台登录地址: http://$ListenHost:$Port/admin/licenses" -ForegroundColor Green
-Write-Host "用户管理入口: http://$ListenHost:$Port/admin/users" -ForegroundColor Green
+Write-Host "后台登录地址: http://${ListenHost}:${Port}/admin/licenses" -ForegroundColor Green
+Write-Host "用户管理入口: http://${ListenHost}:${Port}/admin/users" -ForegroundColor Green
 Write-Host "HTTP Basic 用户名: $FinalAdminUser"
 if ($GeneratedAdminPassword) {
     Write-Host "HTTP Basic 密码: $FinalAdminPass (已自动生成，请立即备份)" -ForegroundColor Yellow
