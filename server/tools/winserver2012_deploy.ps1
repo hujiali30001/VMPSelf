@@ -312,7 +312,7 @@ function Invoke-Nssm {
     $process = Start-Process -FilePath $NssmExe -ArgumentList $Arguments -NoNewWindow -Wait -PassThru
     if (-not ($AllowedExitCodes -contains $process.ExitCode)) {
         $joinedArgs = $Arguments -join ' '
-        throw ("NSSM command failed: {0}" -f $joinedArgs)
+        throw ("NSSM command failed (exit {1}): {0}" -f $joinedArgs, $process.ExitCode)
     }
 
     return $process.ExitCode
@@ -413,7 +413,9 @@ if (-not $existingRule) {
 }
 
 Write-Step "Starting service"
-Invoke-Nssm -Arguments @("start", $ServiceName) -AllowedExitCodes @(0, 2)
+$startExitCode = Invoke-Nssm -Arguments @("start", $ServiceName) -AllowedExitCodes @(0,1,2,3,4,5,6)
+$startState = Get-NssmStateName -StatusCode $startExitCode
+Write-Host (" NSSM start exit: {0} ({1})" -f $startExitCode, $startState)
 Wait-NssmServiceRunning -ServiceName $ServiceName -TimeoutSeconds 60 -LogHint $LogsPath
 
 $BaseUrl = "http://{0}:{1}" -f $ListenHost, $Port
