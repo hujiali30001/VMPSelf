@@ -11,6 +11,7 @@
 | 管理权限 | 使用管理员账号登录服务器（推荐 RDP）。 |
 | 网络 | 服务器需访问 GitHub（下载依赖、NSSM）以及 PyPI；客户端需能访问服务暴露的端口。 |
 | 运行时 | 安装 64 位 Python 3.10+，安装时勾选 “Add Python to PATH”。示例路径 `C:\Python313\python.exe`。 |
+| PowerShell | 以管理员身份启动 PowerShell，会话内执行 `Set-ExecutionPolicy RemoteSigned -Scope Process` 允许脚本运行。 |
 | Git（可选） | 若要直接 `git clone` 仓库，请安装 Git for Windows。没有 Git 时可上传压缩包。 |
 | 防火墙 | 预留 TCP 8000（或自定义端口）入站访问。 |
 | 证书/密码 | 准备好管理后台账号、HMAC 密钥等强随机密码。 |
@@ -92,6 +93,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
 - 访问 `http://192.168.132.132:8000/admin/licenses`，浏览器会弹出 HTTP Basic 登录框，使用 `.env` 中的 `VMP_ADMIN_USER` / `VMP_ADMIN_PASS` 登录，即可看到卡密管理后台：支持快速创建卡密、按状态/关键字筛选分页、查看激活次数与心跳、进入详情页延期或重置授权。
 - 访问 `http://192.168.132.132:8000/admin/users`，查看新上线的用户列表：可以快速搜索账号、跳转至用户详情页（含审计日志与激活设备）、手动解绑或删除账号。
 - 验证完毕后在终端按 `Ctrl+C` 停止 Uvicorn。
+- 可选：保持虚拟环境激活状态执行 `python -m pytest tests/test_admin_api_crud.py tests/test_admin_service.py`，快速确认后台接口的关键用例。
 
 ---
 
@@ -132,9 +134,9 @@ powershell -ExecutionPolicy Bypass -File tools\winserver2012_deploy.ps1 -Install
 
 > 运行脚本前请以管理员身份打开 PowerShell（右键“以管理员身份运行”），否则 NSSM 安装与防火墙规则写入会失败。
 
-脚本执行成功后，服务将自动启动并设置为开机自启。控制台会输出后台地址、用户管理入口、HTTP Basic 凭据以及是否生成新的 HMAC 密钥。日志位于 `C:\Services\VMPSelf\server\logs\`。
+脚本执行成功后，服务将自动启动并设置为开机自启。控制台会输出后台地址、用户管理入口、HTTP Basic 凭据以及是否生成新的 HMAC 密钥，同时在安装目录保留更新后的 `.env`。日志位于 `C:\Services\VMPSelf\server\logs\`，已启用 NSSM 轮转（单文件 10 MB）。
 
-> 若从历史版本升级，请先执行 `git pull` 确认脚本更新到最新提交（含 `-ListenHost` 参数），再运行上述命令。
+> 若从历史版本升级，请先执行 `git pull` 确认脚本更新到最新提交（含 `-ListenHost` 参数），再运行上述命令；脚本会复用已有 `.env` 并保留 `data\license.db` 等数据文件。
 
 ---
 
@@ -198,6 +200,20 @@ pong    2025-10-16T19:28:29.680446+00:00
 | 启动时报 SQLite 无法写入 | 检查 `VMP_SQLITE_PATH` 目录权限，确保服务账户有写权限，或改为其他路径。 |
 | 浏览器访问后台提示 401 | 确认使用 `.env` 中的 `VMP_ADMIN_USER`、`VMP_ADMIN_PASS`，区分大小写。 |
 | 端口被占用 | 修改脚本参数和 `.env` 中的端口，或释放正在占用端口的程序。 |
+
+---
+
+## Step 10. 发布前复核清单
+
+- 检查 `.env` 中的 `VMP_ADMIN_PASS`、`VMP_HMAC_SECRET`、`VMP_SQLITE_PATH` 等关键字段是否已替换为生产值，并将该文件纳入受控备份。
+- 在虚拟环境内执行核心回归测试：
+	```powershell
+	.\.venv\Scripts\Activate.ps1
+	python -m pytest tests/test_admin_api_crud.py tests/test_admin_service.py
+	```
+- 定期备份 `data\license.db` 与导出的离线授权文件，可结合计划任务 `schtasks` 或 `robocopy` 实现多副本。
+- 若启用 CDN 校验，可先在测试环境执行 `python tools\deploy_cdn.py --dry-run`（需在仓库根目录运行），核对 CDN 配置与密钥。
+- 记录自动化脚本输出的后台密码与 HMAC，确保交接人员握有最新凭据。
 
 ---
 

@@ -1,14 +1,42 @@
 # VMP Auth Service (FastAPI)
 
+## 部署快速开始（开发/测试环境）
+
+1. 克隆或解压仓库到目标目录（示例 `D:\old\projects\VMPSelf`）。
+2. 创建虚拟环境并安装依赖：
+	```powershell
+	C:\Python313\python.exe -m venv .venv
+	.\.venv\Scripts\Activate.ps1
+	python -m pip install --upgrade pip
+	python -m pip install -r requirements.txt
+	```
+3. 复制环境变量模板并写入关键信息：
+	```powershell
+	Copy-Item .env.example .env -Force
+	notepad .env
+	```
+	建议至少配置 `VMP_ENV=development`、`VMP_ADMIN_USER`、`VMP_ADMIN_PASS`、`VMP_HMAC_SECRET`。
+4. 初始化数据库并准备示例卡密：
+	```powershell
+	python manage.py init-db
+	python manage.py create-license --card DEMO-0001 --ttl 30
+	```
+5. 启动服务验证（开发模式可使用 `--reload`）：
+	```powershell
+	uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env --reload
+	```
+	打开 `http://127.0.0.1:8000/docs` 与 `http://127.0.0.1:8000/admin/licenses`/`/admin/users` 确认接口和后台页面加载正常。
+
 ## 环境要求
-- Python 3.10+（示例：安装在 `C:\Python313`）
-- Windows Server 2012 (Tencent Cloud) 或本地 Windows/Linux 测试环境
-- 建议使用虚拟环境 `python -m venv .venv`
+- Python 3.10 及以上版本（官方环境使用 3.13.7）
+- Windows Server 2012 / 2016、Windows 10+ 或常见 Linux 发行版（Ubuntu 22.04、Debian 12 等）
+- 具备外网访问以安装依赖，可选 Git 客户端
+- 建议始终使用虚拟环境隔离依赖：`python -m venv .venv`
 
 ## 安装依赖
 ```powershell
 C:\Python313\python.exe -m venv .venv
-.\.venv\Scripts\activate
+\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
@@ -49,12 +77,69 @@ python manage.py create-license --type enterprise --prefix VIP- --custom-ttl 180
 
 ## 启动服务
 ```powershell
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+# 开发环境：热重载 + 本地访问
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --env-file .env
+
+# 生产环境推荐：禁用 reload、增加 worker、显式加载 .env
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4 --env-file .env
 ```
 
 服务启动后，可访问 `http://127.0.0.1:8000/docs` 查看 Swagger 文档。
 
-> 若需将服务部署到 Windows Server 2012 并作为系统服务运行，请参考新增文档《[WinServer 2012 部署指南](../docs/deployment/winserver2012.md)》或使用 `tools/winserver2012_deploy.ps1` 一键部署脚本（可自动生成后台密码/HMAC，并输出登录信息）。
+> 若需将服务部署到 Windows Server 2012 并作为系统服务运行，请参考《[WinServer 2012 部署指南](../docs/deployment/winserver2012.md)》或使用 `tools/winserver2012_deploy.ps1` 一键部署脚本（自动生成后台密码/HMAC，并输出登录信息）。
+
+### Linux / systemd 示例
+
+在 Linux 服务器上，可结合 systemd 编排服务（示例以 `/opt/vmpself/server` 为根目录）：
+
+```ini
+# /etc/systemd/system/vmp-auth.service
+[Unit]
+Description=VMP Auth Service (FastAPI)
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/vmpself/server
+EnvironmentFile=/opt/vmpself/server/.env
+ExecStart=/opt/vmpself/server/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+部署步骤概览：
+
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+cp .env.example .env  # 修改其中的密钥/数据库路径
+python manage.py init-db
+systemctl daemon-reload
+systemctl enable --now vmp-auth.service
+```
+
+### Windows 一键部署脚本
+
+如需在 Windows Server 2012/2016 上常驻运行，仓库提供自动化脚本：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\winserver2012_deploy.ps1 -InstallRoot "C:\Services\VMPSelf\server" -PythonExe "C:\Python313\python.exe" -Port 8000 -AdminUser "ops-admin"
+```
+
+脚本将自动创建虚拟环境、安装依赖、生成/更新 `.env`、注册 NSSM 服务并输出后台访问信息。更多参数说明见《[WinServer 2012 部署指南](../docs/deployment/winserver2012.md)》。
+
+## 发布前检查
+- 执行回归测试，确保核心授权流程正常：
+  ```powershell
+  D:/old/projects/VMPSelf/.venv/Scripts/python.exe -m pytest tests/test_admin_api_crud.py tests/test_admin_service.py
+  ```
+- 确认 `.env` 中的 `VMP_ADMIN_PASS`、`VMP_HMAC_SECRET`、`VMP_SQLITE_PATH` 等已替换为生产值。
+- 备份 `data/license.db` 与生成的离线授权 JSON，必要时配置异地备份。
+- 若启用 CDN 校验，在正式发布前使用 `tools/deploy_cdn.py --dry-run` 验证配置。
 
 ## API 快速参考
 
