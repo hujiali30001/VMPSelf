@@ -269,7 +269,8 @@ function Invoke-Nssm {
     param([string[]]$Arguments)
     $process = Start-Process -FilePath $NssmExe -ArgumentList $Arguments -NoNewWindow -Wait -PassThru
     if ($process.ExitCode -ne 0) {
-        throw ("NSSM 命令失败: {0}" -f ($Arguments -join ' '))
+        $joinedArgs = $Arguments -join ' '
+        throw "NSSM 命令失败: $joinedArgs"
     }
 }
 
@@ -313,14 +314,15 @@ if (-not $existingRule) {
 Write-Step "启动服务"
 Invoke-Nssm -Arguments @("start", $ServiceName)
 
-Write-Step ("部署完成。当前监听地址: http://{0}:{1}" -f $ListenHost, $Port)
+Write-Step ("部署完成。当前监听地址: " + ("http://" + $ListenHost + ":" + $Port))
 
 Write-Host "" 
-Write-Host ("后台登录地址: http://{0}:{1}/admin/licenses" -f $ListenHost, $Port) -ForegroundColor Green
-Write-Host ("用户管理入口: http://{0}:{1}/admin/users" -f $ListenHost, $Port) -ForegroundColor Green
-Write-Host ("HTTP Basic 用户名: {0}" -f $FinalAdminUser)
+$baseUrl = "http://" + $ListenHost + ":" + $Port
+Write-Host ("后台登录地址: " + ($baseUrl + "/admin/licenses")) -ForegroundColor Green
+Write-Host ("用户管理入口: " + ($baseUrl + "/admin/users")) -ForegroundColor Green
+Write-Host ("HTTP Basic 用户名: " + $FinalAdminUser)
 if ($GeneratedAdminPassword) {
-    Write-Host ("HTTP Basic 密码: {0} (已自动生成，请立即备份)" -f $FinalAdminPass) -ForegroundColor Yellow
+    Write-Host ("HTTP Basic 密码: " + $FinalAdminPass + " (已自动生成，请立即备份)") -ForegroundColor Yellow
 } elseif ($AdminPassword) {
     Write-Host "HTTP Basic 密码已更新为参数指定值" -ForegroundColor Yellow
 } else {
@@ -328,7 +330,7 @@ if ($GeneratedAdminPassword) {
 }
 
 if ($GeneratedHmacSecret) {
-    Write-Host ("HMAC 密钥已自动生成：{0}" -f $FinalHmacSecret) -ForegroundColor Yellow
+    Write-Host ("HMAC 密钥已自动生成：" + $FinalHmacSecret) -ForegroundColor Yellow
 } elseif ($HmacSecret) {
     Write-Host "HMAC 密钥已按参数更新" -ForegroundColor Yellow
 } else {
