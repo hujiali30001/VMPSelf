@@ -304,12 +304,69 @@ if (-not (Test-Path -LiteralPath $NssmExe)) {
 }
 
 function Invoke-Nssm {
-    param([string[]]$Arguments)
+    param(
+        [string[]]$Arguments,
+        [int[]]$AllowedExitCodes = @(0)
+    )
+
     $process = Start-Process -FilePath $NssmExe -ArgumentList $Arguments -NoNewWindow -Wait -PassThru
-    if ($process.ExitCode -ne 0) {
+    if (-not ($AllowedExitCodes -contains $process.ExitCode)) {
         $joinedArgs = $Arguments -join ' '
         throw ("NSSM command failed: {0}" -f $joinedArgs)
     }
+
+    return $process.ExitCode
+}
+
+function Get-NssmStateName {
+    param([int]$StatusCode)
+
+    switch ($StatusCode) {
+        0 { return "SERVICE_RUNNING" }
+        1 { return "SERVICE_STOPPED" }
+        2 { return "SERVICE_START_PENDING" }
+        3 { return "SERVICE_STOP_PENDING" }
+        4 { return "SERVICE_CONTINUE_PENDING" }
+        5 { return "SERVICE_PAUSE_PENDING" }
+        6 { return "SERVICE_PAUSED" }
+        default { return "UNKNOWN" }
+    }
+}
+
+function Wait-NssmServiceRunning {
+    param(
+        [string]$ServiceName,
+        [int]$TimeoutSeconds = 60,
+        [string]$LogHint
+    )
+
+    $elapsed = 0
+    $pollInterval = 2
+    while ($elapsed -le $TimeoutSeconds) {
+        $statusCode = Invoke-Nssm -Arguments @("status", $ServiceName) -AllowedExitCodes @(0,1,2,3,4,5,6)
+        $state = Get-NssmStateName -StatusCode $statusCode
+        if ($state -eq "SERVICE_RUNNING") {
+            return
+        }
+        if ($state -eq "SERVICE_STOPPED") {
+            $message = "Service {0} stopped immediately after start (status: {1})." -f $ServiceName, $state
+            if ($LogHint) {
+                $message += " Check logs under " + $LogHint + "."
+            }
+            throw $message
+        }
+
+        Start-Sleep -Seconds $pollInterval
+        $elapsed += $pollInterval
+    }
+
+    $finalStatusCode = Invoke-Nssm -Arguments @("status", $ServiceName) -AllowedExitCodes @(0,1,2,3,4,5,6)
+    $finalState = Get-NssmStateName -StatusCode $finalStatusCode
+    $timeoutMessage = "Service {0} did not reach RUNNING within {1}s (last status: {2})." -f $ServiceName, $TimeoutSeconds, $finalState
+    if ($LogHint) {
+        $timeoutMessage += " Check logs under " + $LogHint + "."
+    }
+    throw $timeoutMessage
 }
 
 Write-Step ("Configuring Windows service: {0}" -f $ServiceName)
@@ -356,7 +413,8 @@ if (-not $existingRule) {
 }
 
 Write-Step "Starting service"
-Invoke-Nssm -Arguments @("start", $ServiceName)
+Invoke-Nssm -Arguments @("start", $ServiceName) -AllowedExitCodes @(0, 2)
+Wait-NssmServiceRunning -ServiceName $ServiceName -TimeoutSeconds 60 -LogHint $LogsPath
 
 $BaseUrl = "http://{0}:{1}" -f $ListenHost, $Port
 Write-Step ("Deployment finished. Listening on {0}" -f $BaseUrl)
