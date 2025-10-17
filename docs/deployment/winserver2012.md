@@ -97,15 +97,15 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
 
 ## Step 5. 一键部署为 Windows 服务（可选）
 
-项目内提供 `server/tools/winserver2012_deploy.ps1`，可自动完成以下操作：
+项目内提供 `server/tools/winserver2012_deploy.ps1`，脚本现已全英文输出，并可自动完成以下操作：
 
 1. 创建/更新虚拟环境并安装依赖；
 2. 初始化数据库（若已存在则跳过）；
-3. 下载并解压 NSSM；
+3. 强制启用 TLS 1.2 后下载并解压 NSSM；
 4. 注册名为 `VMPAuthService` 的 Windows 服务，使用 Uvicorn 启动 API；
 5. 创建日志目录 `logs/`，将 stdout/stderr 轮转写入；
 6. 设置防火墙规则放行指定端口；
-7. 自动把 `.env` 调整为生产配置（写入绝对路径的 SQLite、生成随机 HMAC/后台密码）。
+7. 自动把 `.env` 调整为生产配置（写入绝对路径的 SQLite、生成随机 HMAC/后台密码），并输出最终服务访问信息。
 
 常用参数：
 
@@ -125,12 +125,12 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
 
 ```powershell
 cd C:\Services\VMPSelf\server
-C:\Python313\python.exe -m venv .venv
-.\.venv\Scripts\Activate.ps1
 powershell -ExecutionPolicy Bypass -File tools\winserver2012_deploy.ps1 -InstallRoot "C:\Services\VMPSelf\server" -PythonExe "C:\Python313\python.exe" -ServiceName "VMPAuthService" -Port 8000 -ListenHost "0.0.0.0" -AdminUser "ops-admin"
 ```
 
-> 提示：若不传 `-AdminPassword`，脚本会在控制台输出自动生成的密码，请在窗口关闭前妥善保存；同理，检测到默认占位值时也会生成新的 `VMP_HMAC_SECRET` 并打印提示。
+> 提示：脚本会在存在生成/变更操作时打印醒目的英文提示。若不传 `-AdminPassword`，会生成高强度密码并在终端显示；同理，检测到默认占位值时会生成新的 `VMP_HMAC_SECRET`。请在窗口关闭前妥善记录这些值。
+
+> 运行脚本前请以管理员身份打开 PowerShell（右键“以管理员身份运行”），否则 NSSM 安装与防火墙规则写入会失败。
 
 脚本执行成功后，服务将自动启动并设置为开机自启。控制台会输出后台地址、用户管理入口、HTTP Basic 凭据以及是否生成新的 HMAC 密钥。日志位于 `C:\Services\VMPSelf\server\logs\`。
 
