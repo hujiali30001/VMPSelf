@@ -14,11 +14,12 @@ from app.services.license_service import LicenseService
 from app.services.user_service import UserService
 
 BASIC_AUTH: Tuple[str, str] = ("admin", "change-me")
+DEFAULT_SLOT_CODE = "default-slot"
 
 
 def _create_license(session: Session, card_code: str, ttl_days: int = 30) -> models.License:
     service = LicenseService(session)
-    license_obj = service.create_license(card_code, ttl_days)
+    license_obj = service.create_license(card_code, ttl_days, slot_code=DEFAULT_SLOT_CODE)
     session.refresh(license_obj)
     return license_obj
 
@@ -26,7 +27,12 @@ def _create_license(session: Session, card_code: str, ttl_days: int = 30) -> mod
 def test_user_service_delete_unbinds_license():
     with SessionLocal() as session:
         license_obj = _create_license(session, "USER-DEL-001", ttl_days=0)
-        user = UserService(session).register("user_del", "Password123!", license_obj.card_code)
+        user = UserService(session).register(
+            "user_del",
+            "Password123!",
+            license_obj.card_code,
+            DEFAULT_SLOT_CODE,
+        )
 
         assert license_obj.user is not None
 
@@ -64,7 +70,12 @@ def test_admin_api_user_crud_flow():
     with SessionLocal() as session:
         primary_license = _create_license(session, "API-USER-001", ttl_days=30)
         secondary_license = _create_license(session, "API-USER-002", ttl_days=30)
-        user = UserService(session).register("api_user", "StrongPass123!", primary_license.card_code)
+        user = UserService(session).register(
+            "api_user",
+            "StrongPass123!",
+            primary_license.card_code,
+            DEFAULT_SLOT_CODE,
+        )
         session.refresh(primary_license)
         session.refresh(secondary_license)
         user_id = user.id
@@ -115,7 +126,12 @@ def test_admin_dashboard_renders_with_recent_data():
         license_obj.expire_at = datetime.now(timezone.utc) + timedelta(days=3)
         session.commit()
 
-        UserService(session).register("dash_user", "DashPass123!", license_obj.card_code)
+        UserService(session).register(
+            "dash_user",
+            "DashPass123!",
+            license_obj.card_code,
+            DEFAULT_SLOT_CODE,
+        )
 
     response = client.get("/admin/", auth=BASIC_AUTH)
     assert response.status_code == 200
@@ -133,7 +149,7 @@ def test_admin_api_license_crud_flow():
     create_resp = client.post(
         "/admin/api/licenses",
         auth=BASIC_AUTH,
-        json={"card_code": "API-LIC-001", "ttl_days": 5},
+        json={"card_code": "API-LIC-001", "ttl_days": 5, "slot_code": DEFAULT_SLOT_CODE},
     )
     assert create_resp.status_code == 201
     created_payload = create_resp.json()
@@ -211,6 +227,7 @@ def test_admin_api_license_batch_with_type_and_filter():
             "quantity": 3,
             "custom_prefix": "VIP-",
             "custom_ttl_days": 45,
+            "slot_code": DEFAULT_SLOT_CODE,
         },
     )
     assert batch_resp.status_code == 201

@@ -8,13 +8,18 @@ from app.db import models
 from app.db.session import SessionLocal
 from app.main import app
 
+DEFAULT_SLOT_CODE = "default-slot"
+
 
 def _create_license(card_code: str, *, expire_in_days: int = 30) -> models.License:
     with SessionLocal() as session:
+        slot = session.query(models.SoftwareSlot).filter_by(code=DEFAULT_SLOT_CODE).one()
         license_obj = models.License(
             card_code=card_code,
             secret="secret-key",
             expire_at=datetime.now(timezone.utc) + timedelta(days=expire_in_days) if expire_in_days else None,
+            status=models.LicenseStatus.UNUSED.value,
+            software_slot=slot,
         )
         session.add(license_obj)
         session.commit()
@@ -32,6 +37,7 @@ def test_user_registration_success():
             "username": "new_user",
             "password": "StrongPass123!",
             "card_code": license_obj.card_code,
+            "slot_code": DEFAULT_SLOT_CODE,
         },
     )
 
@@ -39,6 +45,7 @@ def test_user_registration_success():
     data = response.json()
     assert data["username"] == "new_user"
     assert data["card_code"] == license_obj.card_code
+    assert data["slot_code"] == DEFAULT_SLOT_CODE
     assert data["message"] == "registered"
 
     with SessionLocal() as session:
@@ -65,6 +72,7 @@ def test_user_registration_requires_valid_card():
             "username": "anyone",
             "password": "StrongPass123!",
             "card_code": "NOT-EXIST",
+            "slot_code": DEFAULT_SLOT_CODE,
         },
     )
 
@@ -82,6 +90,7 @@ def test_user_registration_prevents_duplicate_license():
             "username": "owner",
             "password": "StrongPass123!",
             "card_code": license_obj.card_code,
+            "slot_code": DEFAULT_SLOT_CODE,
         },
     )
     assert first.status_code == 201
@@ -92,6 +101,7 @@ def test_user_registration_prevents_duplicate_license():
             "username": "another",
             "password": "StrongPass123!",
             "card_code": license_obj.card_code,
+            "slot_code": DEFAULT_SLOT_CODE,
         },
     )
     assert second.status_code == 400
@@ -108,6 +118,7 @@ def test_user_registration_rejects_short_password():
             "username": "shortpwd",
             "password": "123",
             "card_code": license_obj.card_code,
+            "slot_code": DEFAULT_SLOT_CODE,
         },
     )
 
@@ -126,6 +137,7 @@ def test_user_registration_rejects_expired_license():
             "username": "expired",
             "password": "StrongPass123!",
             "card_code": license_obj.card_code,
+            "slot_code": DEFAULT_SLOT_CODE,
         },
     )
 

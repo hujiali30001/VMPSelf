@@ -253,6 +253,24 @@
                     </div>
                     {% endif %}
                 </div>
+                <div class="full-row">
+                    <label>软件位</label>
+                    {% if software_slots %}
+                    <select name="slot_code" required>
+                        <option value="" disabled {% if not default_slot_code %}selected{% endif %}>请选择绑定的软件位</option>
+                        {% for slot in software_slots %}
+                        <option value="{{ slot.code }}" {% if default_slot_code and slot.code == default_slot_code %}selected{% endif %}>
+                            {{ slot.name or slot.code }}（{{ slot.code }}）
+                        </option>
+                        {% endfor %}
+                    </select>
+                    {% else %}
+                    <select name="slot_code" disabled>
+                        <option value="">暂无可用的软件位，请先创建</option>
+                    </select>
+                    {% endif %}
+                    <div class="hint">卡密只能在选定的软件位下使用</div>
+                </div>
                 <div>
                     <label>生成数量</label>
                     <input type="number" name="quantity" value="1" min="1" max="500" />
@@ -278,7 +296,7 @@
                 </div>
             </div>
             <input type="hidden" name="return_to" value="{{ return_to }}" />
-            <button class="primary-btn" type="submit">创建卡密</button>
+            <button class="primary-btn" type="submit" {% if not software_slots %}disabled{% endif %}>创建卡密</button>
         </form>
     </section>
 
@@ -333,6 +351,7 @@
             <tr>
                 <th>卡密</th>
                 <th>类型</th>
+                <th>软件位</th>
                 <th>状态</th>
                 <th>注册用户</th>
                 <th>绑定指纹</th>
@@ -374,6 +393,18 @@
                     {% else %}
                     <span class="type-none">--</span>
                     {% endif %}
+                    {% endif %}
+                </td>
+                <td>
+                    {% if license.software_slot %}
+                    <div class="type-cell">
+                        <div class="type-text">
+                            <strong>{{ license.software_slot.name or license.software_slot.code }}</strong>
+                            <span>{{ license.software_slot.code }}</span>
+                        </div>
+                    </div>
+                    {% else %}
+                    <span class="type-none">未绑定</span>
                     {% endif %}
                 </td>
                 <td>

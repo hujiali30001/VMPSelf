@@ -102,9 +102,27 @@
                 <label>绑定卡密</label>
                 <input type="text" name="card_code" placeholder="输入要绑定的卡密" required />
             </div>
+            <div class="full-row">
+                <label>软件位</label>
+                {% if software_slots %}
+                <select name="slot_code" required>
+                    <option value="" disabled {% if not default_slot_code %}selected{% endif %}>请选择软件位</option>
+                    {% for slot in software_slots %}
+                    <option value="{{ slot.code }}" {% if default_slot_code and slot.code == default_slot_code %}selected{% endif %}>
+                        {{ slot.name or slot.code }}（{{ slot.code }}）
+                    </option>
+                    {% endfor %}
+                </select>
+                {% else %}
+                <select name="slot_code" disabled>
+                    <option value="">暂无可选软件位，请先在软件管理中创建</option>
+                </select>
+                {% endif %}
+                <div class="hint">用户只能登录所选软件位的客户端</div>
+            </div>
             <input type="hidden" name="return_to" value="{{ return_to }}" />
             <div class="full-row">
-                <button class="primary-btn" type="submit">创建用户</button>
+                <button class="primary-btn" type="submit" {% if not software_slots %}disabled{% endif %}>创建用户</button>
             </div>
         </form>
     </section>
@@ -117,6 +135,7 @@
                 <tr>
                     <th>用户名</th>
                     <th>卡密</th>
+                    <th>软件位</th>
                     <th>状态</th>
                     <th>激活数</th>
                     <th>最近心跳</th>
@@ -134,6 +153,14 @@
                         <a class="link-btn" href="/admin/licenses/{{ license.card_code }}">{{ license.card_code }}</a>
                         {% else %}
                         -
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if license and license.software_slot %}
+                        <span>{{ license.software_slot.name or license.software_slot.code }}</span>
+                        <div class="hint">{{ license.software_slot.code }}</div>
+                        {% else %}
+                        <span class="badge badge-unused">未绑定</span>
                         {% endif %}
                     </td>
                     <td>

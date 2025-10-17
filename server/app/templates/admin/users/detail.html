@@ -138,6 +138,7 @@
 
 {% block content %}
 {% set return_to = return_to | default(request.url.path + ('?' + request.url.query if request.url.query else '')) %}
+{% set current_slot_code = license.software_slot.code if license and license.software_slot else '' %}
 
 <section class="summary-grid">
     <div class="summary-card">
@@ -150,6 +151,15 @@
         {% if license %}
         <a class="summary-link" href="/admin/licenses/{{ license.card_code }}">{{ license.card_code }}</a>
         <div class="summary-sub">状态：{{ status_labels.get(license.status, license.status) }}</div>
+        {% else %}
+        <span class="summary-value">未绑定</span>
+        {% endif %}
+    </div>
+    <div class="summary-card">
+        <div class="summary-title">软件位</div>
+        {% if license and license.software_slot %}
+        <span class="summary-value">{{ license.software_slot.name or license.software_slot.code }}</span>
+        <div class="summary-sub">标识：{{ license.software_slot.code }}</div>
         {% else %}
         <span class="summary-value">未绑定</span>
         {% endif %}
@@ -188,6 +198,15 @@
                     <span class="user-info-label">卡密状态</span>
                     <span class="user-info-value">{{ status_labels.get(license.status, license.status) if license else '未绑定' }}</span>
                 </div>
+                <div class="user-info-item">
+                    <span class="user-info-label">软件位</span>
+                    {% if license and license.software_slot %}
+                    <span class="user-info-value">{{ license.software_slot.name or license.software_slot.code }}</span>
+                    <div class="summary-sub">标识：{{ license.software_slot.code }}</div>
+                    {% else %}
+                    <span class="user-info-value">-</span>
+                    {% endif %}
+                </div>
                 {% if license and license.expire_at %}
                 <div class="user-info-item">
                     <span class="user-info-label">卡密到期</span>
@@ -213,6 +232,24 @@
                 <div>
                     <label class="user-info-label" for="profile-card">重新绑定卡密</label>
                     <input id="profile-card" type="text" name="card_code" placeholder="输入卡密编号" />
+                </div>
+                <div>
+                    <label class="user-info-label" for="profile-slot">软件位</label>
+                    {% if software_slots %}
+                    <select id="profile-slot" name="slot_code">
+                        <option value="">保持不变 / 自动匹配</option>
+                        {% for slot in software_slots %}
+                        <option value="{{ slot.code }}" {% if current_slot_code and slot.code == current_slot_code %}selected{% endif %}>
+                            {{ slot.name or slot.code }}（{{ slot.code }}）
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <div class="user-table-hint">重新绑定卡密时请选择对应的软件位</div>
+                    {% else %}
+                    <select id="profile-slot" name="slot_code" disabled>
+                        <option value="">暂无软件位，请先创建</option>
+                    </select>
+                    {% endif %}
                 </div>
                 <input type="hidden" name="return_to" value="{{ return_to }}" />
                 <div class="form-actions">
@@ -262,6 +299,15 @@
                 <div class="user-info-item">
                     <span class="user-info-label">绑定指纹</span>
                     <span class="user-info-value">{{ license.bound_fingerprint or '-' }}</span>
+                </div>
+                <div class="user-info-item">
+                    <span class="user-info-label">软件位</span>
+                    {% if license.software_slot %}
+                    <span class="user-info-value">{{ license.software_slot.name or license.software_slot.code }}</span>
+                    <div class="summary-sub">标识：{{ license.software_slot.code }}</div>
+                    {% else %}
+                    <span class="user-info-value">-</span>
+                    {% endif %}
                 </div>
                 <div class="user-info-item">
                     <span class="user-info-label">创建时间</span>

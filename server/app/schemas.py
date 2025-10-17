@@ -54,6 +54,7 @@ class ActivationRequest(BaseModel):
     fingerprint: str
     signature: str
     timestamp: int
+    slot_code: str = Field(..., min_length=2, max_length=64)
 
 
 class ActivationResponse(BaseModel):
@@ -94,6 +95,7 @@ class UserRegisterRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=64)
     password: str = Field(..., min_length=8, max_length=128)
     card_code: str = Field(..., max_length=64)
+    slot_code: str = Field(..., min_length=2, max_length=64)
 
 
 class UserRegisterResponse(BaseModel):
@@ -102,6 +104,7 @@ class UserRegisterResponse(BaseModel):
     card_code: str
     license_status: str
     message: str
+    slot_code: Optional[str]
 
     class Config:
         orm_mode = True
@@ -113,6 +116,7 @@ class UserDetailResponse(BaseModel):
     created_at: datetime
     card_code: Optional[str]
     license_status: Optional[str]
+    slot_code: Optional[str]
 
     class Config:
         orm_mode = True
@@ -129,6 +133,7 @@ class UserUpdateRequest(BaseModel):
     username: Optional[str] = Field(None, min_length=3, max_length=64)
     password: Optional[str] = Field(None, min_length=8, max_length=128)
     card_code: Optional[str] = Field(None, max_length=64)
+    slot_code: Optional[str] = Field(None, min_length=2, max_length=64)
 
 
 class LicenseCreateRequest(BaseModel):
@@ -138,6 +143,7 @@ class LicenseCreateRequest(BaseModel):
     quantity: int = Field(1, ge=1, le=500)
     custom_prefix: Optional[str] = Field(None, max_length=16)
     custom_ttl_days: Optional[int] = Field(None, ge=0, le=3650)
+    slot_code: str = Field(..., min_length=2, max_length=64)
 
 
 class LicenseUpdateRequest(BaseModel):
@@ -159,6 +165,7 @@ class LicenseAdminResponse(BaseModel):
     card_type: Optional[LicenseCardTypeResponse]
     card_prefix: Optional[str]
     custom_duration_days: Optional[int]
+    slot_code: Optional[str]
 
     class Config:
         orm_mode = True

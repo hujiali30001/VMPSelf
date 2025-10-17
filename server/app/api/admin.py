@@ -120,6 +120,7 @@ def _serialize_user(user: Optional[models.User]) -> Optional[dict[str, object]]:
         "created_at": user.created_at,
         "card_code": license_obj.card_code if license_obj else None,
         "license_status": license_obj.status if license_obj else None,
+        "slot_code": license_obj.software_slot.code if (license_obj and license_obj.software_slot) else None,
     }
 
 
@@ -155,6 +156,7 @@ def _serialize_license(license_obj: License) -> dict[str, object]:
         "card_type": _serialize_card_type(getattr(license_obj, "card_type", None)),
         "card_prefix": license_obj.card_prefix,
         "custom_duration_days": license_obj.custom_duration_days,
+        "slot_code": license_obj.software_slot.code if license_obj.software_slot else None,
     }
 
 DEFAULT_PAGE_SIZE = 20
@@ -276,6 +278,7 @@ def _build_user_detail_context(
 ) -> dict[str, object]:
     license_obj = user.license
     service = LicenseService(db)
+    software_slots = SoftwareService(db).list_slots()
 
     audit_logs = []
     activations = []
@@ -321,6 +324,8 @@ def _build_user_detail_context(
         page_subtitle="管理账号信息、关联卡密与安全操作。",
         page_description="管理账号信息、关联卡密与安全操作。",
         active_page="users",
+        software_slots=software_slots,
+        default_slot_code=software_slots[0].code if software_slots else "",
     )
 
 
@@ -579,7 +584,12 @@ def api_update_user(
     db: Session = Depends(get_db),
     _: HTTPBasicCredentials = Depends(require_admin),
 ):
-    if payload.username is None and payload.password is None and payload.card_code is None:
+    if (
+        payload.username is None
+        and payload.password is None
+        and payload.card_code is None
+        and payload.slot_code is None
+    ):
         raise HTTPException(status_code=400, detail="no_fields_provided")
 
     service = UserService(db)
@@ -589,6 +599,7 @@ def api_update_user(
             username=payload.username,
             password=payload.password,
             card_code=payload.card_code,
+            slot_code=payload.slot_code,
         )
     except ValueError as exc:
         message = str(exc)
@@ -602,6 +613,10 @@ def api_update_user(
             "license_revoked",
             "username_taken",
             "user_update_failed",
+            "slot_code_required",
+            "slot_not_found",
+            "slot_mismatch",
+            "license_slot_unset",
         }:
             status_code = 404 if message == "user_not_found" else 400
             raise HTTPException(status_code=status_code, detail=message)
@@ -783,6 +798,7 @@ def api_create_license(
             custom_prefix=payload.custom_prefix,
             ttl_days=payload.ttl_days,
             custom_ttl_days=payload.custom_ttl_days,
+            slot_code=payload.slot_code,
         )
     except ValueError as exc:
         message = str(exc)
@@ -799,6 +815,8 @@ def api_create_license(
             "ttl_invalid",
             "prefix_invalid",
             "prefix_too_long",
+            "slot_code_required",
+            "slot_not_found",
         }:
             raise HTTPException(status_code=400, detail=message)
         raise
@@ -1158,6 +1176,9 @@ def users_page(
     if request.url.query:
         return_to += f"?{request.url.query}"
 
+    software_slots = SoftwareService(db).list_slots()
+    default_slot_code = software_slots[0].code if software_slots else ""
+
     context = _base_context(
         request,
         users=user_rows,
@@ -1178,6 +1199,8 @@ def users_page(
         page_subtitle="集中查看注册账号、关联卡密与安全状态。",
         page_description="集中查看注册账号、关联卡密与安全状态。",
         active_page="users",
+        software_slots=software_slots,
+        default_slot_code=default_slot_code,
     )
 
     return templates.TemplateResponse(
@@ -1207,12 +1230,14 @@ def register_user_action(
     password: str = Form(...),
     confirm_password: str = Form(...),
     card_code: str = Form(...),
+    slot_code: str = Form(...),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     _: HTTPBasicCredentials = Depends(require_admin),
 ):
     username = username.strip()
     card_code = card_code.strip()
+    slot_code = slot_code.strip().lower()
     message: str
 
     if password != confirm_password:
@@ -1220,10 +1245,25 @@ def register_user_action(
     else:
         service = UserService(db)
         try:
-            user = service.register(username, password, card_code)
+            user = service.register(username, password, card_code, slot_code)
         except ValueError as exc:
             db.rollback()
-            message = str(exc)
+            error = str(exc)
+            error_map = {
+                "username_too_short": "用户名至少 3 个字符",
+                "password_too_short": "密码至少 8 位",
+                "card_code_required": "请填写卡密",
+                "slot_code_required": "请选择软件位",
+                "slot_not_found": "未找到该软件位",
+                "license_not_found": "未找到对应卡密",
+                "license_expired": "卡密已过期",
+                "license_revoked": "卡密已撤销",
+                "license_already_bound": "卡密已绑定其他用户",
+                "license_slot_unset": "卡密未绑定软件位，请联系管理员先设置",
+                "slot_mismatch": "卡密所属软件位与选择不一致",
+                "username_taken": "用户名已存在",
+            }
+            message = error_map.get(error, f"创建用户失败: {error}")
         else:
             message = f"已创建用户 {user.username}"
 
@@ -1237,18 +1277,22 @@ def update_user_profile_action(
     user_id: int,
     username: Optional[str] = Form(None),
     card_code: Optional[str] = Form(None),
+    slot_code: Optional[str] = Form(None),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     _: HTTPBasicCredentials = Depends(require_admin),
 ):
     username = (username or "").strip()
     card_code = (card_code or "").strip()
+    slot_code = (slot_code or "").strip().lower()
 
     updates: dict[str, Optional[str]] = {}
     if username:
         updates["username"] = username
     if card_code:
         updates["card_code"] = card_code
+    if slot_code:
+        updates["slot_code"] = slot_code
 
     if not updates:
         message = "请填写需要更新的字段"
@@ -1258,7 +1302,21 @@ def update_user_profile_action(
             service.update_user(user_id, **updates)
         except ValueError as exc:
             db.rollback()
-            message = str(exc)
+            error = str(exc)
+            error_map = {
+                "user_not_found": "未找到用户",
+                "username_too_short": "用户名至少 3 个字符",
+                "card_code_required": "请填写卡密",
+                "license_not_found": "未找到对应卡密",
+                "license_already_bound": "卡密已绑定其他用户",
+                "license_revoked": "卡密已撤销",
+                "license_slot_unset": "卡密未绑定软件位，请先在卡密详情页设置",
+                "slot_code_required": "请选择软件位",
+                "slot_not_found": "未找到该软件位",
+                "slot_mismatch": "卡密所属软件位与选择不一致",
+                "username_taken": "用户名已存在",
+            }
+            message = error_map.get(error, error)
         else:
             message = "用户信息已更新"
 
@@ -1359,6 +1417,7 @@ def licenses_page(
             selectinload(License.activations),
             selectinload(License.user),
             selectinload(License.card_type),
+            selectinload(License.software_slot),
         )
         .order_by(License.created_at.desc())
         .offset(offset)
@@ -1448,6 +1507,9 @@ def licenses_page(
 
     type_filter_urls = {entry["code"]: entry["url"] for entry in type_breakdown}
 
+    software_slots = SoftwareService(db).list_slots()
+    default_slot_code = software_slots[0].code if software_slots else ""
+
     context = _base_context(
         request,
         licenses=license_rows,
@@ -1473,6 +1535,8 @@ def licenses_page(
         selected_type_total=selected_type_total,
         type_filter_urls=type_filter_urls,
         page_description="集中查看卡密状态、注册用户与激活设备。",
+        software_slots=software_slots,
+        default_slot_code=default_slot_code,
     )
 
     return templates.TemplateResponse(
@@ -1491,6 +1555,7 @@ def create_license_action(
     custom_prefix: Optional[str] = Form(None),
     ttl_days: Optional[str] = Form(None),
     custom_ttl_days: Optional[str] = Form(None),
+    slot_code: str = Form(...),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     _: HTTPBasicCredentials = Depends(require_admin),
@@ -1510,6 +1575,7 @@ def create_license_action(
     if type_value == "__none__":
         type_value = None
     prefix_value = (custom_prefix or "").strip() or None
+    slot_code_value = (slot_code or "").strip().lower()
 
     parse_warning: Optional[str] = None
     try:
@@ -1534,10 +1600,28 @@ def create_license_action(
             custom_prefix=prefix_value,
             ttl_days=ttl_value,
             custom_ttl_days=custom_ttl_value,
+            slot_code=slot_code_value,
         )
     except ValueError as exc:
         db.rollback()
-        msg = str(exc)
+        error = str(exc)
+        error_map = {
+            "card_type_not_found": "选择的卡密类型不存在",
+            "card_type_disabled": "选择的卡密类型已停用",
+            "card_code_exists": "卡密已存在",
+            "card_code_blank": "卡密不能为空",
+            "card_code_too_long": "卡密长度超出限制",
+            "card_code_requires_single_quantity": "自定义卡密时数量必须为 1",
+            "quantity_invalid": "生成数量无效",
+            "quantity_too_large": "一次最多生成 500 个卡密",
+            "custom_ttl_invalid": "自定义有效期无效",
+            "ttl_invalid": "有效期无效",
+            "prefix_invalid": "自定义前缀包含非法字符",
+            "prefix_too_long": "自定义前缀长度超出限制",
+            "slot_code_required": "请选择软件位",
+            "slot_not_found": "未找到该软件位",
+        }
+        msg = error_map.get(error, error)
     except IntegrityError:
         db.rollback()
         msg = "卡密已存在"

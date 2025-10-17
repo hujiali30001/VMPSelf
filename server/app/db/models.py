@@ -54,10 +54,16 @@ class License(Base):
     card_type_id: Mapped[Optional[int]] = mapped_column(ForeignKey("license_card_types.id"))
     custom_duration_days: Mapped[Optional[int]] = mapped_column(Integer)
     card_prefix: Mapped[Optional[str]] = mapped_column(String(16))
+    software_slot_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("software_slots.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
 
     activations: Mapped[list["Activation"]] = relationship(back_populates="license", cascade="all, delete-orphan")
     user: Mapped[Optional["User"]] = relationship(back_populates="license", uselist=False)
     card_type: Mapped[Optional[LicenseCardType]] = relationship(back_populates="licenses")
+    software_slot: Mapped[Optional["SoftwareSlot"]] = relationship(back_populates="licenses")
 
 
 class Activation(Base):
@@ -174,6 +180,7 @@ class SoftwareSlot(Base):
         cascade="all, delete-orphan",
         foreign_keys="SoftwarePackage.slot_id",
     )
+    licenses: Mapped[list[License]] = relationship(back_populates="software_slot")
     current_package_link: Mapped[Optional["SoftwareSlotCurrentPackage"]] = relationship(
         back_populates="slot",
         cascade="all, delete-orphan",

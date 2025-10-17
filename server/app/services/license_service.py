@@ -86,6 +86,16 @@ class LicenseService:
             raise ValueError("card_type_disabled")
         return card_type
 
+    def _resolve_slot(self, slot_code: Optional[str]) -> models.SoftwareSlot:
+        normalized = (slot_code or "").strip().lower()
+        if not normalized:
+            raise ValueError("slot_code_required")
+
+        slot = self.db.scalar(select(models.SoftwareSlot).where(models.SoftwareSlot.code == normalized))
+        if not slot:
+            raise ValueError("slot_not_found")
+        return slot
+
     def create_licenses(
         self,
         *,
@@ -95,6 +105,7 @@ class LicenseService:
         custom_prefix: Optional[str] = None,
         ttl_days: Optional[int] = None,
         custom_ttl_days: Optional[int] = None,
+        slot_code: Optional[str] = None,
     ) -> tuple[list[models.License], str]:
         if quantity <= 0:
             raise ValueError("quantity_invalid")
@@ -104,6 +115,7 @@ class LicenseService:
             raise ValueError("card_code_requires_single_quantity")
 
         card_type = self._resolve_card_type(type_code)
+        slot = self._resolve_slot(slot_code)
 
         prefix = self._normalize_prefix(custom_prefix)
         if prefix is None and card_type and card_type.card_prefix:
@@ -152,6 +164,7 @@ class LicenseService:
                 expire_at=expire_at,
                 status=models.LicenseStatus.UNUSED.value,
                 card_prefix=prefix,
+                software_slot=slot,
             )
 
             if card_type:
@@ -172,6 +185,7 @@ class LicenseService:
                 "custom_prefix": prefix,
                 "ttl_days": base_duration,
                 "batch_id": batch_id,
+                "slot": slot.code,
             }
             self.log_event(license_obj, "create", f"License created: {json.dumps(meta, ensure_ascii=False)}")
 
@@ -182,8 +196,13 @@ class LicenseService:
 
         return created, batch_id
 
-    def create_license(self, card_code: Optional[str], ttl_days: int) -> models.License:
-        licenses, _ = self.create_licenses(card_code=card_code, ttl_days=ttl_days, quantity=1)
+    def create_license(self, card_code: Optional[str], ttl_days: int, *, slot_code: Optional[str]) -> models.License:
+        licenses, _ = self.create_licenses(
+            card_code=card_code,
+            ttl_days=ttl_days,
+            quantity=1,
+            slot_code=slot_code,
+        )
         return licenses[0]
 
     def log_event(self, license_obj: models.License, event_type: str, message: str) -> None:
@@ -207,6 +226,16 @@ class LicenseService:
         license_obj = self.get_license(request.card_code)
         if not license_obj:
             return None, None, "license_not_found"
+
+        slot = license_obj.software_slot
+        requested_slot_code = (request.slot_code or "").strip().lower() if getattr(request, "slot_code", None) else ""
+        if slot:
+            if not requested_slot_code:
+                return None, None, "slot_code_required"
+            if slot.code != requested_slot_code:
+                return None, None, "slot_mismatch"
+        else:
+            return None, None, "license_slot_unset"
 
         if not security.verify_signature(
             request.card_code,

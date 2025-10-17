@@ -17,9 +17,10 @@ class UserService:
     def __init__(self, db: Session):
         self.db = db
 
-    def register(self, username: str, password: str, card_code: str) -> models.User:
+    def register(self, username: str, password: str, card_code: str, slot_code: Optional[str]) -> models.User:
         username = (username or "").strip()
         card_code = (card_code or "").strip()
+        normalized_slot = (slot_code or "").strip().lower()
 
         if len(username) < 3:
             raise ValueError("username_too_short")
@@ -27,10 +28,18 @@ class UserService:
             raise ValueError("password_too_short")
         if not card_code:
             raise ValueError("card_code_required")
+        if not normalized_slot:
+            raise ValueError("slot_code_required")
 
         license_obj = self.db.scalar(select(models.License).where(models.License.card_code == card_code))
         if not license_obj:
             raise ValueError("license_not_found")
+
+        slot = license_obj.software_slot
+        if not slot:
+            raise ValueError("license_slot_unset")
+        if slot.code != normalized_slot:
+            raise ValueError("slot_mismatch")
 
         now = datetime.now(timezone.utc)
         expire_at = license_obj.expire_at
@@ -102,6 +111,7 @@ class UserService:
         username: Optional[str] = None,
         password: Optional[str] = None,
         card_code: Optional[str] = None,
+        slot_code: Optional[str] = None,
     ) -> models.User:
         user = self.db.get(models.User, user_id)
         if not user:
@@ -110,6 +120,8 @@ class UserService:
         updated = False
         now = datetime.now(timezone.utc)
         license_service = LicenseService(self.db)
+
+        normalized_slot = (slot_code or "").strip().lower() if slot_code else None
 
         if username is not None:
             new_username = username.strip()
@@ -140,6 +152,14 @@ class UserService:
                 if new_license.status == LicenseStatus.REVOKED.value:
                     raise ValueError("license_revoked")
 
+                if not new_license.software_slot:
+                    raise ValueError("license_slot_unset")
+                target_slot_code = normalized_slot or (current_license.software_slot.code if current_license and current_license.software_slot else None)
+                if not target_slot_code:
+                    raise ValueError("slot_code_required")
+                if new_license.software_slot.code != target_slot_code:
+                    raise ValueError("slot_mismatch")
+
                 if current_license and current_license.id != new_license.id:
                     current_license.user = None
                     current_license.bound_fingerprint = None
@@ -153,6 +173,19 @@ class UserService:
                 new_license.updated_at = now
                 license_service.log_event(new_license, "user_rebind", f"User {user.username} re-bound")
                 updated = True
+            else:
+                # card code unchanged; ensure slot still matches request if provided
+                if normalized_slot and current_license and current_license.software_slot:
+                    if current_license.software_slot.code != normalized_slot:
+                        raise ValueError("slot_mismatch")
+                elif normalized_slot:
+                    raise ValueError("license_slot_unset")
+        elif normalized_slot:
+            current_license = user.license
+            if not current_license or not current_license.software_slot:
+                raise ValueError("license_slot_unset")
+            if current_license.software_slot.code != normalized_slot:
+                raise ValueError("slot_mismatch")
 
         if not updated:
             return user

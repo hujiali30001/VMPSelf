@@ -29,7 +29,7 @@ settings = get_settings()
 def register_user(payload: UserRegisterRequest, db: Session = Depends(get_db)):
     service = UserService(db)
     try:
-        user = service.register(payload.username, payload.password, payload.card_code)
+        user = service.register(payload.username, payload.password, payload.card_code, payload.slot_code)
     except ValueError as exc:
         message = str(exc)
         if message == "license_not_found":
@@ -43,6 +43,10 @@ def register_user(payload: UserRegisterRequest, db: Session = Depends(get_db)):
             "license_expired",
             "username_taken",
             "registration_failed",
+            "slot_code_required",
+            "slot_mismatch",
+            "license_slot_unset",
+            "slot_not_found",
         }:
             raise HTTPException(status_code=400, detail=message)
         raise
@@ -54,6 +58,7 @@ def register_user(payload: UserRegisterRequest, db: Session = Depends(get_db)):
         card_code=license_obj.card_code,
         license_status=license_obj.status,
         message="registered",
+        slot_code=license_obj.software_slot.code if license_obj.software_slot else None,
     )
 
 

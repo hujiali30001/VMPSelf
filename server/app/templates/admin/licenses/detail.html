@@ -283,6 +283,16 @@
         {% endif %}
     </div>
     <div class="detail-summary-card">
+        <div class="detail-summary-title">软件位</div>
+        {% if license.software_slot %}
+        <div class="detail-summary-value">{{ license.software_slot.name or license.software_slot.code }}</div>
+        <div class="detail-summary-sub">标识：{{ license.software_slot.code }}</div>
+        {% else %}
+        <div class="detail-summary-value">未绑定</div>
+        <div class="detail-summary-sub">请在创建时选择软件位</div>
+        {% endif %}
+    </div>
+    <div class="detail-summary-card">
         <div class="detail-summary-title">注册用户</div>
         {% if registered_user %}
         <a class="detail-summary-value" style="font-size:20px;" href="/admin/users/{{ registered_user.id }}">{{ registered_user.username }}</a>
@@ -326,6 +336,15 @@
                 <span class="detail-info-value">{% if license.card_type.is_active %}启用{% else %}停用{% endif %}</span>
                 {% else %}
                 <span class="detail-info-value">--</span>
+                {% endif %}
+            </div>
+            <div class="detail-info-item">
+                <span class="detail-info-label">软件位</span>
+                {% if license.software_slot %}
+                <span class="detail-info-value">{{ license.software_slot.name or license.software_slot.code }}</span>
+                <span class="detail-summary-sub">标识：{{ license.software_slot.code }}</span>
+                {% else %}
+                <span class="detail-info-value">未绑定</span>
                 {% endif %}
             </div>
             <div class="detail-info-item">

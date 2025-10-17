@@ -10,14 +10,18 @@ from app.db.session import SessionLocal
 from app.main import app
 from app.services.security import sign_message
 
+DEFAULT_SLOT_CODE = "default-slot"
+
 
 def _create_license(card_code: str, secret: str) -> models.License:
     with SessionLocal() as session:
+        slot = session.query(models.SoftwareSlot).filter_by(code=DEFAULT_SLOT_CODE).one()
         license_obj = models.License(
             card_code=card_code,
             secret=secret,
             expire_at=datetime.now(timezone.utc) + timedelta(days=30),
             status=models.LicenseStatus.UNUSED.value,
+            software_slot=slot,
         )
         session.add(license_obj)
         session.commit()
