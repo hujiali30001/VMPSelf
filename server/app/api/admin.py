@@ -49,6 +49,29 @@ STATUS_LABELS = {
     LicenseStatus.EXPIRED.value: "已过期",
 }
 
+DEFAULT_NAV_ITEMS: tuple[dict[str, str], ...] = (
+    {"code": "dashboard", "label": "总览", "href": "/admin"},
+    {"code": "licenses", "label": "卡密列表", "href": "/admin/licenses"},
+    {"code": "license-types", "label": "卡密类型", "href": "/admin/license-types"},
+    {"code": "users", "label": "用户管理", "href": "/admin/users"},
+    {"code": "software", "label": "软件位", "href": "/admin/software"},
+    {"code": "cdn", "label": "CDN 管理", "href": "/admin/cdn"},
+    {"code": "settings", "label": "系统设置", "href": "/admin/settings"},
+)
+
+
+def _base_context(request: Request, **extra: object) -> dict[str, object]:
+    nav_items = extra.pop("nav_items", None)
+    context: dict[str, object] = {
+        "request": request,
+        "nav_items": nav_items if nav_items is not None else [item.copy() for item in DEFAULT_NAV_ITEMS],
+        "admin_identity": {"name": settings.admin_username},
+        "admin_version": "v1",
+        "page_description": extra.get("page_description"),
+    }
+    context.update(extra)
+    return context
+
 
 def _serialize_user(user: Optional[models.User]) -> Optional[dict[str, object]]:
     if not user:
@@ -179,18 +202,27 @@ def _build_license_detail_context(
             expire_at = expire_at.replace(tzinfo=timezone.utc)
         expires_in_days = (expire_at - now).days
 
-    return {
-        "request": request,
-        "license": license_obj,
-        "registered_user": license_obj.user,
-        "latest_seen": latest_seen,
-        "activations": activations,
-        "audit_logs": audit_logs,
-        "message": message,
-        "status_labels": STATUS_LABELS,
-        "expires_in_days": expires_in_days,
-        "offline_result": offline_result,
-    }
+    return_to = request.url.path
+    if request.url.query:
+        return_to += f"?{request.url.query}"
+
+    return _base_context(
+        request,
+        license=license_obj,
+        registered_user=license_obj.user,
+        latest_seen=latest_seen,
+        activations=activations,
+        audit_logs=audit_logs,
+        message=message,
+        status_labels=STATUS_LABELS,
+        expires_in_days=expires_in_days,
+        offline_result=offline_result,
+        return_to=return_to,
+        page_title="卡密详情",
+        page_subtitle="追踪授权变化，管理绑定用户与设备指纹。",
+        page_description="追踪授权变化，管理绑定用户与设备指纹。",
+        active_page="licenses",
+    )
 
 
 def _get_user_or_404(db: Session, user_id: int) -> models.User:
@@ -234,17 +266,26 @@ def _build_user_detail_context(
             now = datetime.now(timezone.utc)
             expires_in_days = (expire_at - now).days
 
-    return {
-        "request": request,
-        "user_obj": user,
-        "license": license_obj,
-        "activations": activations,
-        "audit_logs": audit_logs,
-        "latest_seen": latest_seen,
-        "expires_in_days": expires_in_days,
-        "message": message,
-        "status_labels": STATUS_LABELS,
-    }
+    return_to = request.url.path
+    if request.url.query:
+        return_to += f"?{request.url.query}"
+
+    return _base_context(
+        request,
+        user_obj=user,
+        license=license_obj,
+        activations=activations,
+        audit_logs=audit_logs,
+        latest_seen=latest_seen,
+        expires_in_days=expires_in_days,
+        message=message,
+        status_labels=STATUS_LABELS,
+        return_to=return_to,
+        page_title="用户详情",
+        page_subtitle="管理账号信息、关联卡密与安全操作。",
+        page_description="管理账号信息、关联卡密与安全操作。",
+        active_page="users",
+    )
 
 
 def require_admin(credentials: HTTPBasicCredentials = Depends(security)) -> HTTPBasicCredentials:
@@ -640,19 +681,22 @@ def license_types_page(
     if request.url.query:
         return_to += f"?{request.url.query}"
 
+    context = _base_context(
+        request,
+        card_types=card_type_rows,
+        total=len(card_types),
+        total_active=total_active,
+        total_inactive=total_inactive,
+        edit_type=edit_type,
+        message=message,
+        return_to=return_to,
+        page_description="管理卡密类型、前缀与默认策略。",
+    )
+
     return templates.TemplateResponse(
         request,
         "admin/card_types/index.html",
-        {
-            "request": request,
-            "card_types": card_type_rows,
-            "total": len(card_types),
-            "total_active": total_active,
-            "total_inactive": total_inactive,
-            "edit_type": edit_type,
-            "message": message,
-            "return_to": return_to,
-        },
+        context,
     )
 
 
@@ -878,25 +922,38 @@ def users_page(
         ).all()
     }
 
+    has_prev = page > 1
+    has_next = page < total_pages
+    return_to = request.url.path
+    if request.url.query:
+        return_to += f"?{request.url.query}"
+
+    context = _base_context(
+        request,
+        users=user_rows,
+        page=page,
+        page_size=page_size,
+        query=search_query or "",
+        total=total,
+        total_pages=total_pages,
+        has_prev=has_prev,
+        has_next=has_next,
+        prev_page=page - 1,
+        next_page=page + 1,
+        message=message,
+        status_labels=STATUS_LABELS,
+        status_counts=status_counts,
+        return_to=return_to,
+        page_title="用户管理",
+        page_subtitle="集中查看注册账号、关联卡密与安全状态。",
+        page_description="集中查看注册账号、关联卡密与安全状态。",
+        active_page="users",
+    )
+
     return templates.TemplateResponse(
         request,
-        "admin/users.html",
-        {
-            "request": request,
-            "users": user_rows,
-            "page": page,
-            "page_size": page_size,
-            "query": search_query or "",
-            "total": total,
-            "total_pages": total_pages,
-            "has_prev": page > 1,
-            "has_next": page < total_pages,
-            "prev_page": page - 1,
-            "next_page": page + 1,
-            "message": message,
-            "status_labels": STATUS_LABELS,
-            "status_counts": status_counts,
-        },
+        "admin/users/index.html",
+        context,
     )
 
 
@@ -910,7 +967,7 @@ def user_detail(
 ):
     user = _get_user_or_404(db, user_id)
     context = _build_user_detail_context(request, user, db, message=message)
-    return templates.TemplateResponse(request, "admin/user_detail.html", context)
+    return templates.TemplateResponse(request, "admin/users/detail.html", context)
 
 
 @router.post("/users/register")
@@ -1161,35 +1218,37 @@ def licenses_page(
 
     type_filter_urls = {entry["code"]: entry["url"] for entry in type_breakdown}
 
+    context = _base_context(
+        request,
+        licenses=license_rows,
+        status=status,
+        page=page,
+        page_size=page_size,
+        query=search_query or "",
+        total=total,
+        total_pages=total_pages,
+        has_prev=page > 1,
+        has_next=page < total_pages,
+        prev_page=page - 1,
+        next_page=page + 1,
+        statuses=statuses,
+        status_counts=status_counts,
+        message=message,
+        status_labels=STATUS_LABELS,
+        card_types=card_types,
+        active_card_types=active_card_types,
+        selected_type_code=type_query or "",
+        selected_card_type=selected_card_type,
+        type_breakdown=type_breakdown,
+        selected_type_total=selected_type_total,
+        type_filter_urls=type_filter_urls,
+        page_description="集中查看卡密状态、注册用户与激活设备。",
+    )
+
     return templates.TemplateResponse(
         request,
         "admin/licenses/index.html",
-        {
-            "request": request,
-            "licenses": license_rows,
-            "status": status,
-            "page": page,
-            "page_size": page_size,
-            "query": search_query or "",
-            "total": total,
-            "total_pages": total_pages,
-            "has_prev": page > 1,
-            "has_next": page < total_pages,
-            "prev_page": page - 1,
-            "next_page": page + 1,
-            "statuses": statuses,
-            "status_counts": status_counts,
-            "message": message,
-            "status_labels": STATUS_LABELS,
-            "card_types": card_types,
-            "active_card_types": active_card_types,
-            "selected_type_code": type_query or "",
-            "selected_card_type": selected_card_type,
-            "type_breakdown": type_breakdown,
-            "selected_type_total": selected_type_total,
-            "type_counts": type_counts,
-            "type_filter_urls": type_filter_urls,
-        },
+        context,
     )
 
 
@@ -1306,7 +1365,7 @@ def license_detail(
 ):
     license_obj = _get_license_or_404(db, card_code)
     context = _build_license_detail_context(request, license_obj, db, message=message)
-    return templates.TemplateResponse(request, "admin/license_detail.html", context)
+    return templates.TemplateResponse(request, "admin/licenses/detail.html", context)
 
 
 @router.post("/licenses/{card_code}/extend")
@@ -1392,7 +1451,7 @@ def generate_offline_license_action(
         message=message,
         offline_result=offline_result,
     )
-    return templates.TemplateResponse(request, "admin/license_detail.html", context)
+    return templates.TemplateResponse(request, "admin/licenses/detail.html", context)
 
 
 @router.post("/licenses/{card_code}/reset")

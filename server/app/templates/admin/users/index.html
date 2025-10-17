@@ -1,0 +1,186 @@
+{% extends "admin/layout.html" %}
+{% set active_page = "users" %}
+{% set page_title = "用户管理" %}
+{% set page_subtitle = "集中查看注册账号、关联卡密与安全状态。" %}
+
+{% block title %}用户列表 - 授权管理后台{% endblock %}
+
+{% block head_extra %}
+<style>
+    .user-search-form {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+    .user-search-form input[type="search"] {
+        min-width: 220px;
+    }
+    .link-btn {
+        text-decoration: none;
+        color: var(--brand);
+        font-weight: 600;
+    }
+    .link-btn:hover {
+        color: var(--brand-dark);
+    }
+    .user-actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+    .users-pagination {
+        margin-top: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+        font-size: 13px;
+    }
+    .users-pagination .buttons {
+        display: flex;
+        gap: 10px;
+    }
+    @media (max-width: 1080px) {
+        .user-search-form input[type="search"] {
+            flex: 1 1 180px;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block topbar_actions %}
+<form class="user-search-form" method="get" action="/admin/users">
+    <input type="hidden" name="page_size" value="{{ page_size }}" />
+    <input type="hidden" name="page" value="1" />
+    <input type="search" name="q" value="{{ query }}" placeholder="搜索用户名或卡密..." />
+    <button class="secondary-btn" type="submit">搜索</button>
+</form>
+<a class="secondary-btn" href="/admin/licenses">转到卡密列表</a>
+{% endblock %}
+
+{% block content %}
+{% set return_to = request.url.path + ('?' + request.url.query if request.url.query else '') %}
+
+<section class="stats">
+    <div class="stat-card">
+        <div class="stat-title">总用户</div>
+        <div class="stat-value">{{ total }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-title">激活中</div>
+        <div class="stat-value">{{ status_counts.get('active', 0) }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-title">未使用卡密</div>
+        <div class="stat-value">{{ status_counts.get('unused', 0) }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-title">已过期</div>
+        <div class="stat-value">{{ status_counts.get('expired', 0) }}</div>
+    </div>
+</section>
+
+<div class="grid-two-columns">
+    <section class="panel">
+        <h2>快速创建用户</h2>
+        <form class="form-grid" method="post" action="/admin/users/register">
+            <div class="full-row">
+                <label>用户名</label>
+                <input type="text" name="username" placeholder="至少 3 字符" required minlength="3" maxlength="64" />
+            </div>
+            <div class="full-row">
+                <label>密码</label>
+                <input type="password" name="password" placeholder="至少 8 位" required minlength="8" />
+            </div>
+            <div class="full-row">
+                <label>确认密码</label>
+                <input type="password" name="confirm_password" placeholder="再次输入" required minlength="8" />
+            </div>
+            <div class="full-row">
+                <label>绑定卡密</label>
+                <input type="text" name="card_code" placeholder="输入要绑定的卡密" required />
+            </div>
+            <input type="hidden" name="return_to" value="{{ return_to }}" />
+            <div class="full-row">
+                <button class="primary-btn" type="submit">创建用户</button>
+            </div>
+        </form>
+    </section>
+
+    <section class="panel">
+        <h2>用户列表</h2>
+        {% if users %}
+        <table>
+            <thead>
+                <tr>
+                    <th>用户名</th>
+                    <th>卡密</th>
+                    <th>状态</th>
+                    <th>激活数</th>
+                    <th>最近心跳</th>
+                    <th>创建时间</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in users %}
+                {% set license = row.license %}
+                <tr>
+                    <td><strong>{{ row.user.username }}</strong></td>
+                    <td>
+                        {% if license %}
+                        <a class="link-btn" href="/admin/licenses/{{ license.card_code }}">{{ license.card_code }}</a>
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if license %}
+                            {% set status = license.status %}
+                            <span class="badge badge-{{ status }}">{{ status_labels.get(status, status) }}</span>
+                        {% else %}
+                            <span class="badge badge-unused">未绑定</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ row.activation_count }}</td>
+                    <td>{{ row.latest_seen.isoformat() if row.latest_seen else '-' }}</td>
+                    <td>{{ row.user.created_at.isoformat() }}</td>
+                    <td>
+                        <div class="user-actions">
+                            <a class="link-btn" href="/admin/users/{{ row.user.id }}">详情</a>
+                            <form method="post" action="/admin/users/{{ row.user.id }}/delete" onsubmit="return confirm('确认删除用户 {{ row.user.username }} 吗？');">
+                                <input type="hidden" name="return_to" value="{{ return_to }}" />
+                                <button class="danger-btn" type="submit">删除</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <div class="users-pagination">
+            <div>共 {{ total }} 个用户，当前第 {{ page }} / {{ total_pages }} 页</div>
+            <div class="buttons">
+                <form method="get" action="/admin/users">
+                    <input type="hidden" name="q" value="{{ query }}" />
+                    <input type="hidden" name="page_size" value="{{ page_size }}" />
+                    <input type="hidden" name="page" value="{{ prev_page if has_prev else 1 }}" />
+                    <button class="secondary-btn" type="submit" {% if not has_prev %}disabled{% endif %}>上一页</button>
+                </form>
+                <form method="get" action="/admin/users">
+                    <input type="hidden" name="q" value="{{ query }}" />
+                    <input type="hidden" name="page_size" value="{{ page_size }}" />
+                    <input type="hidden" name="page" value="{{ next_page if has_next else total_pages }}" />
+                    <button class="secondary-btn" type="submit" {% if not has_next %}disabled{% endif %}>下一页</button>
+                </form>
+            </div>
+        </div>
+        {% else %}
+        <div class="empty-state">暂无用户记录，可使用左侧表单创建新的用户账号。</div>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}
