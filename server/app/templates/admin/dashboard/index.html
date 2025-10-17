@@ -1,0 +1,333 @@
+{% extends "admin/layout.html" %}
+{% set active_page = active_page | default("dashboard") %}
+{% set page_title = page_title | default("控制台总览") %}
+{% set page_subtitle = page_subtitle | default("统一入口集中管理授权服务核心模块") %}
+
+{% macro render_datetime(value) -%}
+    {%- if value -%}
+        {%- if value.tzinfo -%}
+            {{ value.astimezone(now.tzinfo or value.tzinfo).strftime('%Y-%m-%d %H:%M') }}
+        {%- else -%}
+            {{ value.strftime('%Y-%m-%d %H:%M') }}
+        {%- endif -%}
+    {%- else -%}
+        —
+    {%- endif -%}
+{%- endmacro %}
+
+{% block title %}控制台总览 - 授权管理后台{% endblock %}
+
+{% block head_extra %}
+<style>
+    .dashboard-stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 18px;
+    }
+    .dashboard-stat-card {
+        position: relative;
+        padding: 20px;
+        border-radius: 18px;
+        background: var(--bg-panel-alt);
+        border: 1px solid rgba(37, 99, 235, 0.12);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+    .dashboard-stat-label {
+        font-size: 13px;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    .dashboard-stat-value {
+        font-size: 30px;
+        font-weight: 700;
+        color: var(--brand-dark);
+    }
+    .dashboard-stat-meta {
+        font-size: 12px;
+        color: var(--text-secondary);
+    }
+    .module-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 18px;
+    }
+    .module-card {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 22px;
+        border-radius: 18px;
+        text-decoration: none;
+        border: 1px solid rgba(37, 99, 235, 0.12);
+        background: var(--bg-panel);
+        box-shadow: var(--shadow-soft);
+        color: inherit;
+        position: relative;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .module-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 20px 40px rgba(37, 99, 235, 0.18);
+    }
+    .module-card.is-disabled {
+        cursor: not-allowed;
+        opacity: 0.65;
+        background: rgba(148, 163, 184, 0.12);
+        box-shadow: none;
+        border-style: dashed;
+    }
+    .module-heading {
+        font-size: 18px;
+        font-weight: 600;
+        margin: 0;
+    }
+    .module-desc {
+        font-size: 13px;
+        color: var(--text-secondary);
+        flex: 1;
+    }
+    .module-footer {
+        font-size: 12px;
+        color: var(--brand-dark);
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-weight: 600;
+    }
+    .module-card.is-disabled .module-footer {
+        color: var(--text-secondary);
+    }
+    .module-badge {
+        position: absolute;
+        top: 16px;
+        right: 18px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+        background: rgba(148, 163, 184, 0.2);
+        color: rgba(15, 23, 42, 0.65);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    .status-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 12px;
+    }
+    .status-card {
+        padding: 16px;
+        border-radius: 16px;
+        background: rgba(37, 99, 235, 0.06);
+        border: 1px solid rgba(37, 99, 235, 0.16);
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+    .status-card .label {
+        font-size: 12px;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+    .status-card .count {
+        font-size: 22px;
+        font-weight: 700;
+        color: var(--brand-dark);
+    }
+    .dashboard-columns {
+        display: grid;
+        grid-template-columns: 1.6fr 1fr;
+        gap: 24px;
+    }
+    .activity-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 14px;
+    }
+    .activity-item {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 14px;
+        border-radius: 14px;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        background: rgba(248, 250, 252, 0.85);
+    }
+    .activity-item .title {
+        font-weight: 600;
+        font-size: 14px;
+    }
+    .activity-item .meta {
+        font-size: 12px;
+        color: var(--text-secondary);
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+    .activity-item .actions {
+        display: flex;
+        gap: 10px;
+        font-size: 12px;
+        font-weight: 600;
+    }
+    .activity-item .actions a {
+        color: var(--brand);
+        text-decoration: none;
+    }
+    .inline-empty {
+        font-size: 13px;
+        color: var(--text-secondary);
+    }
+    @media (max-width: 1280px) {
+        .dashboard-columns {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block topbar_actions %}
+<a class="primary-btn" href="/admin/licenses">前往卡密管理</a>
+<a class="secondary-btn" href="/admin/users">查看用户列表</a>
+{% endblock %}
+
+{% block content %}
+<section class="dashboard-stats">
+    {% for stat in stats %}
+        <div class="dashboard-stat-card" data-stat-code="{{ stat.code }}">
+            <div class="dashboard-stat-label">{{ stat.label }}</div>
+            <div class="dashboard-stat-value">{{ stat.value }}</div>
+            {% if stat.meta %}
+                <div class="dashboard-stat-meta">{{ stat.meta }}</div>
+            {% endif %}
+        </div>
+    {% endfor %}
+</section>
+
+<section class="panel">
+    <h2 style="margin: 0 0 18px;">功能模块一览</h2>
+    <div class="module-grid">
+        {% for module in module_cards %}
+            {% if module.ready %}
+                <a class="module-card" href="{{ module.href }}" data-module-code="{{ module.code }}">
+            {% else %}
+                <div class="module-card is-disabled" data-module-code="{{ module.code }}" aria-disabled="true">
+            {% endif %}
+                    <h3 class="module-heading">{{ module.label }}</h3>
+                    <p class="module-desc">{{ module.description }}</p>
+                    {% if module.badge %}
+                        <span class="module-badge">{{ module.badge }}</span>
+                    {% endif %}
+                    <span class="module-footer">{{ '前往页面' if module.ready else '即将开放' }}</span>
+            {% if module.ready %}
+                </a>
+            {% else %}
+                </div>
+            {% endif %}
+        {% endfor %}
+    </div>
+</section>
+
+<div class="dashboard-columns">
+    <section class="panel">
+        <h2 style="margin: 0 0 16px;">卡密状态分布</h2>
+        <div class="status-grid">
+            {% for item in status_summary %}
+                <div class="status-card status-{{ item.code }}">
+                    <span class="label">{{ item.label }}</span>
+                    <span class="count">{{ item.count }}</span>
+                </div>
+            {% endfor %}
+        </div>
+        <p style="margin: 16px 0 0; font-size: 12px; color: var(--text-secondary);">
+            统计基于最新卡密数据，后续 7 天内到期的卡密见右侧列表。
+        </p>
+    </section>
+
+    <section class="panel">
+        <h2 style="margin: 0 0 16px;">即将过期 ({{ timeframe_days }} 天内)</h2>
+        {% if expiring_licenses %}
+            <ul class="activity-list">
+                {% for license in expiring_licenses %}
+                    <li class="activity-item">
+                        <div class="title">{{ license.card_code }}</div>
+                        <div class="meta">
+                            <span>到期：{{ render_datetime(license.expire_at) }}</span>
+                            {% if license.user %}
+                                <span>绑定用户：{{ license.user.username }}</span>
+                            {% endif %}
+                            {% if license.card_type %}
+                                <span>类型：{{ license.card_type.display_name }}</span>
+                            {% endif %}
+                        </div>
+                        <div class="actions">
+                            <a href="/admin/licenses/{{ license.card_code }}">查看</a>
+                        </div>
+                    </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <div class="inline-empty">未来 {{ timeframe_days }} 天内暂无即将到期的卡密。</div>
+        {% endif %}
+    </section>
+</div>
+
+<div class="dashboard-columns">
+    <section class="panel">
+        <h2 style="margin: 0 0 16px;">最新注册用户</h2>
+        {% if recent_users %}
+            <ul class="activity-list">
+                {% for user in recent_users %}
+                    <li class="activity-item">
+                        <div class="title">{{ user.username }}</div>
+                        <div class="meta">
+                            <span>ID {{ user.id }}</span>
+                            <span>注册于 {{ render_datetime(user.created_at) }}</span>
+                            {% if user.card_code %}
+                                <span>卡密 {{ user.card_code }}</span>
+                            {% endif %}
+                        </div>
+                        <div class="actions">
+                            <a href="/admin/users/{{ user.id }}">详情</a>
+                        </div>
+                    </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <div class="inline-empty">暂无用户注册记录。</div>
+        {% endif %}
+    </section>
+
+    <section class="panel">
+        <h2 style="margin: 0 0 16px;">最新创建卡密</h2>
+        {% if recent_licenses %}
+            <ul class="activity-list">
+                {% for item in recent_licenses %}
+                    <li class="activity-item">
+                        <div class="title">{{ item.card_code }}</div>
+                        <div class="meta">
+                            <span>状态：<span class="badge badge-{{ item.status }}">{{ status_labels.get(item.status, item.status) }}</span></span>
+                            <span>创建于 {{ render_datetime(item.created_at) }}</span>
+                            {% if item.card_type %}
+                                <span>类型：{{ item.card_type.display_name }}</span>
+                            {% endif %}
+                        </div>
+                        <div class="actions">
+                            <a href="/admin/licenses/{{ item.card_code }}">详情</a>
+                        </div>
+                    </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <div class="inline-empty">暂无卡密创建记录。</div>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

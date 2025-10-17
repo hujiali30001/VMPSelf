@@ -25,7 +25,7 @@
 	```powershell
 	uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env --reload
 	```
-	打开 `http://127.0.0.1:8000/docs` 与 `http://127.0.0.1:8000/admin/licenses`/`/admin/users` 确认接口和后台页面加载正常。
+	打开 `http://127.0.0.1:8000/docs` 确认 API 可用，再访问 `http://127.0.0.1:8000/admin/` 查看统一控制台；通过侧边导航可进入卡密、用户等管理页面。
 
 ## 环境要求
 - Python 3.10 及以上版本（官方环境使用 3.13.7）

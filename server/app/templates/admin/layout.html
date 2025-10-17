@@ -419,7 +419,7 @@
 </head>
 <body>
 <div class="app-shell">
-    {% set __nav_items = nav_items if nav_items is defined else [
+    {% set nav_items = nav_items if nav_items is defined else [
         {"code": "dashboard", "label": "总览", "href": "/admin"},
         {"code": "licenses", "label": "卡密列表", "href": "/admin/licenses"},
         {"code": "license-types", "label": "卡密类型", "href": "/admin/license-types"},
@@ -428,7 +428,8 @@
         {"code": "cdn", "label": "CDN 管理", "href": "/admin/cdn"},
         {"code": "settings", "label": "系统设置", "href": "/admin/settings"}
     ] %}
-    {% include "admin/partials/sidebar.html" with nav_items=__nav_items, active_page=(active_page if active_page is defined else "") %}
+    {% set active_page = active_page if active_page is defined else "" %}
+    {% include "admin/partials/sidebar.html" %}
     <div class="app-main">
         <header class="topbar">
             <div class="topbar-inner">

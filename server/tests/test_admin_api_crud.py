@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Tuple
 
 import pytest
@@ -105,6 +105,26 @@ def test_admin_api_user_crud_flow():
 
     missing = client.get(f"/admin/api/users/{user_id}", auth=BASIC_AUTH)
     assert missing.status_code == 404
+
+
+def test_admin_dashboard_renders_with_recent_data():
+    client = TestClient(app)
+
+    with SessionLocal() as session:
+        license_obj = _create_license(session, "DASH-0001", ttl_days=7)
+        license_obj.expire_at = datetime.now(timezone.utc) + timedelta(days=3)
+        session.commit()
+
+        UserService(session).register("dash_user", "DashPass123!", license_obj.card_code)
+
+    response = client.get("/admin/", auth=BASIC_AUTH)
+    assert response.status_code == 200
+
+    html = response.text
+    assert "控制台总览" in html
+    assert "dash_user" in html
+    assert "DASH-0001" in html
+    assert "即将过期" in html
 
 
 def test_admin_api_license_crud_flow():

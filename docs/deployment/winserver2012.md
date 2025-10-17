@@ -2,6 +2,11 @@
 
 本文面向将授权主服务器部署到 Windows Server 2012 的场景，示例环境：内网 IP `192.168.132.132`、Python 安装在 `C:\Python313\python.exe`。如果你的环境不同，可按需调整目录或端口。
 
+> **最近更新（2025-10）**
+> - 新版后台提供统一仪表盘（`/admin/`），可在部署后快速了解用户、卡密与即将过期提醒。
+> - 部署脚本 `tools/winserver2012_deploy.ps1` 会自动生成后台凭据与仪表盘入口提示，请在控制台记录脚本输出。
+> - 新增“仪表盘巡检”章节，帮助你在上线前核查各模块卡片与关键指标。
+
 ---
 
 ## Step 0. 准备与检查清单
@@ -90,8 +95,11 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
 ```
 
 - 打开浏览器访问 `http://192.168.132.132:8000/docs`，查看 Swagger 文档确认接口可访问。
-- 访问 `http://192.168.132.132:8000/admin/licenses`，浏览器会弹出 HTTP Basic 登录框，使用 `.env` 中的 `VMP_ADMIN_USER` / `VMP_ADMIN_PASS` 登录，即可看到卡密管理后台：支持快速创建卡密、按状态/关键字筛选分页、查看激活次数与心跳、进入详情页延期或重置授权。
-- 访问 `http://192.168.132.132:8000/admin/users`，查看新上线的用户列表：可以快速搜索账号、跳转至用户详情页（含审计日志与激活设备）、手动解绑或删除账号。
+- 访问 `http://192.168.132.132:8000/admin/`，进入统一控制台查看核心统计、即将到期提醒，并从卡片快速跳转到各管理模块。
+- 访问 `http://192.168.132.132:8000/admin/licenses`，浏览器会弹出 HTTP Basic 登录框，使用 `.env` 中的 `VMP_ADMIN_USER` / `VMP_ADMIN_PASS` 登录。新版模块化卡密管理界面支持快速创建卡密、批量筛选、快捷导向详情页以延期或重置授权。
+- 访问 `http://192.168.132.132:8000/admin/users`，查看全新的用户列表：支持关键字搜索、快速跳转到用户详情（含审计日志与激活设备），可直接解绑或删除账号。
+- 访问 `http://192.168.132.132:8000/admin/card-types`，管理卡密类型与时长模板；界面与其他后台页面采用统一布局，便于后续扩展。
+- 在仪表盘「功能模块一览」区域核对卡片状态：卡密管理、用户中心、卡密类型应显示“前往页面”，CDN/软件位/系统设置卡片标记为“规划中”属正常现象。
 - 验证完毕后在终端按 `Ctrl+C` 停止 Uvicorn。
 - 可选：保持虚拟环境激活状态执行 `python -m pytest tests/test_admin_api_crud.py tests/test_admin_service.py`，快速确认后台接口的关键用例。
 
@@ -154,7 +162,7 @@ nssm stop VMPAuthService
 Get-Content -Path "C:\Services\VMPSelf\server\logs\uvicorn.log" -Wait
 ```
 
-若需调整端口或环境变量，可执行 `nssm edit VMPAuthService`，修改后再 `nssm restart VMPAuthService` 生效。后台新增的用户管理界面位于 `/admin/users`，可随时手动解绑账号或删除异常用户。
+若需调整端口或环境变量，可执行 `nssm edit VMPAuthService`，修改后再 `nssm restart VMPAuthService` 生效。后台入口统一采用新版界面：`/admin/licenses` 管理卡密、`/admin/users` 维护账号、`/admin/card-types` 配置卡密类型，可随时手动解绑账号或删除异常用户。
 
 ---
 
@@ -206,7 +214,7 @@ pong    2025-10-16T19:28:29.680446+00:00
 ## Step 10. 发布前复核清单
 
 - 检查 `.env` 中的 `VMP_ADMIN_PASS`、`VMP_HMAC_SECRET`、`VMP_SQLITE_PATH` 等关键字段是否已替换为生产值，并将该文件纳入受控备份。
-- 在虚拟环境内执行核心回归测试：
+- 在虚拟环境内执行核心回归测试（包含统一仪表盘的 HTML 断言）：
 	```powershell
 	.\.venv\Scripts\Activate.ps1
 	python -m pytest tests/test_admin_api_crud.py tests/test_admin_service.py
@@ -214,6 +222,16 @@ pong    2025-10-16T19:28:29.680446+00:00
 - 定期备份 `data\license.db` 与导出的离线授权文件，可结合计划任务 `schtasks` 或 `robocopy` 实现多副本。
 - 若启用 CDN 校验，可先在测试环境执行 `python tools\deploy_cdn.py --dry-run`（需在仓库根目录运行），核对 CDN 配置与密钥。
 - 记录自动化脚本输出的后台密码与 HMAC，确保交接人员握有最新凭据。
+
+---
+
+## Step 11. 仪表盘巡检与后续扩展
+
+- 登录 `http://<服务器IP>:8000/admin/`，确认首页顶部统计（注册用户、卡密总量、激活中的卡密等）与数据库数据一致，如无数据可忽略统计空值。
+- 「即将过期」列表默认展示未来 7 天内到期的卡密，若列表为空说明近期无即将过期的记录；可通过创建临时期卡密来验证提醒功能。
+- 「最新注册用户」与「最新创建卡密」分别抓取最近 6 条记录，如需查看更多可跳转到对应模块页面进行分页查询。
+- CDN 管理、软件位、系统设置等卡片当前标记为“规划中”，部署后无需处理；后续迭代上线时将通过同一仪表盘解锁。
+- 建议在每次发布或脚本重装后重复上述巡检，确保后台入口与导航指向正确；如遇模板渲染异常，可重新运行 `python -m pytest -k dashboard` 协助定位。
 
 ---
 
