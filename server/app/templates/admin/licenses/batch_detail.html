@@ -6,6 +6,7 @@
 {% block topbar_actions %}
 <a class="secondary-btn" href="/admin/licenses/batches">返回批次列表</a>
 <a class="secondary-btn" href="/admin/api/licenses/batches/{{ batch.id }}" target="_blank">查看 JSON</a>
+<a class="secondary-btn" href="/admin/licenses/batches/{{ batch.id }}/export">导出 CSV</a>
 {% endblock %}
 
 {% block content %}
@@ -36,6 +37,33 @@
     </details>
     {% endif %}
 </section>
+
+{% if audit_logs %}
+<section class="panel">
+    <h2>操作审计</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>时间</th>
+                <th>操作人</th>
+                <th>动作</th>
+                <th>描述</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for log in audit_logs %}
+            <tr>
+                <td>{{ log.created_at.strftime('%Y-%m-%d %H:%M:%S') if log.created_at else '--' }}</td>
+                <td>{% if log.actor_name %}{{ log.actor_name }}{% else %}{{ log.actor_type or 'system' }}{% endif %}</td>
+                <td>{{ log.action }}</td>
+                <td>{{ log.message or '--' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <div class="panel-help">如需更多记录，请前往系统设置 → 审计日志。</div>
+</section>
+{% endif %}
 
 <section class="panel">
     <h2>关联卡密</h2>

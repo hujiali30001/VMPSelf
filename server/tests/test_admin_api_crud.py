@@ -262,8 +262,25 @@ def test_admin_api_license_batch_with_type_and_filter():
     assert batches_data["total"] >= 1
     assert any(batch["batch_code"] == batch_code for batch in batches_data["items"])
 
-    detail_resp = client.get(f"/admin/api/licenses/batches/by-code/{batch_code}", auth=BASIC_AUTH)
+    batch_id = payload["batch"]["id"]
+
+    detail_resp = client.get(f"/admin/api/licenses/batches/{batch_id}", auth=BASIC_AUTH)
     assert detail_resp.status_code == 200
     detail_data = detail_resp.json()
     assert detail_data["batch"]["batch_code"] == batch_code
+    assert detail_data["batch"]["metadata"]["slot"] == DEFAULT_SLOT_CODE
     assert len(detail_data["licenses"]) == 3
+    assert all(item["batch_id"] == batch_id for item in detail_data["licenses"])
+    assert all(item["batch_code"] == batch_code for item in detail_data["licenses"])
+
+    detail_no_licenses = client.get(
+        f"/admin/api/licenses/batches/{batch_id}",
+        auth=BASIC_AUTH,
+        params={"include_licenses": "false"},
+    )
+    assert detail_no_licenses.status_code == 200
+    assert detail_no_licenses.json()["licenses"] == []
+
+    detail_by_code = client.get(f"/admin/api/licenses/batches/by-code/{batch_code}", auth=BASIC_AUTH)
+    assert detail_by_code.status_code == 200
+    assert detail_by_code.json()["batch"]["batch_code"] == batch_code

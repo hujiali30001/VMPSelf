@@ -1828,6 +1828,17 @@ def license_batch_detail_page(
         reverse=True,
     )
 
+    audit_service = AuditService(db)
+    log_map: dict[int, models.AuditLog] = {}
+    for license_obj in licenses:
+        if license_obj.id is None:
+            continue
+        logs, _ = audit_service.list_logs(license_id=license_obj.id, limit=5)
+        for log in logs:
+            if log.id is not None:
+                log_map[log.id] = log
+    audit_logs = sorted(log_map.values(), key=lambda item: item.created_at, reverse=True)
+
     context = _base_context(
         request,
         batch=batch,
@@ -1838,8 +1849,54 @@ def license_batch_detail_page(
         active_page="licenses",
         message=message,
         status_labels=STATUS_LABELS,
+        audit_logs=audit_logs,
     )
     return templates.TemplateResponse(request, "admin/licenses/batch_detail.html", context)
+
+
+@licenses_router.get("/batches/{batch_id}/export")
+def license_batch_export_page(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    _: AdminPrincipal = Depends(require_permission("licenses", "view")),
+):
+    service = LicenseService(db)
+    batch = service.get_batch(batch_id)
+    if not batch:
+        raise HTTPException(status_code=404, detail="batch_not_found")
+    rows: list[list[str]] = [[
+        "card_code",
+        "secret",
+        "status",
+        "expire_at",
+        "slot_code",
+        "card_type",
+    ]]
+    for license_obj in batch.licenses:
+        card_type_code = license_obj.card_type.code if license_obj.card_type else ""
+        expire_at = ""
+        if license_obj.expire_at:
+            expire_at = license_obj.expire_at.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        rows.append([
+            license_obj.card_code,
+            license_obj.secret,
+            license_obj.status,
+            expire_at,
+            license_obj.software_slot.code if license_obj.software_slot else "",
+            card_type_code,
+        ])
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerows(rows)
+    output.seek(0)
+
+    filename = f"license_batch_{batch.batch_code}.csv"
+    headers = {
+        "Content-Disposition": f"attachment; filename={filename}",
+        "Cache-Control": "no-store",
+    }
+    return StreamingResponse(iter([output.getvalue()]), media_type="text/csv", headers=headers)
 
 
 @licenses_router.post("/create")

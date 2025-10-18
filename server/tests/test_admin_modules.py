@@ -268,3 +268,13 @@ def test_admin_license_batch_pages():
     detail_page = client.get(f"/admin/licenses/batches/{batch_id}", auth=BASIC_AUTH)
     assert detail_page.status_code == 200
     assert batch_code in detail_page.text
+    assert "操作审计" in detail_page.text
+    assert "导出 CSV" in detail_page.text
+    assert "License created" in detail_page.text
+
+    export_resp = client.get(f"/admin/licenses/batches/{batch_id}/export", auth=BASIC_AUTH)
+    assert export_resp.status_code == 200
+    assert export_resp.headers.get("content-disposition", "").startswith("attachment;")
+    body = export_resp.content.decode()
+    assert "card_code" in body
+    assert batch_code in detail_page.text
