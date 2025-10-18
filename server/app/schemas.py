@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -16,6 +16,7 @@ class LicenseCardTypeResponse(BaseModel):
     description: Optional[str] = None
     is_active: bool
     sort_order: int
+    metadata: Optional[dict[str, Any]] = None
     created_at: datetime
     updated_at: datetime
 
@@ -32,6 +33,7 @@ class LicenseCardTypeCreateRequest(BaseModel):
     color: Optional[str] = Field(None, max_length=16)
     sort_order: Optional[int] = Field(None, ge=0, le=1000)
     is_active: bool = True
+    metadata: Optional[dict[str, Any]] = None
 
 
 class LicenseCardTypeUpdateRequest(BaseModel):
@@ -42,6 +44,7 @@ class LicenseCardTypeUpdateRequest(BaseModel):
     color: Optional[str] = Field(None, max_length=16)
     sort_order: Optional[int] = Field(None, ge=0, le=1000)
     is_active: Optional[bool] = None
+    metadata: Optional[dict[str, Any]] = None
 
 
 class LicenseCardTypeListResponse(BaseModel):
@@ -166,6 +169,9 @@ class LicenseAdminResponse(BaseModel):
     card_prefix: Optional[str]
     custom_duration_days: Optional[int]
     slot_code: Optional[str]
+    batch_id: Optional[int]
+    batch_code: Optional[str]
+    notes: Optional[str]
 
     class Config:
         orm_mode = True
@@ -180,5 +186,34 @@ class LicenseListResponse(BaseModel):
 
 class LicenseBatchCreateResponse(BaseModel):
     items: List[LicenseAdminResponse]
-    batch_id: str
+    batch: "LicenseBatchResponse"
     quantity: int
+
+
+class LicenseBatchResponse(BaseModel):
+    id: int
+    batch_code: str
+    quantity: int
+    created_at: datetime
+    created_by: Optional[str]
+    type_code: Optional[str]
+    metadata: Optional[dict[str, Any]] = None
+
+    class Config:
+        orm_mode = True
+
+
+class LicenseBatchListResponse(BaseModel):
+    items: List[LicenseBatchResponse]
+    total: int
+    offset: int
+    limit: int
+
+
+class LicenseBatchDetailResponse(BaseModel):
+    batch: LicenseBatchResponse
+    licenses: List[LicenseAdminResponse]
+
+
+LicenseBatchCreateResponse.update_forward_refs()
+LicenseBatchDetailResponse.update_forward_refs()

@@ -8,6 +8,7 @@ from app.db import (
     CDNEndpointStatus,
     CDNTask,
     CDNTaskStatus,
+    LicenseBatch,
     SoftwarePackage,
     SoftwarePackageStatus,
     SoftwareSlot,
@@ -240,3 +241,30 @@ def test_admin_viewer_permissions_enforced():
         follow_redirects=False,
     )
     assert create_resp.status_code == 403
+
+
+def test_admin_license_batch_pages():
+    client = TestClient(app)
+
+    batch_resp = client.post(
+        "/admin/api/licenses",
+        auth=BASIC_AUTH,
+        json={
+            "quantity": 2,
+            "slot_code": "default-slot",
+        },
+    )
+    assert batch_resp.status_code == 201
+    batch_code = batch_resp.json()["batch"]["batch_code"]
+
+    with SessionLocal() as session:
+        batch = session.query(LicenseBatch).filter_by(batch_code=batch_code).one()
+        batch_id = batch.id
+
+    list_page = client.get("/admin/licenses/batches", auth=BASIC_AUTH)
+    assert list_page.status_code == 200
+    assert batch_code in list_page.text
+
+    detail_page = client.get(f"/admin/licenses/batches/{batch_id}", auth=BASIC_AUTH)
+    assert detail_page.status_code == 200
+    assert batch_code in detail_page.text

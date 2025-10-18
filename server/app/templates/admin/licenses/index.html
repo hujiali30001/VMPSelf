@@ -180,6 +180,7 @@
     <input type="search" name="q" value="{{ query }}" placeholder="全局搜索卡密..." />
     <button class="secondary-btn" type="submit">搜索</button>
 </form>
+<a class="secondary-btn" href="/admin/licenses/batches">批次总览</a>
 <a class="primary-btn" href="/admin/license-types">管理卡密类型</a>
 {% endblock %}
 
@@ -350,6 +351,7 @@
         <thead>
             <tr>
                 <th>卡密</th>
+                <th>批次</th>
                 <th>类型</th>
                 <th>软件位</th>
                 <th>状态</th>
@@ -367,6 +369,15 @@
             {% set license = row.license %}
             <tr>
                 <td><strong>{{ license.card_code }}</strong></td>
+                <td>
+                    {% if license.batch %}
+                    <a class="type-link" href="/admin/licenses/batches/{{ license.batch.id }}">
+                        <strong>{{ license.batch.batch_code }}</strong>
+                    </a>
+                    {% else %}
+                    <span class="type-none">--</span>
+                    {% endif %}
+                </td>
                 <td>
                     {% if license.card_type %}
                     {% set type_url = type_filter_urls.get(license.card_type.code) %}

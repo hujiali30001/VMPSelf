@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.settings import get_settings
 from app.db import models
@@ -49,6 +49,51 @@ class LicenseService:
 
         stmt = stmt.offset(offset).limit(limit)
         return list(self.db.scalars(stmt).all())
+
+    def list_batches(self, *, offset: int = 0, limit: int = 100) -> List[models.LicenseBatch]:
+        offset = max(offset, 0)
+        limit = max(1, min(limit, 200))
+        stmt = (
+            select(models.LicenseBatch)
+            .options(
+                selectinload(models.LicenseBatch.card_type),
+            )
+            .order_by(models.LicenseBatch.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        return list(self.db.scalars(stmt).all())
+
+    def get_batch(self, batch_id: int) -> Optional[models.LicenseBatch]:
+        stmt = (
+            select(models.LicenseBatch)
+            .options(
+                selectinload(models.LicenseBatch.card_type),
+                selectinload(models.LicenseBatch.licenses).selectinload(models.License.card_type),
+                selectinload(models.LicenseBatch.licenses).selectinload(models.License.user),
+                selectinload(models.LicenseBatch.licenses).selectinload(models.License.software_slot),
+            )
+            .where(models.LicenseBatch.id == batch_id)
+        )
+        return self.db.scalar(stmt)
+
+    def get_batch_by_code(self, batch_code: str) -> Optional[models.LicenseBatch]:
+        if not batch_code:
+            return None
+        normalized = batch_code.strip().upper()
+        if not normalized:
+            return None
+        stmt = (
+            select(models.LicenseBatch)
+            .options(
+                selectinload(models.LicenseBatch.card_type),
+                selectinload(models.LicenseBatch.licenses).selectinload(models.License.card_type),
+                selectinload(models.LicenseBatch.licenses).selectinload(models.License.user),
+                selectinload(models.LicenseBatch.licenses).selectinload(models.License.software_slot),
+            )
+            .where(models.LicenseBatch.batch_code == normalized)
+        )
+        return self.db.scalar(stmt)
 
     def _normalize_card_code(self, card_code: str) -> str:
         normalized = card_code.strip()
@@ -109,7 +154,7 @@ class LicenseService:
         ttl_days: Optional[int] = None,
         custom_ttl_days: Optional[int] = None,
         slot_code: Optional[str] = None,
-    ) -> tuple[list[models.License], str]:
+    ) -> tuple[list[models.License], models.LicenseBatch]:
         if quantity <= 0:
             raise ValueError("quantity_invalid")
         if quantity > 500:
@@ -145,7 +190,29 @@ class LicenseService:
 
         now = datetime.now(timezone.utc)
         created: list[models.License] = []
-        batch_id = secrets.token_hex(4).upper()
+        batch_code = secrets.token_hex(4).upper()
+
+        created_by = None
+        if self._actor:
+            created_by = self._actor.name or (str(self._actor.id) if self._actor.id is not None else None)
+
+        batch_metadata: dict[str, object] = {
+            "type": card_type.code if card_type else None,
+            "custom_prefix": prefix,
+            "ttl_days": base_duration,
+            "slot": slot.code,
+            "quantity_requested": quantity,
+        }
+
+        batch = models.LicenseBatch(
+            batch_code=batch_code,
+            card_type=card_type,
+            quantity=quantity,
+            created_by=created_by,
+            metadata_json=batch_metadata,
+        )
+        self.db.add(batch)
+        self.db.flush()
 
         for index in range(quantity):
             if index == 0 and normalized_code:
@@ -168,6 +235,7 @@ class LicenseService:
                 status=models.LicenseStatus.UNUSED.value,
                 card_prefix=prefix,
                 software_slot=slot,
+                batch=batch,
             )
 
             if card_type:
@@ -187,17 +255,20 @@ class LicenseService:
                 "type": card_type.code if card_type else None,
                 "custom_prefix": prefix,
                 "ttl_days": base_duration,
-                "batch_id": batch_id,
+                "batch_code": batch.batch_code,
+                "batch_id": batch.id,
                 "slot": slot.code,
             }
             self.log_event(license_obj, "create", f"License created: {json.dumps(meta, ensure_ascii=False)}")
 
+        batch.quantity = len(created)
         self.db.commit()
 
+        self.db.refresh(batch)
         for license_obj in created:
             self.db.refresh(license_obj)
 
-        return created, batch_id
+        return created, batch
 
     def create_license(self, card_code: Optional[str], ttl_days: int, *, slot_code: Optional[str]) -> models.License:
         licenses, _ = self.create_licenses(

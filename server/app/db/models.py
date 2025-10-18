@@ -33,10 +33,27 @@ class LicenseCardType(Base):
     color: Mapped[Optional[str]] = mapped_column(String(16))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    metadata_json: Mapped[Optional[dict[str, Any]]] = mapped_column("metadata", JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     licenses: Mapped[list["License"]] = relationship(back_populates="card_type")
+    batches: Mapped[list["LicenseBatch"]] = relationship(back_populates="card_type")
+
+
+class LicenseBatch(Base):
+    __tablename__ = "license_batches"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    batch_code: Mapped[str] = mapped_column(String(32), unique=True, nullable=False, index=True)
+    type_id: Mapped[Optional[int]] = mapped_column(ForeignKey("license_card_types.id", ondelete="SET NULL"))
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_by: Mapped[Optional[str]] = mapped_column(String(128))
+    metadata_json: Mapped[Optional[dict[str, Any]]] = mapped_column("metadata", JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    card_type: Mapped[Optional[LicenseCardType]] = relationship(back_populates="batches")
+    licenses: Mapped[list["License"]] = relationship(back_populates="batch")
 
 
 class License(Base):
@@ -54,6 +71,8 @@ class License(Base):
     card_type_id: Mapped[Optional[int]] = mapped_column(ForeignKey("license_card_types.id"))
     custom_duration_days: Mapped[Optional[int]] = mapped_column(Integer)
     card_prefix: Mapped[Optional[str]] = mapped_column(String(16))
+    batch_id: Mapped[Optional[int]] = mapped_column(ForeignKey("license_batches.id", ondelete="SET NULL"), index=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
     software_slot_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("software_slots.id", ondelete="SET NULL"),
         index=True,
@@ -63,6 +82,7 @@ class License(Base):
     activations: Mapped[list["Activation"]] = relationship(back_populates="license", cascade="all, delete-orphan")
     user: Mapped[Optional["User"]] = relationship(back_populates="license", uselist=False)
     card_type: Mapped[Optional[LicenseCardType]] = relationship(back_populates="licenses")
+    batch: Mapped[Optional[LicenseBatch]] = relationship(back_populates="licenses")
     software_slot: Mapped[Optional["SoftwareSlot"]] = relationship(back_populates="licenses")
 
 

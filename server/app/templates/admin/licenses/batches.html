@@ -1,0 +1,68 @@
+{% extends "admin/layout.html" %}
+{% set active_page = "licenses" %}
+{% set page_title = "卡密批次列表" %}
+{% block title %}卡密批次 - 授权管理后台{% endblock %}
+
+{% block topbar_actions %}
+<a class="secondary-btn" href="/admin/licenses">返回卡密列表</a>
+<a class="secondary-btn" href="/admin/api/licenses/batches" target="_blank">查看 JSON API</a>
+{% endblock %}
+
+{% block content %}
+<section class="panel">
+    <h2>批次总览</h2>
+    {% if batches %}
+    <table>
+        <thead>
+            <tr>
+                <th>批次号</th>
+                <th>关联类型</th>
+                <th>生成数量</th>
+                <th>创建人</th>
+                <th>创建时间</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for batch in batches %}
+            <tr>
+                <td><a class="type-link" href="/admin/licenses/batches/{{ batch.id }}"><strong>{{ batch.batch_code }}</strong></a></td>
+                <td>
+                    {% if batch.card_type %}
+                    <div class="type-cell">
+                        <div class="type-text">
+                            <strong>{{ batch.card_type.display_name }}</strong>
+                            <span>{{ batch.card_type.code }}</span>
+                        </div>
+                    </div>
+                    {% else %}
+                    <span class="type-none">未绑定类型</span>
+                    {% endif %}
+                </td>
+                <td>{{ batch.quantity }}</td>
+                <td>{{ batch.created_by or '系统任务' }}</td>
+                <td>{{ batch.created_at.strftime('%Y-%m-%d %H:%M') if batch.created_at else '--' }}</td>
+                <td>
+                    <a class="link-btn" href="/admin/licenses/batches/{{ batch.id }}">查看详情</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="empty">暂未生成批次，可在卡密列表中使用批量生成功能。</p>
+    {% endif %}
+</section>
+
+<div class="pagination-controls">
+    <div>共 {{ total }} 个批次</div>
+    <div class="buttons">
+        {% if page > 1 %}
+        <a class="secondary-btn" href="?page={{ page - 1 }}&page_size={{ page_size }}">上一页</a>
+        {% endif %}
+        {% if page < total_pages %}
+        <a class="secondary-btn" href="?page={{ page + 1 }}&page_size={{ page_size }}">下一页</a>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

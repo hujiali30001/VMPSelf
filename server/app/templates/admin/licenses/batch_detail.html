@@ -1,0 +1,73 @@
+{% extends "admin/layout.html" %}
+{% set active_page = "licenses" %}
+{% set page_title = "批次详情" %}
+{% block title %}批次 {{ batch.batch_code }} - 授权管理后台{% endblock %}
+
+{% block topbar_actions %}
+<a class="secondary-btn" href="/admin/licenses/batches">返回批次列表</a>
+<a class="secondary-btn" href="/admin/api/licenses/batches/{{ batch.id }}" target="_blank">查看 JSON</a>
+{% endblock %}
+
+{% block content %}
+<section class="panel">
+    <h2>批次信息</h2>
+    <div class="grid-two-columns">
+        <div>
+            <p><strong>批次号：</strong> {{ batch.batch_code }}</p>
+            <p><strong>生成数量：</strong> {{ batch.quantity }}</p>
+            <p><strong>创建时间：</strong> {{ batch.created_at.strftime('%Y-%m-%d %H:%M:%S') if batch.created_at else '--' }}</p>
+        </div>
+        <div>
+            <p><strong>创建人：</strong> {{ batch.created_by or '系统任务' }}</p>
+            <p><strong>关联类型：</strong>
+                {% if batch.card_type %}
+                    {{ batch.card_type.display_name }}（{{ batch.card_type.code }}）
+                {% else %}
+                    未绑定类型
+                {% endif %}
+            </p>
+            <p><strong>绑定软件位：</strong> 由卡密明细决定</p>
+        </div>
+    </div>
+    {% if batch.metadata_json %}
+    <details class="meta-details">
+        <summary>查看批次元数据</summary>
+        <pre>{{ batch.metadata_json | tojson(indent=2) }}</pre>
+    </details>
+    {% endif %}
+</section>
+
+<section class="panel">
+    <h2>关联卡密</h2>
+    {% if licenses %}
+    <table>
+        <thead>
+            <tr>
+                <th>卡密</th>
+                <th>类型</th>
+                <th>状态</th>
+                <th>软件位</th>
+                <th>到期时间</th>
+                <th>创建时间</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for license in licenses %}
+            <tr>
+                <td><strong>{{ license.card_code }}</strong></td>
+                <td>{% if license.card_type %}{{ license.card_type.display_name }}{% else %}--{% endif %}</td>
+                <td>{{ status_labels.get(license.status, license.status) }}</td>
+                <td>{% if license.software_slot %}{{ license.software_slot.code }}{% else %}--{% endif %}</td>
+                <td>{{ license.expire_at.strftime('%Y-%m-%d %H:%M:%S') if license.expire_at else '永久有效' }}</td>
+                <td>{{ license.created_at.strftime('%Y-%m-%d %H:%M:%S') if license.created_at else '--' }}</td>
+                <td><a class="link-btn" href="/admin/licenses/{{ license.card_code }}">查看</a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="empty">此批次尚未关联任何卡密。</p>
+    {% endif %}
+</section>
+{% endblock %}

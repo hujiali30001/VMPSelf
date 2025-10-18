@@ -154,7 +154,8 @@ def test_admin_api_license_crud_flow():
     assert create_resp.status_code == 201
     created_payload = create_resp.json()
     assert created_payload["quantity"] == 1
-    assert created_payload["batch_id"]
+    assert created_payload["batch"]["batch_code"]
+    assert created_payload["batch"]["quantity"] == 1
     created = created_payload["items"][0]
     card_code = created["card_code"]
 
@@ -234,6 +235,10 @@ def test_admin_api_license_batch_with_type_and_filter():
     payload = batch_resp.json()
     assert payload["quantity"] == 3
     assert len(payload["items"]) == 3
+    assert payload["batch"]["batch_code"]
+    assert payload["batch"]["quantity"] == 3
+    assert payload["batch"]["type_code"] == "month"
+    assert payload["batch"]["metadata"]["custom_prefix"] == "VIP-"
     for item in payload["items"]:
         assert item["card_type"]["code"] == "month"
         assert item["card_prefix"] == "VIP-"
@@ -249,3 +254,16 @@ def test_admin_api_license_batch_with_type_and_filter():
     data = list_resp.json()
     assert data["total"] >= 1
     assert all(item["card_type"]["code"] == "month" for item in data["items"])
+
+    batch_code = payload["batch"]["batch_code"]
+    batches_resp = client.get("/admin/api/licenses/batches", auth=BASIC_AUTH)
+    assert batches_resp.status_code == 200
+    batches_data = batches_resp.json()
+    assert batches_data["total"] >= 1
+    assert any(batch["batch_code"] == batch_code for batch in batches_data["items"])
+
+    detail_resp = client.get(f"/admin/api/licenses/batches/by-code/{batch_code}", auth=BASIC_AUTH)
+    assert detail_resp.status_code == 200
+    detail_data = detail_resp.json()
+    assert detail_data["batch"]["batch_code"] == batch_code
+    assert len(detail_data["licenses"]) == 3

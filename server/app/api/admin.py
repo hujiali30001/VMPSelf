@@ -34,6 +34,8 @@ from app.db import (
 from app.schemas import (
     LicenseAdminResponse,
     LicenseBatchCreateResponse,
+    LicenseBatchDetailResponse,
+    LicenseBatchListResponse,
     LicenseCardTypeCreateRequest,
     LicenseCardTypeListResponse,
     LicenseCardTypeResponse,
@@ -222,6 +224,24 @@ def _serialize_license(license_obj: License) -> dict[str, object]:
         "card_prefix": license_obj.card_prefix,
         "custom_duration_days": license_obj.custom_duration_days,
         "slot_code": license_obj.software_slot.code if license_obj.software_slot else None,
+        "batch_id": license_obj.batch.id if license_obj.batch else None,
+        "batch_code": license_obj.batch.batch_code if license_obj.batch else None,
+        "notes": license_obj.notes,
+        "batch": _serialize_batch(license_obj.batch) if license_obj.batch else None,
+    }
+
+
+def _serialize_batch(batch: Optional[models.LicenseBatch]) -> Optional[dict[str, object]]:
+    if not batch:
+        return None
+    return {
+        "id": batch.id,
+        "batch_code": batch.batch_code,
+        "quantity": batch.quantity,
+        "created_at": batch.created_at,
+        "created_by": batch.created_by,
+        "type_code": batch.card_type.code if batch.card_type else None,
+        "metadata": getattr(batch, "metadata_json", None),
     }
 
 DEFAULT_PAGE_SIZE = 20
@@ -937,6 +957,56 @@ def api_list_licenses(
         "limit": limit,
     }
 
+@api_licenses_router.get("/batches", response_model=LicenseBatchListResponse)
+def api_list_license_batches(
+    offset: int = Query(0, ge=0, le=10_000),
+    limit: int = Query(20, ge=1, le=200),
+    db: Session = Depends(get_db),
+    _: AdminPrincipal = Depends(require_permission("licenses", "view")),
+):
+    service = LicenseService(db)
+    items = service.list_batches(offset=offset, limit=limit)
+    total = db.scalar(select(func.count()).select_from(models.LicenseBatch)) or 0
+    return {
+        "items": [_serialize_batch(batch) for batch in items if batch],
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+    }
+
+@api_licenses_router.get("/batches/{batch_id}", response_model=LicenseBatchDetailResponse)
+def api_get_license_batch(
+    batch_id: int,
+    include_licenses: bool = Query(True),
+    db: Session = Depends(get_db),
+    _: AdminPrincipal = Depends(require_permission("licenses", "view")),
+):
+    service = LicenseService(db)
+    batch = service.get_batch(batch_id)
+    if not batch:
+        raise HTTPException(status_code=404, detail="batch_not_found")
+    licenses = batch.licenses if include_licenses else []
+    return {
+        "batch": _serialize_batch(batch),
+        "licenses": [_serialize_license(license_obj) for license_obj in licenses],
+    }
+
+@api_licenses_router.get("/batches/by-code/{batch_code}", response_model=LicenseBatchDetailResponse)
+def api_get_license_batch_by_code(
+    batch_code: str,
+    include_licenses: bool = Query(True),
+    db: Session = Depends(get_db),
+    _: AdminPrincipal = Depends(require_permission("licenses", "view")),
+):
+    service = LicenseService(db)
+    batch = service.get_batch_by_code(batch_code)
+    if not batch:
+        raise HTTPException(status_code=404, detail="batch_not_found")
+    licenses = batch.licenses if include_licenses else []
+    return {
+        "batch": _serialize_batch(batch),
+        "licenses": [_serialize_license(license_obj) for license_obj in licenses],
+    }
 
 @api_licenses_router.post("/", response_model=LicenseBatchCreateResponse, status_code=201)
 def api_create_license(
@@ -946,7 +1016,7 @@ def api_create_license(
 ):
     service = _license_service(db, principal)
     try:
-        licenses, batch_id = service.create_licenses(
+        licenses, batch = service.create_licenses(
             type_code=payload.type_code,
             card_code=payload.card_code,
             quantity=payload.quantity,
@@ -980,7 +1050,7 @@ def api_create_license(
 
     return {
         "items": [_serialize_license(obj) for obj in licenses],
-        "batch_id": batch_id,
+        "batch": _serialize_batch(batch),
         "quantity": len(licenses),
     }
 
@@ -1701,6 +1771,77 @@ def licenses_page(
     )
 
 
+@licenses_router.get("/batches")
+def license_batches_page(
+    request: Request,
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
+    message: Optional[str] = None,
+    db: Session = Depends(get_db),
+    _: AdminPrincipal = Depends(require_permission("licenses", "view")),
+):
+    page = max(page, 1)
+    page_size = max(1, min(page_size, MAX_PAGE_SIZE))
+    offset = (page - 1) * page_size
+
+    service = LicenseService(db)
+    batches = service.list_batches(offset=offset, limit=page_size)
+    total = db.scalar(select(func.count()).select_from(models.LicenseBatch)) or 0
+    total_pages = max((total + page_size - 1) // page_size, 1) if total else 1
+    if page > total_pages:
+        page = total_pages
+        offset = (page - 1) * page_size
+        batches = service.list_batches(offset=offset, limit=page_size)
+
+    context = _base_context(
+        request,
+        page_title="卡密批次",
+        page_subtitle="快速浏览批量生成记录并回溯相关卡密",
+        page_description="浏览批次生成记录，查看卡密数量与关联类型",
+        active_page="licenses",
+        batches=batches,
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
+        message=message,
+    )
+    return templates.TemplateResponse(request, "admin/licenses/batches.html", context)
+
+
+@licenses_router.get("/batches/{batch_id}")
+def license_batch_detail_page(
+    request: Request,
+    batch_id: int,
+    message: Optional[str] = None,
+    db: Session = Depends(get_db),
+    _: AdminPrincipal = Depends(require_permission("licenses", "view")),
+):
+    service = LicenseService(db)
+    batch = service.get_batch(batch_id)
+    if not batch:
+        raise HTTPException(status_code=404, detail="batch_not_found")
+
+    licenses = sorted(
+        batch.licenses,
+        key=lambda item: item.created_at or datetime.fromtimestamp(0, timezone.utc),
+        reverse=True,
+    )
+
+    context = _base_context(
+        request,
+        batch=batch,
+        licenses=licenses,
+        page_title=f"批次 {batch.batch_code}",
+        page_subtitle="查看批量生成的记录和卡密列表",
+        page_description="批次详情",
+        active_page="licenses",
+        message=message,
+        status_labels=STATUS_LABELS,
+    )
+    return templates.TemplateResponse(request, "admin/licenses/batch_detail.html", context)
+
+
 @licenses_router.post("/create")
 def create_license_action(
     request: Request,
@@ -1748,7 +1889,7 @@ def create_license_action(
         return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
 
     try:
-        licenses, batch_id = service.create_licenses(
+        licenses, batch = service.create_licenses(
             type_code=type_value,
             card_code=card_code_value,
             quantity=quantity_value,
@@ -1786,9 +1927,11 @@ def create_license_action(
         elif len(licenses) == 1:
             license_obj = licenses[0]
             expire_text = license_obj.expire_at.isoformat() if license_obj.expire_at else "永久有效"
-            msg = f"已创建卡密 {license_obj.card_code}（到期：{expire_text}）"
+            batch_label = batch.batch_code if batch else "--"
+            msg = f"已创建卡密 {license_obj.card_code}（到期：{expire_text}，批次：{batch_label}）"
         else:
-            msg = f"已批量创建 {len(licenses)} 个卡密，批次号 {batch_id}"
+            batch_label = batch.batch_code if batch else "--"
+            msg = f"已批量创建 {len(licenses)} 个卡密，批次号 {batch_label}"
 
     if parse_warning:
         msg = f"{parse_warning}；{msg}" if msg else parse_warning
