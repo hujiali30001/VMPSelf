@@ -58,7 +58,9 @@
   - 通过腾讯云 CDN / 边缘安全加速（或 Cloudflare）暴露公共入口，仅允许 CDN 回源访问源站。
   - CDN 回源配置使用 HTTPS + 源站鉴权 Header（例如 `X-Edge-Token`），并绑定固定的回源 IP 白名单。
   - CDN 启用 Web 应用防火墙（WAF）、DDoS 基础防护，对恶意流量进行速率限制和黑名单封禁。
-  - 主服务器提供自动化部署脚本（`server/tools/deploy_cdn.py`），根据 JSON 配置批量推送 Nginx 代理、开放防火墙端口并重启服务，实现快速上线/扩容 CDN 节点。
+  - 主服务器提供自动化部署脚本（`server/tools/deploy_cdn.py`）与后台编排入口，根据 JSON 配置或 Web 表单批量推送 Nginx 代理、开放防火墙端口并重启服务，支持 HTTP 反向代理或 TCP 四层转发，实现快速上线/扩容 CDN 节点。
+  - 每个 CDN 节点保存于后台的 SSH 凭据采用应用内 Fernet 加密（由 `VMP_CDN_CREDENTIALS_KEY` 派生密钥），可一键发起部署；节点失效时后台能即时重放部署或新建节点，保障任何单节点宕机都不会影响整体运营。
+  - 节点配置默认使用 443 端口监听，可选开启 80 端口回退；通过多节点 + 共享负载策略实现 TCP 层级的故障转移，主服务器始终保持在内网环境并通过令牌/IP 双因子校验阻断外部直接访问。
 - **API 设计**：
   - `/api/v1/users/register`：校验卡密有效性并创建账号，返回安全令牌及后续激活指引。
   - `/api/v1/license/activate`：验证卡密 + 指纹，返回 token 和策略。

@@ -1,5 +1,13 @@
 from __future__ import annotations
 
-from .service import CDNService
+from .deployer import CDNDeployer, DeploymentConfig, DeploymentError, DeploymentTarget
+from .service import CDNService, EndpointCredentials
 
-__all__ = ["CDNService"]
+__all__ = [
+	"CDNService",
+	"EndpointCredentials",
+	"CDNDeployer",
+	"DeploymentConfig",
+	"DeploymentError",
+	"DeploymentTarget",
+]

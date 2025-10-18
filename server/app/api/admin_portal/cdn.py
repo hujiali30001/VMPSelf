@@ -20,7 +20,7 @@ from app.api.admin_portal.common import (
 )
 from app.api.deps import get_db
 from app.db import CDNEndpointStatus, CDNTaskType
-from app.services.cdn import CDNService
+from app.services.cdn import CDNService, DeploymentError
 
 router = APIRouter(prefix="/cdn")
 
@@ -66,12 +66,19 @@ def cdn_page(
             }
         )
 
+    task_type_labels = {
+        CDNTaskType.PURGE.value: "刷新缓存",
+        CDNTaskType.PREFETCH.value: "预取内容",
+        CDNTaskType.DEPLOY.value: "节点部署",
+    }
+
     task_rows: list[dict[str, object]] = []
     for task in tasks:
         task_rows.append(
             {
                 "task": task,
                 "endpoint": getattr(task, "endpoint", None),
+                "task_label": task_type_labels.get(task.task_type, task.task_type),
             }
         )
 
@@ -97,6 +104,7 @@ def cdn_page(
             (CDNTaskType.PURGE.value, "刷新缓存"),
             (CDNTaskType.PREFETCH.value, "预取内容"),
         ],
+        task_type_labels=task_type_labels,
     )
     return templates.TemplateResponse(request, "admin/cdn/index.html", context)
 
@@ -108,6 +116,15 @@ def create_cdn_endpoint_action(
     domain: str = Form(...),
     provider: str = Form(...),
     origin: str = Form(...),
+    host: str = Form(...),
+    ssh_username: str = Form(...),
+    ssh_password: Optional[str] = Form(None),
+    ssh_private_key: Optional[str] = Form(None),
+    ssh_port: int = Form(22),
+    listen_port: int = Form(443),
+    origin_port: int = Form(443),
+    deployment_mode: str = Form("http"),
+    edge_token: Optional[str] = Form(None),
     notes: Optional[str] = Form(None),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
@@ -115,7 +132,22 @@ def create_cdn_endpoint_action(
 ):
     service = CDNService(db)
     try:
-        service.create_endpoint(name=name, domain=domain, provider=provider, origin=origin, notes=notes)
+        service.create_endpoint(
+            name=name,
+            domain=domain,
+            provider=provider,
+            origin=origin,
+            host=host,
+            ssh_username=ssh_username,
+            ssh_password=ssh_password,
+            ssh_private_key=ssh_private_key,
+            ssh_port=ssh_port,
+            listen_port=listen_port,
+            origin_port=origin_port,
+            deployment_mode=deployment_mode,
+            edge_token=edge_token,
+            notes=notes,
+        )
     except ValueError as exc:
         db.rollback()
         error_map = {
@@ -124,10 +156,46 @@ def create_cdn_endpoint_action(
             "provider_required": "请选择或填写加速服务提供商",
             "origin_required": "请填写源站地址",
             "domain_exists": "域名已存在，请勿重复添加",
+            "host_required": "请填写节点公网 IP 或域名",
+            "ssh_username_required": "请填写 SSH 登录用户名",
+            "port_invalid": "端口号无效，请检查输入",
+            "deployment_mode_invalid": "部署模式仅支持 HTTP 或 TCP",
         }
         message = error_map.get(str(exc), f"创建失败: {exc}")
     else:
         message = "已创建新的 CDN 节点"
+
+    target = _append_message(_sanitize_return_path(return_to, fallback="/admin/cdn"), message)
+    return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+
+
+@router.post("/endpoints/{endpoint_id}/deploy")
+def deploy_cdn_endpoint_action(
+    request: Request,
+    endpoint_id: int,
+    allow_http: Optional[str] = Form(None),
+    return_to: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    _: AdminPrincipal = Depends(require_permission("cdn", "manage")),
+):
+    service = CDNService(db)
+    allow_http_flag = False
+    if allow_http:
+        allow_http_flag = allow_http.lower() in {"1", "true", "on", "yes"}
+
+    try:
+        service.deploy_endpoint(endpoint_id, allow_http=allow_http_flag)
+    except ValueError as exc:
+        db.rollback()
+        if str(exc) == "endpoint_not_found":
+            message = "未找到指定的 CDN 节点"
+        else:
+            message = f"部署失败: {exc}"
+    except DeploymentError as exc:
+        db.rollback()
+        message = f"部署执行失败: {exc}"
+    else:
+        message = "节点已部署并更新配置"
 
     target = _append_message(_sanitize_return_path(return_to, fallback="/admin/cdn"), message)
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)

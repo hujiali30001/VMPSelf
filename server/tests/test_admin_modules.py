@@ -32,6 +32,14 @@ def test_admin_cdn_module_flow():
             "domain": "cdn.example.com",
             "provider": "测试服务商",
             "origin": "origin.example.internal",
+            "host": "203.0.113.10",
+            "ssh_username": "root",
+            "ssh_password": "password123!",
+            "ssh_port": "22",
+            "listen_port": "443",
+            "origin_port": "8443",
+            "deployment_mode": "http",
+            "edge_token": "edge-secret",
         },
         auth=BASIC_AUTH,
         follow_redirects=False,
@@ -42,7 +50,23 @@ def test_admin_cdn_module_flow():
         endpoint = session.query(CDNEndpoint).filter_by(domain="cdn.example.com").one()
         endpoint_id = endpoint.id
         assert endpoint.provider == "测试服务商"
-        assert endpoint.status == CDNEndpointStatus.ACTIVE.value
+        assert endpoint.status == CDNEndpointStatus.PAUSED.value
+        assert endpoint.listen_port == 443
+        assert endpoint.origin_port == 8443
+        assert endpoint.last_deploy_status == CDNTaskStatus.PENDING.value
+
+    activate_resp = client.post(
+        f"/admin/cdn/endpoints/{endpoint_id}/status",
+        data={"status": "active"},
+        auth=BASIC_AUTH,
+        follow_redirects=False,
+    )
+    assert activate_resp.status_code == 303
+
+    with SessionLocal() as session:
+        activated = session.get(CDNEndpoint, endpoint_id)
+        assert activated is not None
+        assert activated.status == CDNEndpointStatus.ACTIVE.value
 
     pause_resp = client.post(
         f"/admin/cdn/endpoints/{endpoint_id}/status",

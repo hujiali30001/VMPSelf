@@ -186,6 +186,7 @@ class CDNTaskStatus(str, Enum):
 class CDNTaskType(str, Enum):
     PURGE = "purge"
     PREFETCH = "prefetch"
+    DEPLOY = "deploy"
 
 
 class CDNEndpoint(Base):
@@ -194,11 +195,22 @@ class CDNEndpoint(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(64), nullable=False)
     domain: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    host: Mapped[str] = mapped_column(String(128), nullable=False)
     provider: Mapped[str] = mapped_column(String(64), nullable=False)
     origin: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(String(16), default=CDNEndpointStatus.ACTIVE.value)
     last_checked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     notes: Mapped[Optional[str]] = mapped_column(Text)
+    listen_port: Mapped[int] = mapped_column(Integer, default=443)
+    origin_port: Mapped[int] = mapped_column(Integer, default=443)
+    deployment_mode: Mapped[str] = mapped_column(String(16), default="http")
+    ssh_username: Mapped[str] = mapped_column(String(64), nullable=False)
+    ssh_port: Mapped[int] = mapped_column(Integer, default=22)
+    ssh_password_encrypted: Mapped[Optional[str]] = mapped_column(Text)
+    ssh_private_key_encrypted: Mapped[Optional[str]] = mapped_column(Text)
+    edge_token: Mapped[Optional[str]] = mapped_column(String(128))
+    last_deployed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    last_deploy_status: Mapped[Optional[str]] = mapped_column(String(32))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 

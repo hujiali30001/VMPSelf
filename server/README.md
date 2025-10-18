@@ -35,7 +35,7 @@
 - **卡密中心**：支持卡密筛选、明细查看与批量生成，列表页可直接跳转到类型管理。
 - **用户管理**：提供注册、密码重置、卡密重新绑定等日常操作，同时展示激活状态统计。
 - **软件位管理**：用于维护各产品线/渠道的软件位，支持创建槽位、上传安装包、一键发布或下线，并可查看灰度比例与当前版本。
-- **CDN 管理**：集中展示 CDN 节点状态，支持新增节点、切换启用/暂停、发起刷新或预取任务，并追踪近期任务结果。
+- **CDN 管理**：集中展示 CDN 节点状态，支持新增节点、保存 SSH 凭据、切换启用/暂停、发起刷新或预取任务，并可从后台一键部署/重部署 CentOS 7 边缘节点，实时追踪近期任务结果与部署日志。
 - **系统设置**：管理后台管理员账号，支持新增成员、启用/停用以及重置密码，同时展示由环境变量注入的超级管理员信息。
 
 所有操作均通过 Flash 消息反馈结果，并保持返回原页面便于继续操作。
@@ -258,6 +258,7 @@ CI 测试覆盖核心授权流程（激活/心跳/撤销）、离线许可与 CD
 | `VMP_CDN_IP_HEADER` | 读取真实客户端 IP 的 Header，默认 `X-Forwarded-For`。 |
 | `VMP_CDN_IP_WHITELIST` | 允许的 CDN 回源 IP 列表，逗号分隔。 |
 | `VMP_CDN_EXEMPT_PATHS` | 允许绕过 CDN 鉴权的接口（例如心跳或健康检查），逗号分隔。 |
+| `VMP_CDN_CREDENTIALS_KEY` | 用于加密存储 CDN 节点 SSH 凭据的主密钥，默认回退到 `VMP_HMAC_SECRET`。 |
 | `VMP_ADMIN_USER` | 管理后台 HTTP Basic 用户名。 |
 | `VMP_ADMIN_PASS` | 管理后台 HTTP Basic 密码，建议使用高强度随机值。 |
 
@@ -277,14 +278,14 @@ CI 测试覆盖核心授权流程（激活/心跳/撤销）、离线许可与 CD
 	- 一键撤销卡密，撤销后客户端心跳将返回 `license_not_found`。
 	- 即将上线的客户端注册页可复用后台生成的卡密，后台可通过审计日志追踪注册行为。
 	- 更详细的后台门户布局、权限模型与交互流程，参见《[License Card Type Extensions – Admin UI](../docs/design/license_card_types.md#admin-ui)》章节。
-	- CDN 管理控制台即将上线：支持查看边缘节点心跳、触发 `deploy_cdn.py` 滚动发布、轮换 `X-Edge-Token`、追踪部署日志，详细需求见《[License Card Type Extensions – CDN 管理模块](../docs/design/license_card_types.md#cdn-管理模块详解)》。
+	- CDN 管理控制台：现已支持维护节点清单、保存 SSH 凭据、一键触发 `deploy_cdn.py` 部署、轮换共享密钥与查看部署结果，详细需求与后续规划见《[License Card Type Extensions – CDN 管理模块](../docs/design/license_card_types.md#cdn-管理模块详解)》。
 - 若要通过 HTTPS 暴露到公网，请置于 CDN 或反向代理之后（参见下文 CDN 防护示例）。
 
 ### Roadmap
 
 - **卡密类型体系**：正在设计支持天卡/月卡/季卡/年卡等可配置类型的功能，允许自定义卡号前缀与默认有效期，详见《[License Card Type Extensions](../docs/design/license_card_types.md)》设计文档。
 - **后台管理门户 2.0**：将引入仪表盘、批量任务、审计日志、角色权限等模块，布局与交互要求见《[License Card Type Extensions – Admin UI](../docs/design/license_card_types.md#admin-ui)》。
-- **CDN 管理与部署编排**：计划把 `deploy_cdn.py` 集成到后台，实现节点清单维护、蓝绿发布、共享密钥轮换与部署告警，详见《[License Card Type Extensions – CDN 管理模块](../docs/design/license_card_types.md#cdn-管理模块详解)》。
+- **CDN 管理与部署编排**：后台已集成 `deploy_cdn.py` 并支持节点凭据管理、即时代码部署与状态回写，后续将继续完善蓝绿发布、批量滚动策略与部署告警，详见《[License Card Type Extensions – CDN 管理模块](../docs/design/license_card_types.md#cdn-管理模块详解)》。
 - **多产品与租户管理**：计划引入软件目录、套餐与租户模型，满足多产品授权与渠道运营需求。
 - **自动化与告警**：未来会增加离线报表、告警通知、批量操作等运营能力。
 
@@ -300,7 +301,7 @@ CI 测试覆盖核心授权流程（激活/心跳/撤销）、离线许可与 CD
 4. 重启服务后，所有 API（除豁免路径）均会校验共享密钥和 CDN 回源 IP，直接访问源站会得到 403。
 
 ## CDN 节点自动化部署
-- 示例配置：复制 `tools/cdn_deploy_config.example.json` 并修改为实际主机、凭据、共享密钥。
+- 示例配置：复制 `tools/cdn_deploy_config.example.json`，根据实际情况填写 `listen_port`、`mode`（`http`/`tcp`）、共享密钥以及节点的 SSH 凭据。
 - 执行部署（默认从仓库根目录运行）：
 
 	```powershell
@@ -309,3 +310,4 @@ CI 测试覆盖核心授权流程（激活/心跳/撤销）、离线许可与 CD
 
 - 支持 `--dry-run` 输出 Nginx 配置，或追加 `extra_packages` 安装 `certbot`、`rsync` 等工具。
 - 每个节点需要 sudo 权限以安装软件包、写入 `/etc/nginx/conf.d/vmp_edge.conf` 并开放防火墙端口。
+- 管理后台的 “CDN 管理” 中可直接维护节点清单并点击 “一键部署”，后台会调用同一套部署逻辑（支持 CentOS 7、TCP/HTTP 模式），执行结果与日志会回写到节点状态与任务列表，方便在线追踪。

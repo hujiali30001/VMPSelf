@@ -43,6 +43,15 @@
         flex-wrap: wrap;
         font-size: 12px;
     }
+    .grid-half {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+        align-items: start;
+    }
+    .grid-half textarea {
+        min-height: 94px;
+    }
     .provider-chip {
         padding: 6px 12px;
         border-radius: 999px;
@@ -107,12 +116,59 @@
                 <input type="text" name="domain" placeholder="如 api.example.com" required />
             </div>
             <div class="full-row">
+                <label>节点地址 (IP / 域名)</label>
+                <input type="text" name="host" placeholder="203.0.113.10" required />
+            </div>
+            <div class="full-row">
                 <label>服务商</label>
                 <input type="text" name="provider" placeholder="例如 阿里云 CDN" required />
             </div>
             <div class="full-row">
                 <label>源站地址</label>
                 <input type="text" name="origin" placeholder="源站 IP 或域名" required />
+            </div>
+            <div class="grid-half">
+                <div>
+                    <label>监听端口</label>
+                    <input type="number" name="listen_port" value="443" min="1" max="65535" />
+                </div>
+                <div>
+                    <label>源站端口</label>
+                    <input type="number" name="origin_port" value="443" min="1" max="65535" />
+                </div>
+            </div>
+            <div class="grid-half">
+                <div>
+                    <label>部署模式</label>
+                    <select name="deployment_mode">
+                        <option value="http">HTTP / HTTPS 反向代理</option>
+                        <option value="tcp">TCP 四层转发</option>
+                    </select>
+                </div>
+                <div>
+                    <label>共享密钥 (可选)</label>
+                    <input type="text" name="edge_token" placeholder="留空则使用默认" />
+                </div>
+            </div>
+            <div class="grid-half">
+                <div>
+                    <label>SSH 用户名</label>
+                    <input type="text" name="ssh_username" value="root" required />
+                </div>
+                <div>
+                    <label>SSH 端口</label>
+                    <input type="number" name="ssh_port" value="22" min="1" max="65535" />
+                </div>
+            </div>
+            <div class="grid-half">
+                <div>
+                    <label>SSH 密码 (可选)</label>
+                    <input type="password" name="ssh_password" autocomplete="new-password" />
+                </div>
+                <div>
+                    <label>SSH 私钥 (可选)</label>
+                    <textarea name="ssh_private_key" rows="3" placeholder="-----BEGIN PRIVATE KEY-----"></textarea>
+                </div>
             </div>
             <div class="full-row">
                 <label>备注信息</label>
@@ -145,16 +201,28 @@
                 <tr>
                     <td>
                         <strong>{{ endpoint.name }}</strong><br />
-                        <span style="color: var(--text-secondary); font-size: 12px;">{{ endpoint.domain }}</span>
+                        <span style="color: var(--text-secondary); font-size: 12px;">{{ endpoint.domain }}</span><br />
+                        <span style="color: var(--text-secondary); font-size: 12px;">{{ endpoint.host }} : {{ endpoint.listen_port }} → {{ endpoint.origin }}:{{ endpoint.origin_port }}</span>
                     </td>
                     <td>{{ endpoint.provider }}</td>
                     <td>
                         <span class="badge badge-{{ endpoint.status }}">{{ status_labels.get(endpoint.status, endpoint.status) }}</span>
+                        {% if endpoint.last_deploy_status %}
+                            <div style="font-size: 12px; color: var(--text-secondary);">
+                                {% set deploy_label = task_status_labels.get(endpoint.last_deploy_status, endpoint.last_deploy_status) %}
+                                部署：{{ deploy_label }}
+                                {% if endpoint.last_deployed_at %}
+                                    · {{ endpoint.last_deployed_at.isoformat() }}
+                                {% else %}
+                                    · 未执行
+                                {% endif %}
+                            </div>
+                        {% endif %}
                     </td>
                     <td>
                         {% if row.last_task %}
                             <div style="font-size: 12px;">
-                                <strong>{{ row.last_task.task_type }}</strong>
+                                <strong>{{ task_type_labels.get(row.last_task.task_type, row.last_task.task_type) }}</strong>
                                 · {{ task_status_labels.get(row.last_task.status, row.last_task.status) }}<br />
                                 {{ row.last_task.created_at.isoformat() }}
                             </div>
@@ -167,6 +235,14 @@
                     </td>
                     <td>
                         <div class="endpoint-actions">
+                            <form method="post" action="/admin/cdn/endpoints/{{ endpoint.id }}/deploy">
+                                <input type="hidden" name="return_to" value="{{ return_to }}" />
+                                <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary);">
+                                    <input type="checkbox" name="allow_http" value="on" {% if endpoint.deployment_mode == 'http' %}checked{% endif %} />
+                                    同时开放 80 端口
+                                </label>
+                                <button class="primary-btn" type="submit">一键部署</button>
+                            </form>
                             {% if endpoint.status != 'active' %}
                             <form method="post" action="/admin/cdn/endpoints/{{ endpoint.id }}/status">
                                 <input type="hidden" name="return_to" value="{{ return_to }}" />
@@ -237,7 +313,7 @@
                         <span class="badge badge-muted">已删除节点</span>
                     {% endif %}
                 </td>
-                <td>{{ task.task_type }}</td>
+                <td>{{ row.task_label }}</td>
                 <td>
                     <span class="badge badge-{{ task.status }}">{{ task_status_labels.get(task.status, task.status) }}</span>
                 </td>

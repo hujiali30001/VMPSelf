@@ -1,6 +1,8 @@
 {
   "origin_host": "auth.example.com",
   "origin_port": 443,
+  "listen_port": 443,
+  "mode": "http",
   "edge_token": "your-shared-secret",
   "ssl_certificate": "/etc/pki/tls/certs/edge.crt",
   "ssl_certificate_key": "/etc/pki/tls/private/edge.key",

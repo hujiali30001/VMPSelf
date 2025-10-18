@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     cdn_ip_header: str = Field("X-Forwarded-For", env="VMP_CDN_IP_HEADER")
     cdn_ip_whitelist: list[str] = Field(default_factory=list)
     cdn_exempt_paths: list[str] = Field(default_factory=lambda: ["/api/v1/ping"])
+    cdn_credentials_key: Optional[str] = Field(None, env="VMP_CDN_CREDENTIALS_KEY")
     admin_username: str = Field("admin", env="VMP_ADMIN_USER")
     admin_password: str = Field("change-me", env="VMP_ADMIN_PASS")
 
