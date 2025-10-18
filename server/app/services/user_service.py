@@ -10,12 +10,15 @@ from sqlalchemy.orm import Session
 from app.db import models
 from app.db.models import LicenseStatus
 from app.services import security
+from app.services.audit_service import AuditActor, AuditService, AuditTarget
 from app.services.license_service import LicenseService
 
 
 class UserService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, *, actor: Optional[AuditActor] = None):
         self.db = db
+        self._actor = actor
+        self.audit = AuditService(db)
 
     def register(self, username: str, password: str, card_code: str, slot_code: Optional[str]) -> models.User:
         username = (username or "").strip()
@@ -47,7 +50,7 @@ class UserService:
             expire_at = expire_at.replace(tzinfo=timezone.utc)
         if expire_at and expire_at < now:
             license_obj.status = LicenseStatus.EXPIRED.value
-            LicenseService(self.db).log_event(
+            LicenseService(self.db, actor=self._actor).log_event(
                 license_obj,
                 "license_expired",
                 "Registration attempted on expired license",
@@ -68,24 +71,31 @@ class UserService:
             license=license_obj,
         )
         self.db.add(user)
+        try:
+            self.db.flush()
+        except IntegrityError as err:
+            self._handle_registration_integrity_error(err)
 
         license_obj.updated_at = now
-        LicenseService(self.db).log_event(
+        LicenseService(self.db, actor=self._actor).log_event(
             license_obj,
             "user_register",
             f"User {username} registered",
+        )
+        self._log_user_event(
+            "register",
+            user,
+            message=f"创建用户 {username}",
+            payload={
+                "license_id": license_obj.id,
+                "slot": slot.code if slot else None,
+            },
         )
 
         try:
             self.db.commit()
         except IntegrityError as err:
-            self.db.rollback()
-            message = str(err.orig).lower() if getattr(err, "orig", None) else str(err).lower()
-            if "users.username" in message:
-                raise ValueError("username_taken")
-            if "users.license_id" in message or "license_id" in message:
-                raise ValueError("license_already_bound")
-            raise ValueError("registration_failed")
+            self._handle_registration_integrity_error(err)
 
         self.db.refresh(user)
         return user
@@ -118,8 +128,9 @@ class UserService:
             raise ValueError("user_not_found")
 
         updated = False
+        changed_fields: set[str] = set()
         now = datetime.now(timezone.utc)
-        license_service = LicenseService(self.db)
+        license_service = LicenseService(self.db, actor=self._actor)
 
         normalized_slot = (slot_code or "").strip().lower() if slot_code else None
 
@@ -130,12 +141,14 @@ class UserService:
             if new_username != user.username:
                 user.username = new_username
                 updated = True
+                changed_fields.add("username")
 
         if password is not None:
             if len(password) < 8:
                 raise ValueError("password_too_short")
             user.password_hash = security.hash_password(password)
             updated = True
+            changed_fields.add("password")
 
         if card_code is not None:
             card_code = card_code.strip()
@@ -173,6 +186,7 @@ class UserService:
                 new_license.updated_at = now
                 license_service.log_event(new_license, "user_rebind", f"User {user.username} re-bound")
                 updated = True
+                changed_fields.add("license")
             else:
                 # card code unchanged; ensure slot still matches request if provided
                 if normalized_slot and current_license and current_license.software_slot:
@@ -191,13 +205,19 @@ class UserService:
             return user
 
         try:
+            self.db.flush()
+        except IntegrityError as err:
+            self._handle_update_integrity_error(err)
+        self._log_user_event(
+            "update",
+            user,
+            message=f"更新用户 {user.username}",
+            payload={"changed_fields": sorted(changed_fields)},
+        )
+        try:
             self.db.commit()
         except IntegrityError as err:
-            self.db.rollback()
-            message = str(err.orig).lower() if getattr(err, "orig", None) else str(err).lower()
-            if "users.username" in message:
-                raise ValueError("username_taken")
-            raise ValueError("user_update_failed")
+            self._handle_update_integrity_error(err)
 
         self.db.refresh(user)
         return user
@@ -207,9 +227,16 @@ class UserService:
         if not user:
             return False
 
-        license_service = LicenseService(self.db)
+        license_service = LicenseService(self.db, actor=self._actor)
         license_obj = user.license
         username = user.username
+
+        self._log_user_event(
+            "delete",
+            user,
+            message=f"删除用户 {username}",
+            payload={"license_id": license_obj.id if license_obj else None},
+        )
 
         self.db.delete(user)
 
@@ -223,3 +250,42 @@ class UserService:
 
         self.db.commit()
         return True
+
+    def _log_user_event(
+        self,
+        action: str,
+        user: models.User,
+        *,
+        message: Optional[str] = None,
+        payload: Optional[dict[str, object]] = None,
+    ) -> None:
+        target = AuditTarget(
+            type="user",
+            id=str(user.id) if user.id is not None else None,
+            name=user.username,
+            license_id=user.license.id if user.license and user.license.id is not None else None,
+        )
+        self.audit.log_event(
+            module="users",
+            action=action,
+            actor=self._actor,
+            target=target,
+            message=message,
+            payload=payload,
+        )
+
+    def _handle_registration_integrity_error(self, err: IntegrityError) -> None:
+        self.db.rollback()
+        message = str(err.orig).lower() if getattr(err, "orig", None) else str(err).lower()
+        if "users.username" in message:
+            raise ValueError("username_taken")
+        if "users.license_id" in message or "license_id" in message:
+            raise ValueError("license_already_bound")
+        raise ValueError("registration_failed")
+
+    def _handle_update_integrity_error(self, err: IntegrityError) -> None:
+        self.db.rollback()
+        message = str(err.orig).lower() if getattr(err, "orig", None) else str(err).lower()
+        if "users.username" in message:
+            raise ValueError("username_taken")
+        raise ValueError("user_update_failed")

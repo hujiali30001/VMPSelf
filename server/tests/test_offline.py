@@ -64,7 +64,7 @@ def test_generate_offline_license():
 
     with SessionLocal() as session:
         logs = session.query(models.AuditLog).filter(models.AuditLog.license_id == license_obj.id).all()
-        assert any(log.event_type == "offline_issue" for log in logs)
+        assert any(log.action == "offline_issue" for log in logs)
 
 
 def test_admin_generate_offline_license_success():
@@ -91,7 +91,7 @@ def test_admin_generate_offline_license_success():
     with SessionLocal() as session:
         log = (
             session.query(models.AuditLog)
-            .filter(models.AuditLog.license_id == license_obj.id, models.AuditLog.event_type == "offline_generate")
+            .filter(models.AuditLog.license_id == license_obj.id, models.AuditLog.action == "offline_generate")
             .order_by(models.AuditLog.created_at.desc())
             .first()
         )

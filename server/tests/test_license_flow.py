@@ -92,5 +92,5 @@ def test_activation_heartbeat_and_revoke_flow():
     with SessionLocal() as session:
         license_obj = session.query(models.License).filter_by(card_code=card_code).one()
         assert license_obj.status == models.LicenseStatus.REVOKED.value
-        logs = session.query(models.AuditLog).filter_by(license_id=license_obj.id).all()
-        assert any(log.event_type == "revoke" for log in logs)
+    logs = session.query(models.AuditLog).filter_by(license_id=license_obj.id).all()
+    assert any(log.action == "revoke" for log in logs)

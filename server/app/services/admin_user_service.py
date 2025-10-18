@@ -1,20 +1,23 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Iterable, List, Optional
+from typing import Any, Iterable, List, Optional
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.db import AdminUser, Role
-from app.services.role_service import RoleService
 from app.services import security
+from app.services.audit_service import AuditActor, AuditService, AuditTarget
+from app.services.role_service import RoleService
 
 
 class AdminUserService:
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: Session, *, actor: Optional[AuditActor] = None) -> None:
         self.db = db
+        self._actor = actor
+        self.audit = AuditService(db)
 
     def list_admins(self) -> List[AdminUser]:
         stmt = (
@@ -59,6 +62,13 @@ class AdminUserService:
             role=role,
         )
         self.db.add(admin)
+        self.db.flush()
+        self._log_action(
+            "create",
+            admin,
+            message=f"创建管理员 {username}",
+            payload={"role": role.code},
+        )
         try:
             self.db.commit()
         except IntegrityError as exc:
@@ -78,6 +88,11 @@ class AdminUserService:
             raise ValueError("admin_not_found")
         admin.password_hash = security.hash_password(password)
         admin.updated_at = datetime.now(timezone.utc)
+        self._log_action(
+            "reset_password",
+            admin,
+            message=f"重置管理员 {admin.username} 的密码",
+        )
         self.db.commit()
         self.db.refresh(admin)
         return admin
@@ -88,6 +103,13 @@ class AdminUserService:
             raise ValueError("admin_not_found")
         admin.is_active = is_active
         admin.updated_at = datetime.now(timezone.utc)
+        action = "activate" if is_active else "deactivate"
+        self._log_action(
+            action,
+            admin,
+            message=f"{'启用' if is_active else '停用'}管理员 {admin.username}",
+            payload={"is_active": is_active},
+        )
         self.db.commit()
         self.db.refresh(admin)
         return admin
@@ -98,6 +120,12 @@ class AdminUserService:
             raise ValueError("admin_not_found")
         admin.role = self._require_active_role(role_code)
         admin.updated_at = datetime.now(timezone.utc)
+        self._log_action(
+            "assign_role",
+            admin,
+            message=f"调整管理员 {admin.username} 的角色",
+            payload={"role": admin.role.code if admin.role else None},
+        )
         self.db.commit()
         self.db.refresh(admin)
         return admin
@@ -112,6 +140,23 @@ class AdminUserService:
             return None
         admin.last_login_at = datetime.now(timezone.utc)
         admin.updated_at = admin.last_login_at
+        actor = AuditActor(
+            type="admin",
+            id=admin.id,
+            name=admin.username,
+            role=admin.role.code if admin.role else None,
+        )
+        self.audit.log_event(
+            module="admins",
+            action="login_success",
+            actor=actor,
+            target=AuditTarget(
+                type="admin_user",
+                id=str(admin.id) if admin.id is not None else None,
+                name=admin.username,
+            ),
+            message="管理员登录成功",
+        )
         self.db.commit()
         self.db.refresh(admin)
         return admin
@@ -155,7 +200,7 @@ class AdminUserService:
             self.db.add(role)
         self.db.commit()
 
-        role_service = RoleService(self.db)
+        role_service = RoleService(self.db, actor=self._actor)
         default_permissions: dict[str, Iterable[tuple[str, str]]] = {
             "superadmin": [("*", "*")],
             "admin": [
@@ -189,3 +234,27 @@ class AdminUserService:
             if role.permissions:
                 continue
             role_service.update_role(role.id, permissions=permissions)
+
+    def _log_action(
+        self,
+        action: str,
+        admin: Optional[AdminUser],
+        *,
+        message: Optional[str] = None,
+        payload: Optional[dict[str, Any]] = None,
+    ) -> None:
+        target: Optional[AuditTarget] = None
+        if admin and admin.id is not None:
+            target = AuditTarget(
+                type="admin_user",
+                id=str(admin.id),
+                name=admin.username,
+            )
+        self.audit.log_event(
+            module="admins",
+            action=action,
+            actor=self._actor,
+            target=target,
+            message=message,
+            payload=payload,
+        )

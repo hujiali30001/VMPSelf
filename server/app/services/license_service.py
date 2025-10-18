@@ -12,13 +12,16 @@ from app.core.settings import get_settings
 from app.db import models
 from app.schemas import ActivationRequest, HeartbeatRequest
 from app.services import security
+from app.services.audit_service import AuditActor, AuditService
 
 settings = get_settings()
 
 
 class LicenseService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, *, actor: Optional[AuditActor] = None):
         self.db = db
+        self.audit = AuditService(db)
+        self._actor = actor
 
     def get_license(self, card_code: str) -> Optional[models.License]:
         stmt = select(models.License).where(models.License.card_code == card_code)
@@ -205,22 +208,34 @@ class LicenseService:
         )
         return licenses[0]
 
-    def log_event(self, license_obj: models.License, event_type: str, message: str) -> None:
-        log = models.AuditLog(
-            event_type=event_type,
-            license_id=license_obj.id,
+    def log_event(
+        self,
+        license_obj: models.License,
+        action: str,
+        message: Optional[str] = None,
+        *,
+        actor: Optional[AuditActor] = None,
+        payload: Optional[dict[str, object]] = None,
+        request_id: Optional[str] = None,
+        ip_address: Optional[str] = None,
+    ) -> None:
+        effective_actor = actor or self._actor
+
+        self.audit.log_license_event(
+            license_obj,
+            action=action,
+            actor=effective_actor,
             message=message,
+            payload=payload,
+            request_id=request_id,
+            ip_address=ip_address,
         )
-        self.db.add(log)
 
     def get_audit_logs(self, license_obj: models.License, limit: int = 50) -> list[models.AuditLog]:
-        stmt = (
-            select(models.AuditLog)
-            .where(models.AuditLog.license_id == license_obj.id)
-            .order_by(models.AuditLog.created_at.desc())
-            .limit(limit)
-        )
-        return list(self.db.scalars(stmt).all())
+        if license_obj.id is None:
+            self.db.flush()
+
+        return self.audit.list_logs_for_license(license_obj.id, limit=limit)
 
     def activate(self, request: ActivationRequest) -> tuple[Optional[str], Optional[datetime], str]:
         license_obj = self.get_license(request.card_code)

@@ -357,8 +357,11 @@
             <div class="timeline">
                 {% for log in audit_logs %}
                 <div class="timeline-item">
-                    <div class="timeline-title">{{ log.event_type }}</div>
+                    <div class="timeline-title">{{ log.module or 'general' }} · {{ log.action or 'unknown' }}</div>
                     <div>{{ log.message or '-' }}</div>
+                    {% if log.actor_name or log.actor_type %}
+                    <div class="timeline-meta">操作者：{{ log.actor_name or log.actor_type }}{% if log.actor_role %}（{{ log.actor_role }}）{% endif %}</div>
+                    {% endif %}
                     <div class="timeline-time">{{ log.created_at.isoformat() }}</div>
                 </div>
                 {% endfor %}

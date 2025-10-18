@@ -202,6 +202,16 @@ def test_admin_settings_module_flow():
     html = response.text
     assert "管理员列表" in html
     assert "ops" in html
+    assert "审计日志" in html
+    assert "创建管理员 ops" in html
+
+    filtered = client.get(
+        "/admin/settings",
+        params={"module": "admins"},
+        auth=BASIC_AUTH,
+    )
+    assert filtered.status_code == 200
+    assert "创建管理员 ops" in filtered.text
 
 
 def test_admin_viewer_permissions_enforced():

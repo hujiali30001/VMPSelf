@@ -543,8 +543,20 @@
     <div class="detail-timeline">
         {% for log in audit_logs %}
         <div class="detail-timeline-item">
-            <div class="detail-timeline-title">{{ log.event_type }}</div>
-            <div>{{ log.message or '-' }}</div>
+            <div class="detail-timeline-title">
+                {{ log.module or 'general' }} · {{ log.action or 'unknown' }}
+            </div>
+            <div class="detail-timeline-body">
+                <div>{{ log.message or '-' }}</div>
+                {% if log.actor_name or log.actor_type %}
+                <div class="detail-timeline-meta">
+                    操作者：{{ log.actor_name or log.actor_type }}{% if log.actor_role %}（{{ log.actor_role }}）{% endif %}
+                </div>
+                {% endif %}
+                {% if log.target_name and log.target_type != 'license' %}
+                <div class="detail-timeline-meta">目标：{{ log.target_name }}</div>
+                {% endif %}
+            </div>
             <div class="detail-timeline-time">{{ log.created_at.isoformat() }}</div>
         </div>
         {% endfor %}

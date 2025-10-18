@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import FrozenSet, Optional
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Response
 from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
@@ -43,6 +43,7 @@ from app.schemas import (
     UserUpdateRequest,
 )
 from app.services.admin_user_service import AdminUserService
+from app.services.audit_service import AuditActor, AuditService
 from app.services.card_type_service import LicenseCardTypeService
 from app.services.cdn_service import CDNService
 from app.services.license_service import LicenseService
@@ -460,6 +461,30 @@ def require_permission(module: str, action: str):
     return _dependency
 
 
+def _build_audit_actor(principal: Optional[AdminPrincipal]) -> AuditActor:
+    if not principal:
+        return AuditActor()
+    actor_type = "superadmin" if principal.role_code == "superadmin" else "admin_user"
+    return AuditActor(
+        type=actor_type,
+        id=principal.id,
+        name=principal.username,
+        role=principal.role_code,
+    )
+
+
+def _license_service(db: Session, principal: Optional[AdminPrincipal]) -> LicenseService:
+    return LicenseService(db, actor=_build_audit_actor(principal))
+
+
+def _admin_user_service(db: Session, principal: Optional[AdminPrincipal]) -> AdminUserService:
+    return AdminUserService(db, actor=_build_audit_actor(principal))
+
+
+def _audit_service(db: Session) -> AuditService:
+    return AuditService(db)
+
+
 @dashboard_router.get("/")
 def dashboard_page(
     request: Request,
@@ -681,7 +706,7 @@ def api_update_user(
     user_id: int,
     payload: UserUpdateRequest,
     db: Session = Depends(get_db),
-    _: AdminPrincipal = Depends(require_permission("users", "manage")),
+    principal: AdminPrincipal = Depends(require_permission("users", "manage")),
 ):
     if (
         payload.username is None
@@ -691,7 +716,7 @@ def api_update_user(
     ):
         raise HTTPException(status_code=400, detail="no_fields_provided")
 
-    service = UserService(db)
+    service = UserService(db, actor=_build_audit_actor(principal))
     try:
         user = service.update_user(
             user_id,
@@ -730,9 +755,9 @@ def api_update_user(
 def api_delete_user(
     user_id: int,
     db: Session = Depends(get_db),
-    _: AdminPrincipal = Depends(require_permission("users", "manage")),
+    principal: AdminPrincipal = Depends(require_permission("users", "manage")),
 ):
-    if not UserService(db).delete_user(user_id):
+    if not UserService(db, actor=_build_audit_actor(principal)).delete_user(user_id):
         raise HTTPException(status_code=404, detail="user_not_found")
     return Response(status_code=204)
 
@@ -886,9 +911,9 @@ def api_list_licenses(
 def api_create_license(
     payload: LicenseCreateRequest,
     db: Session = Depends(get_db),
-    _: AdminPrincipal = Depends(require_permission("licenses", "manage")),
+    principal: AdminPrincipal = Depends(require_permission("licenses", "manage")),
 ):
-    service = LicenseService(db)
+    service = _license_service(db, principal)
     try:
         licenses, batch_id = service.create_licenses(
             type_code=payload.type_code,
@@ -946,12 +971,12 @@ def api_update_license(
     card_code: str,
     payload: LicenseUpdateRequest,
     db: Session = Depends(get_db),
-    _: AdminPrincipal = Depends(require_permission("licenses", "manage")),
+    principal: AdminPrincipal = Depends(require_permission("licenses", "manage")),
 ):
     if payload.expire_at is None and payload.status is None and payload.bound_fingerprint is None:
         raise HTTPException(status_code=400, detail="no_fields_provided")
 
-    service = LicenseService(db)
+    service = _license_service(db, principal)
     try:
         license_obj = service.update_license(
             card_code,
@@ -974,9 +999,9 @@ def api_delete_license(
     card_code: str,
     force: bool = False,
     db: Session = Depends(get_db),
-    _: AdminPrincipal = Depends(require_permission("licenses", "manage")),
+    principal: AdminPrincipal = Depends(require_permission("licenses", "manage")),
 ):
-    service = LicenseService(db)
+    service = _license_service(db, principal)
     try:
         success = service.delete_license(card_code, force=force)
     except ValueError as exc:
@@ -1332,7 +1357,7 @@ def register_user_action(
     slot_code: str = Form(...),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: AdminPrincipal = Depends(require_permission("users", "manage")),
+    principal: AdminPrincipal = Depends(require_permission("users", "manage")),
 ):
     username = username.strip()
     card_code = card_code.strip()
@@ -1342,7 +1367,7 @@ def register_user_action(
     if password != confirm_password:
         message = "两次输入的密码不一致"
     else:
-        service = UserService(db)
+        service = UserService(db, actor=_build_audit_actor(principal))
         try:
             user = service.register(username, password, card_code, slot_code)
         except ValueError as exc:
@@ -1379,7 +1404,7 @@ def update_user_profile_action(
     slot_code: Optional[str] = Form(None),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: AdminPrincipal = Depends(require_permission("users", "manage")),
+    principal: AdminPrincipal = Depends(require_permission("users", "manage")),
 ):
     username = (username or "").strip()
     card_code = (card_code or "").strip()
@@ -1396,7 +1421,7 @@ def update_user_profile_action(
     if not updates:
         message = "请填写需要更新的字段"
     else:
-        service = UserService(db)
+        service = UserService(db, actor=_build_audit_actor(principal))
         try:
             service.update_user(user_id, **updates)
         except ValueError as exc:
@@ -1434,12 +1459,12 @@ def update_user_password_action(
     confirm_password: str = Form(...),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: AdminPrincipal = Depends(require_permission("users", "manage")),
+    principal: AdminPrincipal = Depends(require_permission("users", "manage")),
 ):
     if password != confirm_password:
         message = "两次输入的密码不一致"
     else:
-        service = UserService(db)
+        service = UserService(db, actor=_build_audit_actor(principal))
         try:
             service.update_user(user_id, password=password)
         except ValueError as exc:
@@ -1461,9 +1486,9 @@ def delete_user_action(
     user_id: int,
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: AdminPrincipal = Depends(require_permission("users", "manage")),
+    principal: AdminPrincipal = Depends(require_permission("users", "manage")),
 ):
-    service = UserService(db)
+    service = UserService(db, actor=_build_audit_actor(principal))
     success = service.delete_user(user_id)
     message = "用户已删除" if success else "未找到指定用户"
 
@@ -1657,9 +1682,9 @@ def create_license_action(
     slot_code: str = Form(...),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: AdminPrincipal = Depends(require_permission("licenses", "manage")),
+    principal: AdminPrincipal = Depends(require_permission("licenses", "manage")),
 ):
-    service = LicenseService(db)
+    service = _license_service(db, principal)
 
     def _parse_int(value: Optional[str]) -> Optional[int]:
         if value is None:
@@ -1748,9 +1773,9 @@ def revoke_license(
     card_code: str = Form(...),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: AdminPrincipal = Depends(require_permission("licenses", "manage")),
+    principal: AdminPrincipal = Depends(require_permission("licenses", "manage")),
 ):
-    service = LicenseService(db)
+    service = _license_service(db, principal)
     success = service.revoke(card_code)
     if success:
         msg = f"卡密 {card_code} 已撤销"
@@ -1788,10 +1813,10 @@ def extend_license_action(
     extra_days: int = Form(...),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: AdminPrincipal = Depends(require_permission("licenses", "manage")),
+    principal: AdminPrincipal = Depends(require_permission("licenses", "manage")),
 ):
     target = _sanitize_return_path(return_to)
-    service = LicenseService(db)
+    service = _license_service(db, principal)
     extra_days = max(extra_days, 0)
     try:
         if extra_days <= 0:
@@ -1817,10 +1842,10 @@ def generate_offline_license_action(
     fingerprint: str = Form(...),
     ttl_days: int = Form(7),
     db: Session = Depends(get_db),
-    _: AdminPrincipal = Depends(require_permission("licenses", "manage")),
+    principal: AdminPrincipal = Depends(require_permission("licenses", "manage")),
 ):
     license_obj = _get_license_or_404(db, card_code)
-    service = LicenseService(db)
+    service = _license_service(db, principal)
 
     message: Optional[str] = None
     offline_result: Optional[dict[str, str]] = None
@@ -1873,9 +1898,9 @@ def reset_license_action(
     card_code: str,
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: AdminPrincipal = Depends(require_permission("licenses", "manage")),
+    principal: AdminPrincipal = Depends(require_permission("licenses", "manage")),
 ):
-    service = LicenseService(db)
+    service = _license_service(db, principal)
     success = service.reset_license(card_code)
     if success:
         msg = f"已重置 {card_code}，激活记录已清空"
@@ -2276,13 +2301,136 @@ def retire_software_package_action(
 def settings_page(
     request: Request,
     message: Optional[str] = None,
+    module: Optional[str] = Query(None),
+    action: Optional[str] = Query(None),
+    actor_type: Optional[str] = Query(None),
+    actor_role: Optional[str] = Query(None),
+    actor_id: Optional[int] = Query(None),
+    target_type: Optional[str] = Query(None),
+    target_id: Optional[str] = Query(None),
+    search: Optional[str] = Query(None, alias="q"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
     db: Session = Depends(get_db),
-    _: AdminPrincipal = Depends(require_permission("settings", "view")),
+    principal: AdminPrincipal = Depends(require_permission("settings", "view")),
 ):
     admin_service = AdminUserService(db)
     admins = admin_service.list_admins()
     role_service = RoleService(db)
     roles = role_service.list_roles(include_inactive=False)
+
+    def _sanitize_str(value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        trimmed = value.strip()
+        return trimmed or None
+
+    module_filter = _sanitize_str(module)
+    action_filter = _sanitize_str(action)
+    actor_type_filter = _sanitize_str(actor_type)
+    actor_role_filter = _sanitize_str(actor_role)
+    target_type_filter = _sanitize_str(target_type)
+    target_id_filter = _sanitize_str(target_id)
+    search_filter = _sanitize_str(search)
+
+    page = max(page, 1)
+    page_size = max(1, min(page_size, 100))
+    offset = (page - 1) * page_size
+
+    audit_service = _audit_service(db)
+    logs, total = audit_service.list_logs(
+        module=module_filter,
+        action=action_filter,
+        actor_type=actor_type_filter,
+        actor_id=actor_id,
+        actor_role=actor_role_filter,
+        target_type=target_type_filter,
+        target_id=target_id_filter,
+        search=search_filter,
+        limit=page_size,
+        offset=offset,
+    )
+
+    total_pages = max((total + page_size - 1) // page_size, 1) if total else 1
+    if total and page > total_pages:
+        page = total_pages
+        offset = (page - 1) * page_size
+        logs, total = audit_service.list_logs(
+            module=module_filter,
+            action=action_filter,
+            actor_type=actor_type_filter,
+            actor_id=actor_id,
+            actor_role=actor_role_filter,
+            target_type=target_type_filter,
+            target_id=target_id_filter,
+            search=search_filter,
+            limit=page_size,
+            offset=offset,
+        )
+        total_pages = max((total + page_size - 1) // page_size, 1)
+    elif not total:
+        page = 1
+        offset = 0
+        total_pages = 1
+
+    module_options = [
+        value
+        for value in
+        db.scalars(
+            select(models.AuditLog.module)
+            .where(models.AuditLog.module.isnot(None))
+            .distinct()
+            .order_by(models.AuditLog.module.asc())
+        ).all()
+        if value
+    ]
+
+    actor_type_options = [
+        value
+        for value in
+        db.scalars(
+            select(models.AuditLog.actor_type)
+            .where(models.AuditLog.actor_type.isnot(None))
+            .distinct()
+            .order_by(models.AuditLog.actor_type.asc())
+        ).all()
+        if value
+    ]
+
+    target_type_options = [
+        value
+        for value in
+        db.scalars(
+            select(models.AuditLog.target_type)
+            .where(models.AuditLog.target_type.isnot(None))
+            .distinct()
+            .order_by(models.AuditLog.target_type.asc())
+        ).all()
+        if value
+    ]
+
+    audit_filters = {
+        "module": module_filter,
+        "action": action_filter,
+        "actor_type": actor_type_filter,
+        "actor_role": actor_role_filter,
+        "actor_id": actor_id,
+        "target_type": target_type_filter,
+        "target_id": target_id_filter,
+        "search": search_filter,
+    }
+
+    audit_pagination = {
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": total_pages,
+        "has_prev": page > 1,
+        "has_next": page < total_pages,
+        "prev_page": page - 1 if page > 1 else 1,
+        "next_page": page + 1 if page < total_pages else total_pages,
+        "offset": offset,
+    }
 
     context = _base_context(
         request,
@@ -2297,6 +2445,12 @@ def settings_page(
             "username": settings.admin_username,
             "role": "superadmin",
         },
+        audit_logs=logs,
+        audit_filters=audit_filters,
+        audit_pagination=audit_pagination,
+        audit_module_options=module_options,
+        audit_actor_type_options=actor_type_options,
+        audit_target_type_options=target_type_options,
     )
     return templates.TemplateResponse(request, "admin/settings/index.html", context)
 
@@ -2310,14 +2464,14 @@ def create_admin_user_action(
     role: str = Form("admin"),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: AdminPrincipal = Depends(require_permission("settings", "manage")),
+    principal: AdminPrincipal = Depends(require_permission("settings", "manage")),
 ):
     username = (username or "").strip()
     role = (role or "admin").strip() or "admin"
     if password != confirm_password:
         message = "两次密码不一致"
     else:
-        service = AdminUserService(db)
+        service = _admin_user_service(db, principal)
         try:
             service.create_admin(username=username, password=password, role_code=role)
         except ValueError as exc:
@@ -2346,12 +2500,12 @@ def reset_admin_password_action(
     confirm_password: str = Form(...),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: AdminPrincipal = Depends(require_permission("settings", "manage")),
+    principal: AdminPrincipal = Depends(require_permission("settings", "manage")),
 ):
     if password != confirm_password:
         message = "两次密码不一致"
     else:
-        service = AdminUserService(db)
+        service = _admin_user_service(db, principal)
         try:
             service.reset_password(admin_id, password)
         except ValueError as exc:
@@ -2376,9 +2530,9 @@ def toggle_admin_status_action(
     is_active: bool = Form(...),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: AdminPrincipal = Depends(require_permission("settings", "manage")),
+    principal: AdminPrincipal = Depends(require_permission("settings", "manage")),
 ):
-    service = AdminUserService(db)
+    service = _admin_user_service(db, principal)
     try:
         service.set_active(admin_id, is_active)
     except ValueError as exc:

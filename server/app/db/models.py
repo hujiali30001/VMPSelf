@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -83,10 +83,26 @@ class AuditLog(Base):
     __tablename__ = "audit_logs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
-    license_id: Mapped[Optional[int]] = mapped_column(Integer)
-    message: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    module: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    event_type: Mapped[Optional[str]] = mapped_column(String(128))
+    actor_type: Mapped[str] = mapped_column(String(32), default="system", nullable=False, index=True)
+    actor_id: Mapped[Optional[int]] = mapped_column(Integer, index=True)
+    actor_name: Mapped[Optional[str]] = mapped_column(String(128))
+    actor_role: Mapped[Optional[str]] = mapped_column(String(64), index=True)
+    target_type: Mapped[Optional[str]] = mapped_column(String(64), index=True)
+    target_id: Mapped[Optional[str]] = mapped_column(String(128), index=True)
+    target_name: Mapped[Optional[str]] = mapped_column(String(255))
+    license_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("licenses.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    message: Mapped[Optional[str]] = mapped_column(Text)
+    payload: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON)
+    request_id: Mapped[Optional[str]] = mapped_column(String(128))
+    ip_address: Mapped[Optional[str]] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
 
 
 class User(Base):

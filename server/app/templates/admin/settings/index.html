@@ -38,8 +38,95 @@
         gap: 10px;
         flex-wrap: wrap;
     }
+    .audit-panel h2 {
+        margin-bottom: 12px;
+    }
+    .audit-meta {
+        font-size: 13px;
+        color: var(--text-secondary);
+    }
+    .audit-filter-grid {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        margin-bottom: 16px;
+    }
+    .audit-filter-field {
+        display: flex;
+        flex-direction: column;
+    }
+    .audit-filter-field label {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-secondary);
+        margin-bottom: 6px;
+    }
+    .audit-filter-actions {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+    .audit-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    .audit-table th,
+    .audit-table td {
+        padding: 12px 14px;
+        border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+        vertical-align: top;
+    }
+    .audit-table th {
+        text-align: left;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-secondary);
+    }
+    .audit-table td small {
+        display: block;
+        color: var(--text-secondary);
+        margin-top: 6px;
+    }
+    .audit-payload {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        background: rgba(15, 23, 42, 0.04);
+        border-radius: 10px;
+        padding: 8px 10px;
+        margin-top: 6px;
+        max-height: 120px;
+        overflow: auto;
+        white-space: pre-wrap;
+    }
+    .audit-pagination {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin-top: 16px;
+        flex-wrap: wrap;
+    }
+    .audit-pagination-controls {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+    .audit-pagination form {
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+    }
+    .audit-pagination button {
+        padding: 8px 14px;
+    }
     @media (max-width: 1080px) {
         .settings-grid {
+            grid-template-columns: 1fr;
+        }
+        .audit-filter-grid {
             grid-template-columns: 1fr;
         }
     }
@@ -172,6 +259,165 @@
     </table>
     {% else %}
     <div class="empty-state">暂无数据库管理员，右上方可创建新的后台账号。</div>
+    {% endif %}
+</section>
+
+<section class="panel audit-panel">
+    <div style="display:flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+        <h2>审计日志</h2>
+        <div class="audit-meta">共 {{ audit_pagination.total }} 条记录 · 第 {{ audit_pagination.page }} / {{ audit_pagination.total_pages }} 页</div>
+    </div>
+
+    <form class="audit-filter-grid" method="get">
+        <input type="hidden" name="page" value="1" />
+        <input type="hidden" name="page_size" value="{{ audit_pagination.page_size }}" />
+        <div class="audit-filter-field">
+            <label for="filter-module">模块</label>
+            <select id="filter-module" name="module">
+                <option value="">全部模块</option>
+                {% for option in audit_module_options %}
+                    <option value="{{ option }}" {% if audit_filters.module == option %}selected{% endif %}>{{ option }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="audit-filter-field">
+            <label for="filter-action">操作</label>
+            <input id="filter-action" type="text" name="action" value="{{ audit_filters.action or '' }}" placeholder="如 create / update" />
+        </div>
+        <div class="audit-filter-field">
+            <label for="filter-actor-type">操作者类型</label>
+            <select id="filter-actor-type" name="actor_type">
+                <option value="">全部类型</option>
+                {% for option in audit_actor_type_options %}
+                    <option value="{{ option }}" {% if audit_filters.actor_type == option %}selected{% endif %}>{{ option }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="audit-filter-field">
+            <label for="filter-actor-role">操作者角色</label>
+            <input id="filter-actor-role" type="text" name="actor_role" value="{{ audit_filters.actor_role or '' }}" placeholder="如 admin" />
+        </div>
+        <div class="audit-filter-field">
+            <label for="filter-actor-id">操作者 ID</label>
+            <input id="filter-actor-id" type="number" name="actor_id" value="{{ audit_filters.actor_id or '' }}" min="0" />
+        </div>
+        <div class="audit-filter-field">
+            <label for="filter-target-type">目标类型</label>
+            <select id="filter-target-type" name="target_type">
+                <option value="">全部类型</option>
+                {% for option in audit_target_type_options %}
+                    <option value="{{ option }}" {% if audit_filters.target_type == option %}selected{% endif %}>{{ option }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="audit-filter-field">
+            <label for="filter-target-id">目标 ID</label>
+            <input id="filter-target-id" type="text" name="target_id" value="{{ audit_filters.target_id or '' }}" />
+        </div>
+        <div class="audit-filter-field">
+            <label for="filter-search">关键字</label>
+            <input id="filter-search" type="text" name="q" value="{{ audit_filters.search or '' }}" placeholder="搜索消息 / 操作者" />
+        </div>
+        <div class="audit-filter-actions">
+            <button class="primary-btn" type="submit">筛选</button>
+            <a class="secondary-btn" href="/admin/settings">重置</a>
+        </div>
+    </form>
+
+    {% if audit_logs %}
+    <div class="table-responsive">
+        <table class="audit-table">
+            <thead>
+                <tr>
+                    <th>时间</th>
+                    <th>模块 · 操作</th>
+                    <th>消息</th>
+                    <th>操作者</th>
+                    <th>目标</th>
+                    <th>请求信息</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in audit_logs %}
+                <tr>
+                    <td>
+                        {{ log.created_at.isoformat() }}
+                        {% if log.request_id %}
+                        <small>请求 ID：{{ log.request_id }}</small>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <strong>{{ log.module or 'general' }} · {{ log.action or 'unknown' }}</strong>
+                        {% if log.event_type and log.event_type != log.action %}
+                        <small>类型：{{ log.event_type }}</small>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {{ log.message or '-' }}
+                        {% if log.payload %}
+                        <div class="audit-payload">{{ log.payload | tojson(indent=2) }}</div>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {{ log.actor_name or '-' }}
+                        <small>
+                            类型：{{ log.actor_type or 'unknown' }}
+                            {% if log.actor_role %}· 角色：{{ log.actor_role }}{% endif %}
+                            {% if log.actor_id is not none %}· ID：{{ log.actor_id }}{% endif %}
+                        </small>
+                    </td>
+                    <td>
+                        {{ log.target_name or '-' }}
+                        <small>
+                            类型：{{ log.target_type or 'unknown' }}
+                            {% if log.target_id %}· ID：{{ log.target_id }}{% endif %}
+                        </small>
+                    </td>
+                    <td>
+                        {% if log.ip_address %}
+                        <div>IP：{{ log.ip_address }}</div>
+                        {% endif %}
+                        {% if log.license_id %}
+                        <small>关联卡密 ID：{{ log.license_id }}</small>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="audit-pagination">
+        <div>共 {{ audit_pagination.total }} 条数据，当前显示第 {{ audit_pagination.page }} 页</div>
+        <div class="audit-pagination-controls">
+            <form method="get">
+                {% for key, value in audit_filters.items() %}
+                    {% if value is not none and value != '' %}
+                        {% set field_name = key %}
+                        {% if key == 'search' %}{% set field_name = 'q' %}{% endif %}
+                        <input type="hidden" name="{{ field_name }}" value="{{ value }}" />
+                    {% endif %}
+                {% endfor %}
+                <input type="hidden" name="page_size" value="{{ audit_pagination.page_size }}" />
+                <input type="hidden" name="page" value="{{ audit_pagination.prev_page }}" />
+                <button class="secondary-btn" type="submit" {% if not audit_pagination.has_prev %}disabled{% endif %}>上一页</button>
+            </form>
+            <form method="get">
+                {% for key, value in audit_filters.items() %}
+                    {% if value is not none and value != '' %}
+                        {% set field_name = key %}
+                        {% if key == 'search' %}{% set field_name = 'q' %}{% endif %}
+                        <input type="hidden" name="{{ field_name }}" value="{{ value }}" />
+                    {% endif %}
+                {% endfor %}
+                <input type="hidden" name="page_size" value="{{ audit_pagination.page_size }}" />
+                <input type="hidden" name="page" value="{{ audit_pagination.next_page }}" />
+                <button class="secondary-btn" type="submit" {% if not audit_pagination.has_next %}disabled{% endif %}>下一页</button>
+            </form>
+        </div>
+    </div>
+    {% else %}
+    <div class="empty-state">暂无符合条件的审计记录。</div>
     {% endif %}
 </section>
 {% endblock %}

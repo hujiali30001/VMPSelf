@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
@@ -73,6 +73,7 @@ class AuditService:
         log = models.AuditLog(
             module=normalized_module,
             action=normalized_action,
+            event_type=normalized_action,
             actor_type=normalized_actor_type,
             actor_id=actor.id,
             actor_name=self._normalize_text(actor.name),

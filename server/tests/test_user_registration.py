@@ -56,7 +56,7 @@ def test_user_registration_success():
 
         logs = (
             session.query(models.AuditLog)
-            .filter(models.AuditLog.license_id == license_obj.id, models.AuditLog.event_type == "user_register")
+            .filter(models.AuditLog.license_id == license_obj.id, models.AuditLog.action == "user_register")
             .all()
         )
         assert len(logs) == 1

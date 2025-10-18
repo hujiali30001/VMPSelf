@@ -30,8 +30,8 @@ def test_create_license_generates_secret_and_expiry():
             expire_at = expire_at.replace(tzinfo=timezone.utc)
         assert (expire_at - datetime.now(timezone.utc)).days >= 14
 
-        logs = service.get_audit_logs(license_obj)
-        assert any(log.event_type == "create" for log in logs)
+    logs = service.get_audit_logs(license_obj)
+    assert any(log.action == "create" for log in logs)
 
 
 def test_extend_expiry_pushes_date_forward():
@@ -56,8 +56,8 @@ def test_extend_expiry_pushes_date_forward():
             expire_at = expire_at.replace(tzinfo=timezone.utc)
         assert (expire_at - now).days >= 15
 
-        logs = service.get_audit_logs(updated)
-        assert any(log.event_type == "extend" for log in logs)
+    logs = service.get_audit_logs(updated)
+    assert any(log.action == "extend" for log in logs)
 
 
 def test_reset_license_clears_fingerprint_and_activations():
@@ -89,8 +89,8 @@ def test_reset_license_clears_fingerprint_and_activations():
         assert refreshed.status == models.LicenseStatus.UNUSED.value
         assert not refreshed.activations
 
-        logs = service.get_audit_logs(refreshed)
-        assert any(log.event_type == "reset" for log in logs)
+    logs = service.get_audit_logs(refreshed)
+    assert any(log.action == "reset" for log in logs)
 
 
 def test_generate_offline_license_respects_expiry_and_logs():
@@ -134,7 +134,7 @@ def test_generate_offline_license_respects_expiry_and_logs():
         assert signature == expected_signature
 
     logs = service.get_audit_logs(license_obj)
-    offline_log = next((log for log in logs if log.event_type == "offline_generate"), None)
+    offline_log = next((log for log in logs if log.action == "offline_generate"), None)
     assert offline_log is not None
     assert "device-123" in (offline_log.message or "")
     assert effective_expiry.isoformat() in (offline_log.message or "")

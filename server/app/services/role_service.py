@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.db import Role, RolePermission
+from app.services.audit_service import AuditActor, AuditService, AuditTarget
 
 
 @dataclass(frozen=True)
@@ -18,8 +19,10 @@ class Permission:
 
 
 class RoleService:
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: Session, *, actor: Optional[AuditActor] = None) -> None:
         self.db = db
+        self._actor = actor
+        self.audit = AuditService(db)
 
     def list_roles(self, include_inactive: bool = False) -> List[Role]:
         stmt = select(Role).options(selectinload(Role.permissions)).order_by(Role.id.asc())
@@ -72,9 +75,19 @@ class RoleService:
         self.db.add(role)
         self.db.flush()
 
+        added: set[tuple[str, str]] = set()
         if permissions:
-            self._replace_permissions(role, permissions)
+            added, _ = self._replace_permissions(role, permissions)
 
+        self._log_action(
+            "create",
+            role,
+            message=f"创建角色 {role.display_name}",
+            payload={
+                "code": role.code,
+                "permissions_added": sorted(added),
+            },
+        )
         self.db.commit()
         self.db.refresh(role)
         return role
@@ -100,9 +113,23 @@ class RoleService:
             role.is_active = bool(is_active)
         role.updated_at = datetime.now(timezone.utc)
 
+        added: set[tuple[str, str]] = set()
+        removed: set[tuple[str, str]] = set()
         if permissions is not None:
-            self._replace_permissions(role, permissions)
+            added, removed = self._replace_permissions(role, permissions)
 
+        self._log_action(
+            "update",
+            role,
+            message=f"更新角色 {role.display_name}",
+            payload={
+                "code": role.code,
+                "display_name": role.display_name,
+                "is_active": role.is_active,
+                "permissions_added": sorted(added),
+                "permissions_removed": sorted(removed),
+            },
+        )
         self.db.commit()
         self.db.refresh(role)
         return role
@@ -131,7 +158,7 @@ class RoleService:
             result[role.code] = perms
         return result
 
-    def _replace_permissions(self, role: Role, permissions: Iterable[Tuple[str, str]]) -> None:
+    def _replace_permissions(self, role: Role, permissions: Iterable[Tuple[str, str]]) -> tuple[set[tuple[str, str]], set[tuple[str, str]]]:
         normalized_new = {
             (module.strip().lower(), action.strip().lower())
             for module, action in permissions
@@ -142,10 +169,13 @@ class RoleService:
             for perm in list(role.permissions)
         }
 
+        removed: set[tuple[str, str]] = set()
         for key, perm in existing.items():
             if key not in normalized_new:
                 self.db.delete(perm)
+                removed.add(key)
 
+        added: set[tuple[str, str]] = set()
         for module, action in normalized_new:
             if (module, action) not in existing:
                 self.db.add(
@@ -156,5 +186,29 @@ class RoleService:
                         created_at=datetime.now(timezone.utc),
                     )
                 )
+                added.add((module, action))
         role.updated_at = datetime.now(timezone.utc)
         self.db.flush()
+        return added, removed
+
+    def _log_action(
+        self,
+        action: str,
+        role: Role,
+        *,
+        message: Optional[str] = None,
+        payload: Optional[dict[str, object]] = None,
+    ) -> None:
+        target = AuditTarget(
+            type="role",
+            id=str(role.id) if role.id is not None else None,
+            name=role.display_name,
+        )
+        self.audit.log_event(
+            module="roles",
+            action=action,
+            actor=self._actor,
+            target=target,
+            message=message,
+            payload=payload,
+        )
