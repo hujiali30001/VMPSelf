@@ -24,7 +24,7 @@ from app.api.admin_portal.common import (
 )
 from app.api.deps import get_db
 from app.db import models
-from app.services.software_service import SoftwareService
+from app.services.licensing import SoftwareService
 from app.services.user_service import UserService
 
 router = APIRouter(prefix="/users")

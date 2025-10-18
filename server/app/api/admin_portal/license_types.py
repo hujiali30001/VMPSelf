@@ -17,7 +17,7 @@ from app.api.admin_portal.common import (
     templates,
 )
 from app.api.deps import get_db
-from app.services.card_type_service import LicenseCardTypeService
+from app.services.licensing import LicenseCardTypeService
 from app.db import models
 
 router = APIRouter(prefix="/license-types")

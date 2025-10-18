@@ -10,8 +10,8 @@ from sqlalchemy.orm import Session
 from app.db import models
 from app.db.models import LicenseStatus
 from app.services import security
-from app.services.audit_service import AuditActor, AuditService, AuditTarget
-from app.services.license_service import LicenseService
+from app.services.audit import AuditActor, AuditService, AuditTarget
+from app.services.licensing import LicenseService
 
 
 class UserService:

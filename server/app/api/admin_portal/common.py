@@ -26,10 +26,9 @@ from app.db import (
     SoftwareSlotStatus,
     models,
 )
-from app.services.admin_user_service import AdminUserService
-from app.services.audit_service import AuditActor, AuditService
-from app.services.license_service import LicenseService
-from app.services.software_service import SoftwareService
+from app.services.accounts import AdminUserService
+from app.services.audit import AuditActor, AuditService
+from app.services.licensing import LicenseService, SoftwareService
 
 settings = get_settings()
 basic_auth = HTTPBasic()

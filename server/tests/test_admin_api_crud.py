@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.db import models
 from app.db.session import SessionLocal
 from app.main import app
-from app.services.license_service import LicenseService
+from app.services.licensing import LicenseService
 from app.services.user_service import UserService
 
 BASIC_AUTH: Tuple[str, str] = ("admin", "change-me")

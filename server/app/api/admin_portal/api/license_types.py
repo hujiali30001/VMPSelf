@@ -11,7 +11,7 @@ from app.schemas import (
     LicenseCardTypeResponse,
     LicenseCardTypeUpdateRequest,
 )
-from app.services.card_type_service import LicenseCardTypeService
+from app.services.licensing import LicenseCardTypeService
 
 router = APIRouter(prefix="/license-types")
 

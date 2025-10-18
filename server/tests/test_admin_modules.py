@@ -17,7 +17,7 @@ from app.db import (
 from app.db.session import SessionLocal
 from app.main import app
 from app.services import security
-from app.services.admin_user_service import AdminUserService
+from app.services.accounts import AdminUserService
 
 BASIC_AUTH = ("admin", "change-me")
 

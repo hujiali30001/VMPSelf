@@ -29,10 +29,12 @@ from app.api.admin_portal.common import (
 )
 from app.api.deps import get_db
 from app.db import License, LicenseStatus, models
-from app.services.audit_service import AuditService
-from app.services.card_type_service import LicenseCardTypeService
-from app.services.license_service import LicenseService
-from app.services.software_service import SoftwareService
+from app.services.audit import AuditService
+from app.services.licensing import (
+    LicenseCardTypeService,
+    LicenseService,
+    SoftwareService,
+)
 
 router = APIRouter(prefix="/licenses")
 

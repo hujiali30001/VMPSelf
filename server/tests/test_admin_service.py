@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.db import models
 from app.db.session import SessionLocal
-from app.services.license_service import LicenseService
+from app.services.licensing import LicenseService
 from app.services import security
 
 DEFAULT_SLOT_CODE = "default-slot"

@@ -16,7 +16,7 @@ from app.schemas import (
     OfflineLicenseResponse,
     RevokeRequest,
 )
-from app.services.license_service import LicenseService
+from app.services.licensing import LicenseService
 from app.services.security import issue_token, sign_message, verify_signature
 
 router = APIRouter(prefix="/license", tags=["licenses"])

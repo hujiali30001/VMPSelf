@@ -26,7 +26,7 @@ from app.schemas import (
     LicenseListResponse,
     LicenseUpdateRequest,
 )
-from app.services.license_service import LicenseService
+from app.services.licensing import LicenseService
 
 router = APIRouter(prefix="/licenses")
 

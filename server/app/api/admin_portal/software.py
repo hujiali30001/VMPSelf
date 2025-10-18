@@ -19,7 +19,7 @@ from app.api.admin_portal.common import (
 )
 from app.api.deps import get_db
 from app.db import SoftwareSlotStatus
-from app.services.software_service import SoftwareService
+from app.services.licensing import SoftwareService
 
 router = APIRouter(prefix="/software")
 

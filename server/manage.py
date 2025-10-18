@@ -11,7 +11,7 @@ from sqlalchemy import select
 from app.core.settings import get_settings
 from app.db import Base, License, LicenseCardType, LicenseStatus
 from app.db.session import SessionLocal, engine, database_url
-from app.services.license_service import LicenseService
+from app.services.licensing import LicenseService
 
 from alembic import command
 from alembic.config import Config

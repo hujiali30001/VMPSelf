@@ -28,8 +28,7 @@ from app.api.admin_portal.common import (
 )
 from app.api.deps import get_db
 from app.db import models
-from app.services.admin_user_service import AdminUserService
-from app.services.role_service import RoleService
+from app.services.accounts import AdminUserService, RoleService
 
 router = APIRouter(prefix="/settings")
 

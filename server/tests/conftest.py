@@ -18,7 +18,7 @@ def reset_database():
         session.commit()
 
     with SessionLocal() as session:
-        from app.services.admin_user_service import AdminUserService
+        from app.services.accounts import AdminUserService
 
         AdminUserService(session).ensure_roles()
     yield
