@@ -20,7 +20,7 @@ from app.api.admin_portal.common import (
 )
 from app.api.deps import get_db
 from app.db import CDNEndpointStatus, CDNTaskType
-from app.services.cdn_service import CDNService
+from app.services.cdn import CDNService
 
 router = APIRouter(prefix="/cdn")
 
