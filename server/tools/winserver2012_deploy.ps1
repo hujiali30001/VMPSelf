@@ -9,7 +9,9 @@
     [string]$AdminUser,
     [string]$AdminPassword,
     [string]$HmacSecret,
-    [string]$SqlitePath
+    [string]$SqlitePath,
+    [ValidateSet("Prompt", "Fresh", "Upgrade", "Uninstall")]
+    [string]$DeploymentMode = "Prompt"
 )
 
 $ErrorActionPreference = "Stop"
@@ -145,6 +147,94 @@ function Expand-ZipArchiveCompat {
     }
 }
 
+function Select-DeploymentMode {
+    param([string]$Mode)
+
+    $normalized = if ([string]::IsNullOrWhiteSpace($Mode) -or $Mode -ieq "Prompt") {
+        "prompt"
+    } else {
+        $Mode.ToLowerInvariant()
+    }
+
+    switch ($normalized) {
+        "fresh" { return "Fresh" }
+        "upgrade" { return "Upgrade" }
+        "uninstall" { return "Uninstall" }
+        default {
+            Write-Host "" -ForegroundColor Gray
+            Write-Host "选择部署方式:" -ForegroundColor Cyan
+            Write-Host "  1) 全新部署 - 删除现有服务与数据后重新安装" -ForegroundColor Gray
+            Write-Host "  2) 升级部署 - 保留数据/.env，只重建依赖与服务" -ForegroundColor Gray
+            Write-Host "  3) 卸载 - 停止服务并移除所有文件后退出" -ForegroundColor Gray
+            while ($true) {
+                $choice = Read-Host "请输入选项编号 (1-3)"
+                switch ($choice) {
+                    "1" { return "Fresh" }
+                    "2" { return "Upgrade" }
+                    "3" { return "Uninstall" }
+                    default { Write-Host "无效选项，请重新输入。" -ForegroundColor Yellow }
+                }
+            }
+        }
+    }
+}
+
+function Cleanup-PreviousDeployment {
+    param(
+        [string]$RootPath,
+        [string]$ServiceName,
+        [bool]$PreserveData = $true,
+        [bool]$PreserveEnv = $true
+    )
+
+    $existingService = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+    if ($existingService) {
+        Write-Step ("Stopping existing service: {0}" -f $ServiceName)
+        try {
+            if ($existingService.Status -ne "Stopped") {
+                Stop-Service -Name $ServiceName -Force -ErrorAction Stop
+            }
+        } catch {
+            Write-Warning ("Failed to stop service {0}: {1}" -f $ServiceName, $_.Exception.Message)
+        }
+
+        Start-Sleep -Seconds 2
+
+        Write-Step ("Removing Windows service: {0}" -f $ServiceName)
+        try {
+            & sc.exe delete $ServiceName | Out-Null
+        } catch {
+            Write-Warning ("Failed to delete service {0} via sc.exe: {1}" -f $ServiceName, $_.Exception.Message)
+        }
+    }
+
+    $cleanupTargets = @(
+        ".venv",
+        "logs",
+        "tools\\nssm"
+    )
+
+    if (-not $PreserveData) {
+        $cleanupTargets += "data"
+    }
+
+    if (-not $PreserveEnv) {
+        $cleanupTargets += ".env"
+    }
+
+    foreach ($relativePath in $cleanupTargets) {
+        $absolutePath = Join-Path $RootPath $relativePath
+        if (Test-Path -LiteralPath $absolutePath) {
+            Write-Step ("Removing previous {0}" -f $relativePath)
+            try {
+                Remove-Item -Path $absolutePath -Recurse -Force -ErrorAction Stop
+            } catch {
+                Write-Warning ("Failed to remove {0}: {1}" -f $absolutePath, $_.Exception.Message)
+            }
+        }
+    }
+}
+
 Assert-Admin
 
 $InstallRoot = Resolve-AbsolutePath -Path $InstallRoot
@@ -152,9 +242,56 @@ if (-not $InstallRoot) {
     throw "InstallRoot could not be resolved."
 }
 
-if (-not (Test-Path -LiteralPath $InstallRoot)) {
-    Write-Step ("Creating install directory: {0}" -f $InstallRoot)
-    New-Item -ItemType Directory -Path $InstallRoot | Out-Null
+$SelectedMode = Select-DeploymentMode -Mode $DeploymentMode
+Write-Step ("部署模式: {0}" -f $SelectedMode)
+
+$ExistingEnv = @{}
+
+switch ($SelectedMode) {
+    "Fresh" {
+        Write-Step "执行全新部署：将移除现有服务、环境与数据"
+        Cleanup-PreviousDeployment -RootPath $InstallRoot -ServiceName $ServiceName -PreserveData:$false -PreserveEnv:$false
+        if (Test-Path -LiteralPath $InstallRoot) {
+            Write-Step ("删除旧的安装目录: {0}" -f $InstallRoot)
+            try {
+                Remove-Item -Path $InstallRoot -Recurse -Force -ErrorAction Stop
+            } catch {
+                Write-Warning ("删除安装目录失败：{0}" -f $_.Exception.Message)
+            }
+        }
+        Write-Step ("创建安装目录: {0}" -f $InstallRoot)
+        New-Item -ItemType Directory -Path $InstallRoot | Out-Null
+    }
+    "Upgrade" {
+        Write-Step "执行升级部署：保留 data/.env，仅重建运行环境"
+        Cleanup-PreviousDeployment -RootPath $InstallRoot -ServiceName $ServiceName -PreserveData:$true -PreserveEnv:$true
+        if (-not (Test-Path -LiteralPath $InstallRoot)) {
+            Write-Step ("创建安装目录: {0}" -f $InstallRoot)
+            New-Item -ItemType Directory -Path $InstallRoot | Out-Null
+        }
+    }
+    "Uninstall" {
+        Write-Step "执行卸载：停止服务并移除所有文件"
+        Cleanup-PreviousDeployment -RootPath $InstallRoot -ServiceName $ServiceName -PreserveData:$false -PreserveEnv:$false
+        if (Test-Path -LiteralPath $InstallRoot) {
+            Write-Step ("删除安装目录: {0}" -f $InstallRoot)
+            try {
+                Remove-Item -Path $InstallRoot -Recurse -Force -ErrorAction Stop
+            } catch {
+                Write-Warning ("删除安装目录失败：{0}" -f $_.Exception.Message)
+            }
+        }
+        Write-Step "卸载流程已完成，脚本退出。"
+        return
+    }
+    default {
+        throw "Unknown deployment mode: $SelectedMode"
+    }
+}
+
+$EnvFile = Join-Path $InstallRoot ".env"
+if (Test-Path -LiteralPath $EnvFile) {
+    $ExistingEnv = Get-EnvMap -FilePath $EnvFile
 }
 
 Set-Location -Path $InstallRoot
@@ -201,7 +338,9 @@ if (-not (Test-Path -LiteralPath $EnvFile)) {
     }
 }
 
-$ExistingEnv = Get-EnvMap -FilePath $EnvFile
+if (-not $ExistingEnv) {
+    $ExistingEnv = Get-EnvMap -FilePath $EnvFile
+}
 
 $FinalEnv = @{}
 $FinalEnv["VMP_ENV"] = "production"

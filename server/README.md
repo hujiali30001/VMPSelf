@@ -154,6 +154,14 @@ systemctl enable --now vmp-auth.service
 powershell -ExecutionPolicy Bypass -File tools\winserver2012_deploy.ps1 -InstallRoot "C:\Services\VMPSelf\server" -PythonExe "C:\Python313\python.exe" -Port 8000 -AdminUser "ops-admin"
 ```
 
+首次执行脚本会询问部署模式，可直接在交互菜单中选择：
+
+- **全新部署 (Fresh)**：移除现有服务、`.venv`、日志、`data/`、`.env`，并重新创建安装目录；适用于首次安装或需要重置环境的场景。
+- **升级部署 (Upgrade)**：停止服务、清理虚拟环境与日志，但保留 `data/` 与 `.env`，随后重新安装依赖并迁移数据库；适用于代码或依赖更新时的平滑升级。
+- **卸载 (Uninstall)**：停止服务、清理所有文件并退出脚本，不会重新部署。
+
+如需在无人值守或 CI 场景中运行，可通过 `-DeploymentMode Fresh|Upgrade|Uninstall` 显式指定模式，跳过交互提示。
+
 脚本将自动创建虚拟环境、安装依赖、生成/更新 `.env`、注册 NSSM 服务并输出后台访问信息。更多参数说明见《[WinServer 2012 部署指南](../docs/deployment/winserver2012.md)》。
 
 > 脚本内部调用 `python manage.py init-db`（已包含 Alembic 升级），因此无需再单独执行 `alembic upgrade head`；若需要独立排查迁移，可手动运行该命令。
