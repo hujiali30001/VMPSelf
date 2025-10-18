@@ -59,13 +59,31 @@ def licenses_page(
     type_query = type_code.strip() if type_code else None
 
     service = LicenseService(db)
-    license_rows = service.list_licenses(
+    license_items = service.list_licenses(
         status=status_filter,
         search=search_query,
         type_code=type_query,
         offset=offset,
         limit=page_size,
     )
+
+    license_rows = []
+    for license_obj in license_items:
+        activations = list(license_obj.activations or [])
+        latest_seen = None
+        if activations:
+            latest_seen = max(
+                (activation.last_seen or activation.activated_at for activation in activations),
+                default=None,
+            )
+        license_rows.append(
+            {
+                "license": license_obj,
+                "user": license_obj.user,
+                "activation_count": len(activations),
+                "latest_seen": latest_seen,
+            }
+        )
 
     total_stmt = select(func.count()).select_from(License)
     if status_filter and status_filter != "all":
@@ -86,13 +104,30 @@ def licenses_page(
     if page > total_pages:
         page = total_pages
         offset = (page - 1) * page_size
-        license_rows = service.list_licenses(
+        license_items = service.list_licenses(
             status=status_filter,
             search=search_query,
             type_code=type_query,
             offset=offset,
             limit=page_size,
         )
+        license_rows = []
+        for license_obj in license_items:
+            activations = list(license_obj.activations or [])
+            latest_seen = None
+            if activations:
+                latest_seen = max(
+                    (activation.last_seen or activation.activated_at for activation in activations),
+                    default=None,
+                )
+            license_rows.append(
+                {
+                    "license": license_obj,
+                    "user": license_obj.user,
+                    "activation_count": len(activations),
+                    "latest_seen": latest_seen,
+                }
+            )
 
     status_counts = {
         row[0]: row[1]
@@ -174,6 +209,10 @@ def licenses_page(
     software_slots = SoftwareService(db).list_slots()
     default_slot_code = software_slots[0].code if software_slots else ""
 
+    return_to = request.url.path
+    if request.url.query:
+        return_to += f"?{request.url.query}"
+
     context = _base_context(
         request,
         licenses=license_rows,
@@ -207,6 +246,7 @@ def licenses_page(
         page_description="集中查看卡密状态、注册用户与激活设备。",
         software_slots=software_slots,
         default_slot_code=default_slot_code,
+        return_to=return_to,
     )
 
     return templates.TemplateResponse(

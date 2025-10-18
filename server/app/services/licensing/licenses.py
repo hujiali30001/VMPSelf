@@ -39,13 +39,29 @@ class LicenseService:
         offset = max(offset, 0)
         limit = max(1, min(limit, 200))
 
-        stmt = select(models.License).order_by(models.License.created_at.desc())
+        stmt = (
+            select(models.License)
+            .options(
+                selectinload(models.License.user),
+                selectinload(models.License.card_type),
+                selectinload(models.License.software_slot),
+                selectinload(models.License.batch),
+                selectinload(models.License.activations),
+            )
+            .order_by(models.License.created_at.desc())
+        )
         if status and status != "all":
             stmt = stmt.where(models.License.status == status)
         if search:
             stmt = stmt.where(models.License.card_code.ilike(f"%{search.strip()}%"))
         if type_code:
-            stmt = stmt.join(models.License.card_type).where(models.LicenseCardType.code == type_code)
+            normalized_type = type_code.strip()
+            if normalized_type == "__none__":
+                stmt = stmt.where(models.License.card_type_id.is_(None))
+            else:
+                stmt = stmt.join(models.License.card_type).where(
+                    models.LicenseCardType.code == normalized_type
+                )
 
         stmt = stmt.offset(offset).limit(limit)
         return list(self.db.scalars(stmt).all())
