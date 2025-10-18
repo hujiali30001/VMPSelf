@@ -149,24 +149,21 @@ def dashboard_page(
             "label": "CDN 管理",
             "description": "配置源站防护、共享密钥与 IP 白名单。",
             "href": "/admin/cdn",
-            "ready": False,
-            "badge": "规划中",
+            "ready": True,
         },
         {
             "code": "software",
             "label": "软件位",
             "description": "上传保护壳、分配发布渠道与配额。",
             "href": "/admin/software",
-            "ready": False,
-            "badge": "规划中",
+            "ready": True,
         },
         {
             "code": "settings",
             "label": "系统设置",
             "description": "调整后台安全策略、审计与管理员账号。",
             "href": "/admin/settings",
-            "ready": False,
-            "badge": "规划中",
+            "ready": True,
         },
     ]
 
