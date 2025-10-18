@@ -147,6 +147,29 @@ function Expand-ZipArchiveCompat {
     }
 }
 
+function Enter-DeletionSafeLocation {
+    param([string]$TargetPath)
+
+    $candidate = $null
+    if (-not [string]::IsNullOrWhiteSpace($TargetPath)) {
+        $candidate = Split-Path -Parent $TargetPath
+    }
+
+    if ([string]::IsNullOrWhiteSpace($candidate) -or -not (Test-Path -LiteralPath $candidate)) {
+        if ($PSScriptRoot -and (Test-Path -LiteralPath $PSScriptRoot)) {
+            $candidate = $PSScriptRoot
+        } else {
+            $candidate = [System.IO.Path]::GetPathRoot($TargetPath)
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($candidate) -or -not (Test-Path -LiteralPath $candidate)) {
+        $candidate = $env:SystemDrive + "\"
+    }
+
+    Set-Location -Path $candidate
+}
+
 function Select-DeploymentMode {
     param([string]$Mode)
 
@@ -252,11 +275,15 @@ switch ($SelectedMode) {
         Write-Step "执行全新部署：将移除现有服务、环境与数据"
         Cleanup-PreviousDeployment -RootPath $InstallRoot -ServiceName $ServiceName -PreserveData:$false -PreserveEnv:$false
         if (Test-Path -LiteralPath $InstallRoot) {
+            Enter-DeletionSafeLocation -TargetPath $InstallRoot
             Write-Step ("删除旧的安装目录: {0}" -f $InstallRoot)
             try {
                 Remove-Item -Path $InstallRoot -Recurse -Force -ErrorAction Stop
             } catch {
                 Write-Warning ("删除安装目录失败：{0}" -f $_.Exception.Message)
+            }
+            if (Test-Path -LiteralPath $InstallRoot) {
+                throw ("无法删除安装目录 {0}，请确认没有程序正在使用该路径后重试。" -f $InstallRoot)
             }
         }
         Write-Step ("创建安装目录: {0}" -f $InstallRoot)
@@ -274,11 +301,15 @@ switch ($SelectedMode) {
         Write-Step "执行卸载：停止服务并移除所有文件"
         Cleanup-PreviousDeployment -RootPath $InstallRoot -ServiceName $ServiceName -PreserveData:$false -PreserveEnv:$false
         if (Test-Path -LiteralPath $InstallRoot) {
+            Enter-DeletionSafeLocation -TargetPath $InstallRoot
             Write-Step ("删除安装目录: {0}" -f $InstallRoot)
             try {
                 Remove-Item -Path $InstallRoot -Recurse -Force -ErrorAction Stop
             } catch {
                 Write-Warning ("删除安装目录失败：{0}" -f $_.Exception.Message)
+            }
+            if (Test-Path -LiteralPath $InstallRoot) {
+                throw ("无法删除安装目录 {0}，请确认没有程序正在使用该路径后重试。" -f $InstallRoot)
             }
         }
         Write-Step "卸载流程已完成，脚本退出。"
