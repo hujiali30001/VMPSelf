@@ -145,11 +145,13 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
 执行示例（让脚本生成随机密码与 HMAC，端口 8000）：
 
 ```powershell
-cd C:\Services\VMPSelf\server
-powershell -ExecutionPolicy Bypass -File tools\winserver2012_deploy.ps1 -InstallRoot "C:\Services\VMPSelf\server" -PythonExe "C:\Python313\python.exe" -ServiceName "VMPAuthService" -Port 8000 -ListenHost "0.0.0.0" -AdminUser "ops-admin"
+cd C:\Services\VMPSelf
+powershell -ExecutionPolicy Bypass -File server\tools\winserver2012_deploy.ps1 -InstallRoot "C:\Services\VMPSelf\server" -PythonExe "C:\Python313\python.exe" -ServiceName "VMPAuthService" -Port 8000 -ListenHost "0.0.0.0" -AdminUser "ops-admin"
 ```
 
 > 提示：脚本会在存在生成/变更操作时打印醒目的英文提示。若不传 `-AdminPassword`，会生成高强度密码并在终端显示；同理，检测到默认占位值时会生成新的 `VMP_HMAC_SECRET`。请在窗口关闭前妥善记录这些值。
+
+> **目录建议**：请确保在安装目录的上一级（例如 `C:\Services\VMPSelf`）运行脚本，以免 PowerShell 会话仍锁定 `server` 目录导致旧文件无法删除。脚本内部已加入自动切换路径的保护，但遵循此约定可以显著降低权限占用引发的失败重试。
 
 运行脚本时若选择：
 

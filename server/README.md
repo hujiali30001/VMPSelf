@@ -151,8 +151,11 @@ systemctl enable --now vmp-auth.service
 如需在 Windows Server 2012/2016 上常驻运行，仓库提供自动化脚本：
 
 ```powershell
+cd C:\Services\VMPSelf
 powershell -ExecutionPolicy Bypass -File tools\winserver2012_deploy.ps1 -InstallRoot "C:\Services\VMPSelf\server" -PythonExe "C:\Python313\python.exe" -Port 8000 -AdminUser "ops-admin"
 ```
+
+> 建议始终在安装目录的上一级（例如仓库根目录 `C:\Services\VMPSelf`）执行脚本，避免 PowerShell 当前工作目录仍指向 `server` 导致无法删除旧版本文件。脚本已在内部增加防护，但提前切换目录能减少权限占用带来的重试次数。
 
 首次执行脚本会询问部署模式，可直接在交互菜单中选择：
 

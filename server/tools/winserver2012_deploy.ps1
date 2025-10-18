@@ -268,6 +268,8 @@ if (-not $InstallRoot) {
 $SelectedMode = Select-DeploymentMode -Mode $DeploymentMode
 Write-Step ("部署模式: {0}" -f $SelectedMode)
 
+Enter-DeletionSafeLocation -TargetPath $InstallRoot
+
 $ExistingEnv = @{}
 
 switch ($SelectedMode) {
@@ -323,6 +325,10 @@ switch ($SelectedMode) {
 $EnvFile = Join-Path $InstallRoot ".env"
 if (Test-Path -LiteralPath $EnvFile) {
     $ExistingEnv = Get-EnvMap -FilePath $EnvFile
+}
+
+if (-not (Test-Path -LiteralPath $InstallRoot)) {
+    New-Item -ItemType Directory -Path $InstallRoot | Out-Null
 }
 
 Set-Location -Path $InstallRoot
