@@ -315,12 +315,29 @@
             <input id="filter-target-id" type="text" name="target_id" value="{{ audit_filters.target_id or '' }}" />
         </div>
         <div class="audit-filter-field">
+            <label for="filter-license-id">关联卡密 ID</label>
+            <input id="filter-license-id" type="number" name="license_id" value="{{ audit_filters.license_id or '' }}" min="0" />
+        </div>
+        <div class="audit-filter-field">
+            <label for="filter-request-id">请求 ID</label>
+            <input id="filter-request-id" type="text" name="request_id" value="{{ audit_filters.request_id or '' }}" placeholder="按 request_id 精确匹配" />
+        </div>
+        <div class="audit-filter-field">
+            <label for="filter-start">开始时间</label>
+            <input id="filter-start" type="datetime-local" name="start" value="{{ audit_filters.start or audit_start_value or '' }}" />
+        </div>
+        <div class="audit-filter-field">
+            <label for="filter-end">结束时间</label>
+            <input id="filter-end" type="datetime-local" name="end" value="{{ audit_filters.end or audit_end_value or '' }}" />
+        </div>
+        <div class="audit-filter-field">
             <label for="filter-search">关键字</label>
             <input id="filter-search" type="text" name="q" value="{{ audit_filters.search or '' }}" placeholder="搜索消息 / 操作者" />
         </div>
         <div class="audit-filter-actions">
             <button class="primary-btn" type="submit">筛选</button>
             <a class="secondary-btn" href="/admin/settings">重置</a>
+            <button class="secondary-btn" type="submit" formmethod="get" formaction="/admin/settings/audit/export">导出 CSV</button>
         </div>
     </form>
 

@@ -139,6 +139,7 @@ class AuditService:
         target_type: Optional[str] = None,
         target_id: Optional[str] = None,
         license_id: Optional[int] = None,
+    request_id: Optional[str] = None,
         search: Optional[str] = None,
         start: Optional[datetime] = None,
         end: Optional[datetime] = None,
@@ -163,6 +164,7 @@ class AuditService:
             target_type=target_type,
             target_id=target_id,
             license_id=license_id,
+            request_id=request_id,
             search=search,
             start=start,
             end=end,
@@ -203,6 +205,7 @@ class AuditService:
         target_type: Optional[str],
         target_id: Optional[str],
         license_id: Optional[int],
+        request_id: Optional[str],
         search: Optional[str],
         start: Optional[datetime],
         end: Optional[datetime],
@@ -224,6 +227,8 @@ class AuditService:
             conditions.append(models.AuditLog.target_id == str(target_id))
         if license_id is not None:
             conditions.append(models.AuditLog.license_id == license_id)
+        if request_id:
+            conditions.append(models.AuditLog.request_id == self._normalize_text(request_id))
         if start:
             conditions.append(models.AuditLog.created_at >= start)
         if end:

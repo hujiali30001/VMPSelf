@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import csv
+import io
+import json
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -8,7 +11,7 @@ from typing import FrozenSet, Optional
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Response
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
@@ -483,6 +486,34 @@ def _admin_user_service(db: Session, principal: Optional[AdminPrincipal]) -> Adm
 
 def _audit_service(db: Session) -> AuditService:
     return AuditService(db)
+
+def _sanitize_optional_str(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    trimmed = value.strip()
+    return trimmed or None
+
+
+def _parse_filter_datetime(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _format_datetime_input(value: Optional[datetime], original: Optional[str]) -> Optional[str]:
+    if original:
+        return original
+    if not value:
+        return None
+    localized = value.astimezone(timezone.utc)
+    localized = localized.replace(second=0, microsecond=0)
+    return localized.strftime("%Y-%m-%dT%H:%M")
 
 
 @dashboard_router.get("/")
@@ -2308,7 +2339,11 @@ def settings_page(
     actor_id: Optional[int] = Query(None),
     target_type: Optional[str] = Query(None),
     target_id: Optional[str] = Query(None),
+    license_id: Optional[int] = Query(None),
+    request_id: Optional[str] = Query(None),
     search: Optional[str] = Query(None, alias="q"),
+    start_param: Optional[str] = Query(None, alias="start"),
+    end_param: Optional[str] = Query(None, alias="end"),
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -2319,19 +2354,24 @@ def settings_page(
     role_service = RoleService(db)
     roles = role_service.list_roles(include_inactive=False)
 
-    def _sanitize_str(value: Optional[str]) -> Optional[str]:
-        if value is None:
-            return None
-        trimmed = value.strip()
-        return trimmed or None
+    module_filter = _sanitize_optional_str(module)
+    action_filter = _sanitize_optional_str(action)
+    actor_type_filter = _sanitize_optional_str(actor_type)
+    actor_role_filter = _sanitize_optional_str(actor_role)
+    target_type_filter = _sanitize_optional_str(target_type)
+    target_id_filter = _sanitize_optional_str(target_id)
+    request_id_filter = _sanitize_optional_str(request_id)
+    start_str = _sanitize_optional_str(start_param)
+    end_str = _sanitize_optional_str(end_param)
+    search_filter = _sanitize_optional_str(search)
 
-    module_filter = _sanitize_str(module)
-    action_filter = _sanitize_str(action)
-    actor_type_filter = _sanitize_str(actor_type)
-    actor_role_filter = _sanitize_str(actor_role)
-    target_type_filter = _sanitize_str(target_type)
-    target_id_filter = _sanitize_str(target_id)
-    search_filter = _sanitize_str(search)
+    start_dt = _parse_filter_datetime(start_str)
+    end_dt = _parse_filter_datetime(end_str)
+    if start_dt and end_dt and end_dt < start_dt:
+        start_dt, end_dt = end_dt, start_dt
+
+    start_value = _format_datetime_input(start_dt, start_str)
+    end_value = _format_datetime_input(end_dt, end_str)
 
     page = max(page, 1)
     page_size = max(1, min(page_size, 100))
@@ -2346,7 +2386,11 @@ def settings_page(
         actor_role=actor_role_filter,
         target_type=target_type_filter,
         target_id=target_id_filter,
+        license_id=license_id,
+        request_id=request_id_filter,
         search=search_filter,
+        start=start_dt,
+        end=end_dt,
         limit=page_size,
         offset=offset,
     )
@@ -2363,7 +2407,11 @@ def settings_page(
             actor_role=actor_role_filter,
             target_type=target_type_filter,
             target_id=target_id_filter,
+            license_id=license_id,
+            request_id=request_id_filter,
             search=search_filter,
+            start=start_dt,
+            end=end_dt,
             limit=page_size,
             offset=offset,
         )
@@ -2417,7 +2465,11 @@ def settings_page(
         "actor_id": actor_id,
         "target_type": target_type_filter,
         "target_id": target_id_filter,
+        "license_id": license_id,
+        "request_id": request_id_filter,
         "search": search_filter,
+        "start": start_value,
+        "end": end_value,
     }
 
     audit_pagination = {
@@ -2451,8 +2503,132 @@ def settings_page(
         audit_module_options=module_options,
         audit_actor_type_options=actor_type_options,
         audit_target_type_options=target_type_options,
+        audit_start_value=start_value,
+        audit_end_value=end_value,
     )
     return templates.TemplateResponse(request, "admin/settings/index.html", context)
+
+
+@settings_router.get("/audit/export")
+def export_audit_logs(
+    request: Request,
+    module: Optional[str] = Query(None),
+    action: Optional[str] = Query(None),
+    actor_type: Optional[str] = Query(None),
+    actor_role: Optional[str] = Query(None),
+    actor_id: Optional[int] = Query(None),
+    target_type: Optional[str] = Query(None),
+    target_id: Optional[str] = Query(None),
+    license_id: Optional[int] = Query(None),
+    request_id: Optional[str] = Query(None),
+    search: Optional[str] = Query(None, alias="q"),
+    start_param: Optional[str] = Query(None, alias="start"),
+    end_param: Optional[str] = Query(None, alias="end"),
+    db: Session = Depends(get_db),
+    _: AdminPrincipal = Depends(require_permission("settings", "view")),
+):
+    module_filter = _sanitize_optional_str(module)
+    action_filter = _sanitize_optional_str(action)
+    actor_type_filter = _sanitize_optional_str(actor_type)
+    actor_role_filter = _sanitize_optional_str(actor_role)
+    target_type_filter = _sanitize_optional_str(target_type)
+    target_id_filter = _sanitize_optional_str(target_id)
+    request_id_filter = _sanitize_optional_str(request_id)
+    search_filter = _sanitize_optional_str(search)
+    start_str = _sanitize_optional_str(start_param)
+    end_str = _sanitize_optional_str(end_param)
+
+    start_dt = _parse_filter_datetime(start_str)
+    end_dt = _parse_filter_datetime(end_str)
+    if start_dt and end_dt and end_dt < start_dt:
+        start_dt, end_dt = end_dt, start_dt
+
+    audit_service = _audit_service(db)
+    query_kwargs = {
+        "module": module_filter,
+        "action": action_filter,
+        "actor_type": actor_type_filter,
+        "actor_id": actor_id,
+        "actor_role": actor_role_filter,
+        "target_type": target_type_filter,
+        "target_id": target_id_filter,
+        "license_id": license_id,
+        "request_id": request_id_filter,
+        "search": search_filter,
+        "start": start_dt,
+        "end": end_dt,
+    }
+
+    logs: list[models.AuditLog] = []
+    chunk_size = 1000
+    offset = 0
+
+    while True:
+        batch, total = audit_service.list_logs(limit=chunk_size, offset=offset, **query_kwargs)
+        if not batch:
+            break
+        logs.extend(batch)
+        if len(logs) >= total:
+            break
+        offset += chunk_size
+        if offset > 10000:
+            # Prevent excessive export size
+            break
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "created_at",
+            "module",
+            "action",
+            "event_type",
+            "actor_type",
+            "actor_id",
+            "actor_name",
+            "actor_role",
+            "target_type",
+            "target_id",
+            "target_name",
+            "license_id",
+            "message",
+            "request_id",
+            "ip_address",
+            "payload",
+        ]
+    )
+
+    for log in logs:
+        payload_str = json.dumps(log.payload, ensure_ascii=False, sort_keys=True) if log.payload else ""
+        writer.writerow(
+            [
+                log.created_at.isoformat() if log.created_at else "",
+                log.module or "",
+                log.action or "",
+                log.event_type or "",
+                log.actor_type or "",
+                log.actor_id if log.actor_id is not None else "",
+                log.actor_name or "",
+                log.actor_role or "",
+                log.target_type or "",
+                log.target_id or "",
+                log.target_name or "",
+                log.license_id if log.license_id is not None else "",
+                log.message or "",
+                log.request_id or "",
+                log.ip_address or "",
+                payload_str,
+            ]
+        )
+
+    output.seek(0)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    filename = f"audit_logs_{timestamp}.csv"
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Cache-Control": "no-store",
+    }
+    return StreamingResponse(iter([output.getvalue()]), media_type="text/csv", headers=headers)
 
 
 @settings_router.post("/admins")
