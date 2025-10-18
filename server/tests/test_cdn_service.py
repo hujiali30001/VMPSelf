@@ -4,9 +4,10 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.db import CDNEndpointStatus, CDNHealthStatus, CDNTaskStatus, CDNTaskType
+from app.db import CDNEndpointStatus, CDNHealthStatus, CDNTaskStatus, CDNTaskType, models
 from app.db.session import SessionLocal
 from app.services.cdn import (
+    CDNHealthMonitor,
     CDNService,
     DeploymentConfig,
     DeploymentError,
@@ -87,6 +88,7 @@ def _create_endpoint(service: CDNService, **overrides) -> int:
         "origin_port": 8443,
         "deployment_mode": "http",
         "edge_token": "edge-token",
+        "proxy_protocol_enabled": False,
     }
     payload.update(overrides)
     endpoint = service.create_endpoint(**payload)
@@ -132,6 +134,7 @@ def test_deploy_endpoint_success_updates_status_and_creates_task():
         assert refreshed.health_status == CDNHealthStatus.HEALTHY.value
         assert refreshed.health_latency_ms == 42
         assert refreshed.health_error is None
+        assert refreshed.egress_ips == ["203.0.113.10"]
 
         assert refreshed.deployments
         latest_deployment = refreshed.deployments[0]
@@ -139,6 +142,7 @@ def test_deploy_endpoint_success_updates_status_and_creates_task():
         assert latest_deployment.summary == "模拟部署成功"
         assert "fake deploy step" in (latest_deployment.log or "")
         assert latest_deployment.allow_http is True
+        assert latest_deployment.config_snapshot.get("recommended_origin_ip_whitelist") == ["203.0.113.10"]
 
         assert refreshed.health_checks
         latest_health = refreshed.health_checks[0]
@@ -152,6 +156,7 @@ def test_deploy_endpoint_success_updates_status_and_creates_task():
         assert target.username == "root"
         assert config.mode == "http"
         assert config.allow_http is True
+        assert config.proxy_protocol is False
         assert config.listen_port == 443
         assert config.origin_port == 8443
 
@@ -184,6 +189,7 @@ def test_deploy_endpoint_failure_marks_endpoint_error():
         assert refreshed.health_status == CDNHealthStatus.UNHEALTHY.value
         assert refreshed.health_error == "boom"
         assert not refreshed.health_checks
+        assert refreshed.egress_ips == ["203.0.113.10"]
 
         assert refreshed.deployments
         failed_deployment = refreshed.deployments[0]
@@ -194,6 +200,49 @@ def test_deploy_endpoint_failure_marks_endpoint_error():
         tasks = service.list_recent_tasks(limit=5)
         assert tasks
         assert tasks[0].status == CDNTaskStatus.FAILED.value
+
+
+def test_tcp_deploy_respects_proxy_protocol_toggle():
+    fake = _FakeDeployer()
+    fake_health = _FakeHealthChecker()
+    with SessionLocal() as session:
+        service = CDNService(session, deployer=fake, health_checker=fake_health)
+        endpoint_id = _create_endpoint(
+            service,
+            deployment_mode="tcp",
+            listen_port=7001,
+            origin_port=7002,
+        )
+
+        # Enable proxy protocol explicitly
+        service.deploy_endpoint(endpoint_id, use_proxy_protocol=True)
+        refreshed = service.get_endpoint(endpoint_id)
+        assert refreshed is not None
+        assert refreshed.proxy_protocol_enabled is True
+        assert refreshed.egress_ips == ["203.0.113.10"]
+        target, config = fake.calls[-1]
+        assert config.mode == "tcp"
+        assert config.proxy_protocol is True
+        assert config.allow_http is False
+
+        latest_deployment = refreshed.deployments[0]
+        assert latest_deployment.proxy_protocol is True
+
+        # Subsequent deploy without override keeps previous preference
+        service.deploy_endpoint(endpoint_id)
+        refreshed = service.get_endpoint(endpoint_id)
+        assert refreshed.proxy_protocol_enabled is True
+        target, config = fake.calls[-1]
+        assert config.proxy_protocol is True
+
+        # Disable proxy protocol
+        service.deploy_endpoint(endpoint_id, use_proxy_protocol=False)
+        refreshed = service.get_endpoint(endpoint_id)
+        assert refreshed.proxy_protocol_enabled is False
+        assert refreshed.egress_ips == ["203.0.113.10"]
+        target, config = fake.calls[-1]
+        assert config.proxy_protocol is False
+        assert refreshed.deployments[0].proxy_protocol is False
 
 
 def test_run_health_check_records_entry():
@@ -238,3 +287,83 @@ def test_manual_deploy_task_not_allowed():
         with pytest.raises(ValueError) as exc:
             service.create_task(endpoint_id=endpoint_id, task_type=CDNTaskType.DEPLOY)
         assert str(exc.value) == "unsupported_manual_deploy"
+
+    def test_health_monitor_logs_alert(monkeypatch):
+        with SessionLocal() as session:
+            service = CDNService(session)
+            endpoint_id = _create_endpoint(service)
+            endpoint = service.get_endpoint(endpoint_id)
+            assert endpoint is not None
+            endpoint.status = CDNEndpointStatus.ACTIVE.value
+            endpoint.health_status = CDNHealthStatus.HEALTHY.value
+            session.commit()
+
+        def fake_probe(self, endpoint, protocol):
+            return HealthCheckResult(
+                status=CDNHealthStatus.UNHEALTHY,
+                protocol="https",
+                latency_ms=180,
+                status_code=502,
+                message="自动巡检失败",
+                checked_at=datetime.now(timezone.utc),
+            )
+
+        monkeypatch.setattr(CDNService, "_perform_health_probe", fake_probe)
+
+        monitor = CDNHealthMonitor(SessionLocal, interval_seconds=60)
+        monitor._execute_cycle()
+
+        with SessionLocal() as session:
+            endpoint = session.get(models.CDNEndpoint, endpoint_id)
+            assert endpoint is not None
+            assert endpoint.health_status == CDNHealthStatus.UNHEALTHY.value
+            logs = (
+                session.query(models.AuditLog)
+                .filter(models.AuditLog.action == "health_alert")
+                .order_by(models.AuditLog.created_at.asc())
+                .all()
+            )
+            assert logs, "expected health alert audit log"
+            assert logs[0].target_id == str(endpoint_id)
+            payload = logs[0].payload or {}
+            assert payload.get("status") == CDNHealthStatus.UNHEALTHY.value
+            assert payload.get("latency_ms") == 180
+
+
+    def test_health_monitor_logs_recovery(monkeypatch):
+        with SessionLocal() as session:
+            service = CDNService(session)
+            endpoint_id = _create_endpoint(service)
+            endpoint = service.get_endpoint(endpoint_id)
+            assert endpoint is not None
+            endpoint.status = CDNEndpointStatus.ACTIVE.value
+            endpoint.health_status = CDNHealthStatus.UNHEALTHY.value
+            session.commit()
+
+        def fake_probe(self, endpoint, protocol):
+            return HealthCheckResult(
+                status=CDNHealthStatus.HEALTHY,
+                protocol="https",
+                latency_ms=55,
+                status_code=200,
+                message="OK",
+                checked_at=datetime.now(timezone.utc),
+            )
+
+        monkeypatch.setattr(CDNService, "_perform_health_probe", fake_probe)
+
+        monitor = CDNHealthMonitor(SessionLocal, interval_seconds=60)
+        monitor._execute_cycle()
+
+        with SessionLocal() as session:
+            endpoint = session.get(models.CDNEndpoint, endpoint_id)
+            assert endpoint is not None
+            assert endpoint.health_status == CDNHealthStatus.HEALTHY.value
+            logs = (
+                session.query(models.AuditLog)
+                .filter(models.AuditLog.action == "health_recovered")
+                .order_by(models.AuditLog.created_at.asc())
+                .all()
+            )
+            assert logs, "expected health recovery audit log"
+            assert logs[0].target_id == str(endpoint_id)

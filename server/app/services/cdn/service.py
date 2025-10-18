@@ -3,6 +3,11 @@ from __future__ import annotations
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import ipaddress
+import logging
+import os
+import socket
+from pathlib import Path
 from typing import List, Optional
 
 from sqlalchemy import select
@@ -27,6 +32,9 @@ from app.services.cdn.deployer import (
     DeploymentTarget,
 )
 from app.services.cdn.health import CDNHealthChecker, HealthCheckResult
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -80,8 +88,9 @@ class CDNService:
         ssh_port: int = 22,
         listen_port: int = 443,
         origin_port: int = 443,
-    deployment_mode: str = "http",
-    edge_token: Optional[str] = None,
+        deployment_mode: str = "http",
+        proxy_protocol_enabled: bool = False,
+        edge_token: Optional[str] = None,
         notes: Optional[str] = None,
     ) -> CDNEndpoint:
         name = (name or "").strip()
@@ -126,6 +135,8 @@ class CDNService:
         settings = get_settings()
         resolved_token = (edge_token or settings.cdn_token or secrets.token_urlsafe(24)).strip()
 
+        proxy_protocol_enabled = bool(proxy_protocol_enabled) if deployment_mode == "tcp" else False
+
         endpoint = CDNEndpoint(
             name=name,
             domain=domain,
@@ -141,6 +152,7 @@ class CDNService:
             origin_port=origin_port,
             deployment_mode=deployment_mode,
             edge_token=resolved_token or None,
+            proxy_protocol_enabled=proxy_protocol_enabled,
         )
         endpoint.status = CDNEndpointStatus.PAUSED.value
         endpoint.last_deploy_status = CDNTaskStatus.PENDING.value
@@ -169,6 +181,90 @@ class CDNService:
             ssh_password=decrypt_secret(endpoint.ssh_password_encrypted),
             ssh_private_key=decrypt_secret(endpoint.ssh_private_key_encrypted),
         )
+
+    def _resolve_endpoint_ips(self, endpoint: CDNEndpoint) -> list[str]:
+        host = (endpoint.host or "").strip()
+        if not host:
+            return []
+
+        try:
+            ip_obj = ipaddress.ip_address(host)
+        except ValueError:
+            try:
+                infos = socket.getaddrinfo(host, None)
+            except socket.gaierror:
+                logger.warning("Unable to resolve CDN endpoint host", extra={"host": host})
+                return []
+            addresses = {info[4][0] for info in infos if info and info[4]}
+            normalized = []
+            for addr in addresses:
+                try:
+                    normalized.append(str(ipaddress.ip_address(addr)))
+                except ValueError:
+                    continue
+            return sorted(set(normalized))
+        else:
+            return [str(ip_obj)]
+
+    def _persist_whitelist_to_file(self, whitelist: list[str]) -> None:
+        settings = get_settings()
+        data_dir = settings.sqlite_path.parent
+        data_dir.mkdir(parents=True, exist_ok=True)
+        target = data_dir / "cdn_origin_whitelist.txt"
+        if whitelist:
+            content = "\n".join(whitelist) + "\n"
+        else:
+            content = ""
+        target.write_text(content, encoding="utf-8")
+
+    def _persist_whitelist_to_env(self, whitelist: list[str]) -> bool:
+        if os.getenv("PYTEST_CURRENT_TEST"):
+            return False
+        env_path = Path(".env")
+        if not env_path.exists():
+            return False
+
+        key = "VMP_CDN_IP_WHITELIST"
+        new_line = f"{key}={','.join(whitelist)}"
+
+        lines = env_path.read_text(encoding="utf-8").splitlines()
+        updated = False
+        for index, line in enumerate(lines):
+            if line.startswith(f"{key}="):
+                lines[index] = new_line
+                updated = True
+                break
+        if not updated:
+            lines.append(new_line)
+
+        env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return True
+
+    def _sync_origin_whitelist(self) -> list[str]:
+        endpoints = list(self.db.scalars(select(CDNEndpoint)).all())
+        aggregated: set[str] = set()
+
+        for endpoint in endpoints:
+            resolved_ips = self._resolve_endpoint_ips(endpoint)
+            endpoint.egress_ips = resolved_ips or None
+            aggregated.update(resolved_ips)
+
+        whitelist = sorted(aggregated)
+        settings = get_settings()
+        settings.cdn_ip_whitelist = whitelist
+
+        try:
+            self._persist_whitelist_to_file(whitelist)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Failed to persist CDN whitelist file", exc_info=exc)
+
+        try:
+            self._persist_whitelist_to_env(whitelist)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Failed to update .env whitelist", exc_info=exc)
+
+        self.db.flush()
+        return whitelist
 
     def _resolve_health_protocol(self, endpoint: CDNEndpoint, protocol: Optional[str]) -> str:
         if protocol:
@@ -226,11 +322,18 @@ class CDNService:
         self,
         endpoint_id: int,
         *,
-    allow_http: bool = False,
+        allow_http: bool = False,
+        use_proxy_protocol: Optional[bool] = None,
     ) -> CDNTask:
         endpoint = self.db.get(CDNEndpoint, endpoint_id)
         if not endpoint:
             raise ValueError("endpoint_not_found")
+
+        if endpoint.deployment_mode != "tcp":
+            endpoint.proxy_protocol_enabled = False
+
+        if use_proxy_protocol is not None and endpoint.deployment_mode == "tcp":
+            endpoint.proxy_protocol_enabled = use_proxy_protocol
 
         credentials = self.get_credentials(endpoint)
         target = DeploymentTarget(
@@ -249,6 +352,7 @@ class CDNService:
             edge_token=endpoint.edge_token,
             mode=endpoint.deployment_mode,
             allow_http=allow_http if endpoint.deployment_mode == "http" else False,
+            proxy_protocol=endpoint.proxy_protocol_enabled if endpoint.deployment_mode == "tcp" else False,
         )
 
         task = CDNTask(
@@ -269,7 +373,7 @@ class CDNService:
             "listen_port": endpoint.listen_port,
             "mode": endpoint.deployment_mode,
             "allow_http": deploy_config.allow_http,
-            "proxy_protocol": endpoint.deployment_mode == "tcp",
+            "proxy_protocol": endpoint.proxy_protocol_enabled,
             "edge_token_present": bool(endpoint.edge_token),
             "firewall_ports": firewall_ports_snapshot,
         }
@@ -282,9 +386,9 @@ class CDNService:
             status=CDNTaskStatus.PENDING.value,
             mode=endpoint.deployment_mode,
             allow_http=deploy_config.allow_http,
-            proxy_protocol=endpoint.deployment_mode == "tcp",
+            proxy_protocol=endpoint.proxy_protocol_enabled,
             summary="部署初始化",
-            config_snapshot=config_snapshot,
+            config_snapshot=dict(config_snapshot),
             started_at=started_at,
         )
         self.db.add(deployment)
@@ -318,6 +422,10 @@ class CDNService:
             if deployment.started_at:
                 deployment.duration_ms = int((failure_time - deployment.started_at).total_seconds() * 1000)
 
+            self._sync_origin_whitelist()
+            config_snapshot["recommended_origin_ip_whitelist"] = settings.cdn_ip_whitelist
+            deployment.config_snapshot = dict(config_snapshot)
+
             self.db.commit()
             self.db.refresh(task)
             self.db.refresh(deployment)
@@ -341,6 +449,10 @@ class CDNService:
         endpoint.last_deployed_at = completion
         endpoint.last_deploy_status = task.status
         endpoint.updated_at = max(completion, health_result.checked_at)
+
+        whitelist = self._sync_origin_whitelist()
+        config_snapshot["recommended_origin_ip_whitelist"] = whitelist
+        deployment.config_snapshot = dict(config_snapshot)
 
         self.db.commit()
         self.db.refresh(task)

@@ -132,6 +132,9 @@
     <span class="provider-chip">活跃 {{ endpoint_statuses['active'] }} 个</span>
     <span class="provider-chip">暂停 {{ endpoint_statuses['paused'] }} 个</span>
     <span class="provider-chip">异常 {{ endpoint_statuses['error'] }} 个</span>
+    {% if origin_whitelist %}
+        <span class="provider-chip">推荐白名单：{{ origin_whitelist | join(', ') }}</span>
+    {% endif %}
     {% for stat in health_stats %}
         {% if stat.count and stat.status != 'unknown' %}
             <span class="provider-chip">{{ stat.label }} {{ stat.count }} 个</span>
@@ -213,6 +216,10 @@
                     <label>共享密钥 (可选)</label>
                     <input type="text" name="edge_token" placeholder="留空则使用默认" />
                 </div>
+            </div>
+            <div class="full-row" style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary);">
+                <input type="checkbox" id="create-proxy-protocol" name="proxy_protocol" value="on" />
+                <label for="create-proxy-protocol">启用 PROXY protocol（仅 TCP 模式生效，用于保留原始客户端 IP）</label>
             </div>
             <div class="grid-half">
                 <div>
@@ -320,6 +327,21 @@
                                 {% endif %}
                             </div>
                         {% endif %}
+                        {% if endpoint.deployment_mode == 'tcp' %}
+                            <div class="deployment-summary">
+                                源站鉴权：
+                                {% if endpoint.proxy_protocol_enabled %}
+                                    <span class="badge badge-info">PROXY protocol 已启用</span>
+                                {% else %}
+                                    <span class="badge badge-muted">未开启 PROXY protocol</span>
+                                {% endif %}
+                            </div>
+                        {% endif %}
+                        {% if endpoint.egress_ips %}
+                            <div class="deployment-summary">
+                                建议源站白名单：{{ endpoint.egress_ips | join(', ') }}
+                            </div>
+                        {% endif %}
                     </td>
                     <td>
                         {% if row.last_task %}
@@ -343,6 +365,12 @@
                                     <input type="checkbox" name="allow_http" value="on" {% if endpoint.deployment_mode == 'http' %}checked{% endif %} />
                                     同时开放 80 端口
                                 </label>
+                                {% if endpoint.deployment_mode == 'tcp' %}
+                                <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary);">
+                                    <input type="checkbox" name="use_proxy_protocol" value="on" {% if endpoint.proxy_protocol_enabled %}checked{% endif %} />
+                                    启用 PROXY protocol
+                                </label>
+                                {% endif %}
                                 <button class="primary-btn" type="submit">一键部署</button>
                             </form>
                             <form method="post" action="/admin/cdn/endpoints/{{ endpoint.id }}/health-check" style="display:flex;gap:6px;align-items:center;">

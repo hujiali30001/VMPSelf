@@ -20,6 +20,7 @@ from app.api.admin_portal.common import (
     templates,
 )
 from app.api.deps import get_db
+from app.core.settings import get_settings
 from app.db import CDNEndpointStatus, CDNHealthStatus, CDNTaskType
 from app.services.cdn import CDNService, DeploymentError
 
@@ -34,6 +35,7 @@ def cdn_page(
     _: AdminPrincipal = Depends(require_permission("cdn", "view")),
 ):
     service = CDNService(db)
+    settings = get_settings()
     endpoints = service.list_endpoints()
     tasks = service.list_recent_tasks(limit=20)
 
@@ -138,6 +140,7 @@ def cdn_page(
             (CDNTaskType.PREFETCH.value, "预取内容"),
         ],
         task_type_labels=task_type_labels,
+        origin_whitelist=settings.cdn_ip_whitelist,
     )
     return templates.TemplateResponse(request, "admin/cdn/index.html", context)
 
@@ -157,6 +160,7 @@ def create_cdn_endpoint_action(
     listen_port: int = Form(443),
     origin_port: int = Form(443),
     deployment_mode: str = Form("http"),
+    proxy_protocol: Optional[str] = Form(None),
     edge_token: Optional[str] = Form(None),
     notes: Optional[str] = Form(None),
     return_to: Optional[str] = Form(None),
@@ -165,6 +169,10 @@ def create_cdn_endpoint_action(
 ):
     service = CDNService(db)
     try:
+        proxy_protocol_enabled = False
+        if proxy_protocol:
+            proxy_protocol_enabled = proxy_protocol.lower() in {"1", "true", "on", "yes"}
+
         service.create_endpoint(
             name=name,
             domain=domain,
@@ -178,6 +186,7 @@ def create_cdn_endpoint_action(
             listen_port=listen_port,
             origin_port=origin_port,
             deployment_mode=deployment_mode,
+            proxy_protocol_enabled=proxy_protocol_enabled,
             edge_token=edge_token,
             notes=notes,
         )
@@ -207,6 +216,7 @@ def deploy_cdn_endpoint_action(
     request: Request,
     endpoint_id: int,
     allow_http: Optional[str] = Form(None),
+    use_proxy_protocol: Optional[str] = Form(None),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     _: AdminPrincipal = Depends(require_permission("cdn", "manage")),
@@ -216,8 +226,16 @@ def deploy_cdn_endpoint_action(
     if allow_http:
         allow_http_flag = allow_http.lower() in {"1", "true", "on", "yes"}
 
+    proxy_protocol_flag: Optional[bool] = None
+    if use_proxy_protocol is not None:
+        proxy_protocol_flag = use_proxy_protocol.lower() in {"1", "true", "on", "yes"}
+
     try:
-        service.deploy_endpoint(endpoint_id, allow_http=allow_http_flag)
+        service.deploy_endpoint(
+            endpoint_id,
+            allow_http=allow_http_flag,
+            use_proxy_protocol=proxy_protocol_flag,
+        )
     except ValueError as exc:
         db.rollback()
         if str(exc) == "endpoint_not_found":

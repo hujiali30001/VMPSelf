@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     cdn_credentials_key: Optional[str] = Field(None, env="VMP_CDN_CREDENTIALS_KEY")
     admin_username: str = Field("admin", env="VMP_ADMIN_USER")
     admin_password: str = Field("change-me", env="VMP_ADMIN_PASS")
+    cdn_health_monitor_enabled: bool = Field(True, env="VMP_CDN_HEALTH_MONITOR_ENABLED")
+    cdn_health_monitor_interval_seconds: int = Field(300, env="VMP_CDN_HEALTH_MONITOR_INTERVAL")
 
     class Config:
         env_file = ".env"

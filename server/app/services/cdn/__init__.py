@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .deployer import CDNDeployer, DeploymentConfig, DeploymentError, DeploymentResult, DeploymentTarget
 from .health import CDNHealthChecker, HealthCheckResult
+from .monitor import CDNHealthMonitor
 from .service import CDNService, EndpointCredentials
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
 	"DeploymentTarget",
 	"CDNHealthChecker",
 	"HealthCheckResult",
+	"CDNHealthMonitor",
 ]

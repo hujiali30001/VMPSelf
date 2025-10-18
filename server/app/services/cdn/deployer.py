@@ -37,6 +37,7 @@ class DeploymentConfig:
     edge_token: Optional[str] = None
     mode: str = "http"
     allow_http: bool = False
+    proxy_protocol: bool = False
     ssl_certificate: Optional[str] = None
     ssl_certificate_key: Optional[str] = None
     extra_packages: list[str] = field(default_factory=lambda: ["nginx"])
@@ -49,6 +50,8 @@ class DeploymentConfig:
             raise ValueError("port_invalid")
         if not self.origin_host:
             raise ValueError("origin_required")
+        if self.proxy_protocol and self.mode != "tcp":
+            self.proxy_protocol = False
 
 
 @dataclass
@@ -67,6 +70,12 @@ def generate_nginx_config(config: DeploymentConfig) -> str:
     config.normalize()
 
     if config.mode == "tcp":
+        listen_line = f"        listen {config.listen_port}"
+        if config.proxy_protocol:
+            listen_line += " proxy_protocol;"
+        else:
+            listen_line += ";"
+
         stream_block = [
             "stream {",
             "    upstream vmp_origin {",
@@ -74,13 +83,19 @@ def generate_nginx_config(config: DeploymentConfig) -> str:
             "    }",
             "",
             "    server {",
-            f"        listen {config.listen_port};",
+            listen_line,
             "        proxy_connect_timeout 5s;",
             "        proxy_timeout 300s;",
             "        proxy_pass vmp_origin;",
-            "    }",
-            "}",
         ]
+        if config.proxy_protocol:
+            stream_block.append("        proxy_protocol on;")
+        stream_block.extend(
+            [
+                "    }",
+                "}",
+            ]
+        )
         return "\n".join(stream_block) + "\n"
 
     listen_blocks: list[str] = []
