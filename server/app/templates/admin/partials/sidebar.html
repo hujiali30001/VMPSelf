@@ -23,5 +23,8 @@
     <div class="sidebar-footer">
         <div>版本 {{ admin_version | default('v1') }}</div>
         <div>{{ admin_identity.name if admin_identity is defined else '欢迎回来' }}</div>
+        {% if admin_identity and admin_identity.role_display %}
+            <div>{{ admin_identity.role_display }}</div>
+        {% endif %}
     </div>
 </aside>

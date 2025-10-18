@@ -16,6 +16,7 @@ from app.db import (
 from app.db.session import SessionLocal
 from app.main import app
 from app.services import security
+from app.services.admin_user_service import AdminUserService
 
 BASIC_AUTH = ("admin", "change-me")
 
@@ -156,7 +157,7 @@ def test_admin_settings_module_flow():
         "/admin/settings/admins",
         data={
             "username": "ops",
-            "role": "ops",
+            "role": "operator",
             "password": "OpsPass123!",
             "confirm_password": "OpsPass123!",
         },
@@ -170,6 +171,8 @@ def test_admin_settings_module_flow():
         admin_id = admin.id
         original_hash = admin.password_hash
         assert admin.is_active is True
+        assert admin.role is not None
+        assert admin.role.code == "operator"
 
     disable_resp = client.post(
         f"/admin/settings/admins/{admin_id}/status",
@@ -199,3 +202,31 @@ def test_admin_settings_module_flow():
     html = response.text
     assert "管理员列表" in html
     assert "ops" in html
+
+
+def test_admin_viewer_permissions_enforced():
+    client = TestClient(app)
+
+    viewer_username = "viewer"
+    viewer_password = "ViewerPass123!"
+
+    with SessionLocal() as session:
+        service = AdminUserService(session)
+        service.ensure_roles()
+        service.create_admin(username=viewer_username, password=viewer_password, role_code="viewer")
+
+    # viewer can access read-only pages
+    list_resp = client.get("/admin/licenses", auth=(viewer_username, viewer_password))
+    assert list_resp.status_code == 200
+
+    # viewer cannot perform managing actions
+    create_resp = client.post(
+        "/admin/licenses/create",
+        data={
+            "quantity": "1",
+            "slot_code": "default-slot",
+        },
+        auth=(viewer_username, viewer_password),
+        follow_redirects=False,
+    )
+    assert create_resp.status_code == 403

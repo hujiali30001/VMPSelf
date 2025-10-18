@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import secrets
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional
+from typing import FrozenSet, Optional
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
@@ -13,7 +14,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
-from starlette.status import HTTP_303_SEE_OTHER, HTTP_401_UNAUTHORIZED
+from starlette.status import HTTP_303_SEE_OTHER, HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
 
 from app.api.deps import get_db
 from app.core.settings import get_settings
@@ -45,10 +46,22 @@ from app.services.admin_user_service import AdminUserService
 from app.services.card_type_service import LicenseCardTypeService
 from app.services.cdn_service import CDNService
 from app.services.license_service import LicenseService
+from app.services.role_service import RoleService
 from app.services.software_service import SoftwareService
 from app.services.user_service import UserService
 
 router = APIRouter()
+dashboard_router = APIRouter()
+licenses_router = APIRouter(prefix="/licenses")
+license_types_router = APIRouter(prefix="/license-types")
+users_router = APIRouter(prefix="/users")
+software_router = APIRouter(prefix="/software")
+cdn_router = APIRouter(prefix="/cdn")
+settings_router = APIRouter(prefix="/settings")
+api_router = APIRouter(prefix="/api")
+api_users_router = APIRouter(prefix="/users")
+api_license_types_router = APIRouter(prefix="/license-types")
+api_licenses_router = APIRouter(prefix="/licenses")
 settings = get_settings()
 basic_auth = HTTPBasic()
 
@@ -94,10 +107,47 @@ DEFAULT_NAV_ITEMS: tuple[dict[str, str], ...] = (
     {"code": "settings", "label": "系统设置", "href": "/admin/settings"},
 )
 
+NAV_PERMISSION_REQUIREMENTS: dict[str, tuple[str, str]] = {
+    "dashboard": ("dashboard", "view"),
+    "licenses": ("licenses", "view"),
+    "license-types": ("license-types", "view"),
+    "users": ("users", "view"),
+    "software": ("software", "view"),
+    "cdn": ("cdn", "view"),
+    "settings": ("settings", "view"),
+}
+
+
+@dataclass(frozen=True)
+class AdminPrincipal:
+    id: Optional[int]
+    username: str
+    role_code: str
+    role_display: str
+    permissions: FrozenSet[tuple[str, str]]
+
+    def has_permission(self, module: str, action: str) -> bool:
+        if self.role_code == "superadmin":
+            return True
+        module_key = (module or "").strip().lower()
+        action_key = (action or "").strip().lower()
+        if not module_key or not action_key:
+            return False
+        if (module_key, action_key) in self.permissions:
+            return True
+        if (module_key, "*") in self.permissions:
+            return True
+        if ("*", action_key) in self.permissions:
+            return True
+        if ("*", "*") in self.permissions:
+            return True
+        return False
+
 
 def _base_context(request: Request, **extra: object) -> dict[str, object]:
     nav_items = extra.pop("nav_items", None)
     admin_identity = getattr(request.state, "admin_identity", None)
+    principal: Optional[AdminPrincipal] = getattr(request.state, "admin_principal", None)
     context: dict[str, object] = {
         "request": request,
         "nav_items": nav_items if nav_items is not None else [item.copy() for item in DEFAULT_NAV_ITEMS],
@@ -105,6 +155,17 @@ def _base_context(request: Request, **extra: object) -> dict[str, object]:
         "admin_version": "v1",
         "page_description": extra.get("page_description"),
     }
+    if principal and context["nav_items"]:
+        filtered_nav: list[dict[str, str]] = []
+        for item in context["nav_items"]:
+            requirement = NAV_PERMISSION_REQUIREMENTS.get(item.get("code", ""))
+            if not requirement:
+                filtered_nav.append(item)
+                continue
+            module_code, action_code = requirement
+            if principal.has_permission(module_code, action_code):
+                filtered_nav.append(item)
+        context["nav_items"] = filtered_nav
     context.update(extra)
     return context
 
@@ -333,26 +394,47 @@ def require_admin(
     request: Request,
     credentials: HTTPBasicCredentials = Depends(basic_auth),
     db: Session = Depends(get_db),
-) -> HTTPBasicCredentials:
+) -> AdminPrincipal:
     admin_service = AdminUserService(db)
     admin = admin_service.verify_credentials(credentials.username, credentials.password)
     if admin:
+        permissions = frozenset((perm.module, perm.action) for perm in admin.role.permissions)
+        principal = AdminPrincipal(
+            id=admin.id,
+            username=admin.username,
+            role_code=admin.role.code,
+            role_display=admin.role.display_name,
+            permissions=permissions,
+        )
         request.state.admin_identity = {
             "id": admin.id,
             "name": admin.username,
-            "role": admin.role,
+            "role": admin.role.code,
+            "role_display": admin.role.display_name,
             "last_login_at": admin.last_login_at,
+            "permissions": list(permissions),
         }
-        return credentials
+        request.state.admin_principal = principal
+        return principal
 
     username_match = secrets.compare_digest(credentials.username, settings.admin_username)
     password_match = secrets.compare_digest(credentials.password, settings.admin_password)
     if username_match and password_match:
+        principal = AdminPrincipal(
+            id=None,
+            username=settings.admin_username,
+            role_code="superadmin",
+            role_display="系统超级管理员",
+            permissions=frozenset({("*", "*")}),
+        )
         request.state.admin_identity = {
             "name": settings.admin_username,
             "role": "superadmin",
+            "role_display": "系统超级管理员",
+            "permissions": [("*", "*")],
         }
-        return credentials
+        request.state.admin_principal = principal
+        return principal
 
     raise HTTPException(
         status_code=HTTP_401_UNAUTHORIZED,
@@ -361,11 +443,28 @@ def require_admin(
     )
 
 
-@router.get("/")
+def require_permission(module: str, action: str):
+    normalized_module = (module or "").strip().lower()
+    normalized_action = (action or "").strip().lower()
+
+    if not normalized_module:
+        raise ValueError("module_required")
+    if not normalized_action:
+        raise ValueError("action_required")
+
+    def _dependency(principal: AdminPrincipal = Depends(require_admin)) -> AdminPrincipal:
+        if principal.has_permission(normalized_module, normalized_action):
+            return principal
+        raise HTTPException(status_code=HTTP_403_FORBIDDEN, detail="forbidden")
+
+    return _dependency
+
+
+@dashboard_router.get("/")
 def dashboard_page(
     request: Request,
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("dashboard", "view")),
 ):
     total_users = db.scalar(select(func.count()).select_from(models.User)) or 0
     total_licenses = db.scalar(select(func.count()).select_from(License)) or 0
@@ -535,13 +634,13 @@ def dashboard_page(
     )
 
 
-@router.get("/api/users", response_model=UserListResponse)
+@api_users_router.get("/", response_model=UserListResponse)
 def api_list_users(
     offset: int = 0,
     limit: int = 50,
     search: Optional[str] = None,
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("users", "view")),
 ):
     offset = max(offset, 0)
     limit = max(1, min(limit, 200))
@@ -563,11 +662,11 @@ def api_list_users(
     }
 
 
-@router.get("/api/users/{user_id}", response_model=UserDetailResponse)
+@api_users_router.get("/{user_id}", response_model=UserDetailResponse)
 def api_get_user(
     user_id: int,
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("users", "view")),
 ):
     user = UserService(db).get_user(user_id)
     if not user:
@@ -577,12 +676,12 @@ def api_get_user(
     return serialized
 
 
-@router.patch("/api/users/{user_id}", response_model=UserDetailResponse)
+@api_users_router.patch("/{user_id}", response_model=UserDetailResponse)
 def api_update_user(
     user_id: int,
     payload: UserUpdateRequest,
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("users", "manage")),
 ):
     if (
         payload.username is None
@@ -627,22 +726,22 @@ def api_update_user(
     return serialized
 
 
-@router.delete("/api/users/{user_id}", status_code=204)
+@api_users_router.delete("/{user_id}", status_code=204)
 def api_delete_user(
     user_id: int,
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("users", "manage")),
 ):
     if not UserService(db).delete_user(user_id):
         raise HTTPException(status_code=404, detail="user_not_found")
     return Response(status_code=204)
 
 
-@router.get("/api/license-types", response_model=LicenseCardTypeListResponse)
+@api_license_types_router.get("/", response_model=LicenseCardTypeListResponse)
 def api_list_license_types(
     include_inactive: bool = True,
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("license-types", "view")),
 ):
     service = LicenseCardTypeService(db)
     items = service.list_types(include_inactive=include_inactive)
@@ -652,11 +751,11 @@ def api_list_license_types(
     }
 
 
-@router.post("/api/license-types", response_model=LicenseCardTypeResponse, status_code=201)
+@api_license_types_router.post("/", response_model=LicenseCardTypeResponse, status_code=201)
 def api_create_license_type(
     payload: LicenseCardTypeCreateRequest,
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("license-types", "manage")),
 ):
     service = LicenseCardTypeService(db)
     try:
@@ -680,12 +779,12 @@ def api_create_license_type(
     return serialized
 
 
-@router.patch("/api/license-types/{type_id}", response_model=LicenseCardTypeResponse)
+@api_license_types_router.patch("/{type_id}", response_model=LicenseCardTypeResponse)
 def api_update_license_type(
     type_id: int,
     payload: LicenseCardTypeUpdateRequest,
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("license-types", "manage")),
 ):
     updates = payload.dict(exclude_unset=True)
     if not updates:
@@ -716,11 +815,11 @@ def api_update_license_type(
     return serialized
 
 
-@router.delete("/api/license-types/{type_id}", status_code=204)
+@api_license_types_router.delete("/{type_id}", status_code=204)
 def api_delete_license_type(
     type_id: int,
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("license-types", "manage")),
 ):
     service = LicenseCardTypeService(db)
     try:
@@ -735,7 +834,7 @@ def api_delete_license_type(
     return Response(status_code=204)
 
 
-@router.get("/api/licenses", response_model=LicenseListResponse)
+@api_licenses_router.get("/", response_model=LicenseListResponse)
 def api_list_licenses(
     status: str = "all",
     offset: int = 0,
@@ -743,7 +842,7 @@ def api_list_licenses(
     search: Optional[str] = None,
     type_code: Optional[str] = None,
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("licenses", "view")),
 ):
     offset = max(offset, 0)
     limit = max(1, min(limit, 200))
@@ -783,11 +882,11 @@ def api_list_licenses(
     }
 
 
-@router.post("/api/licenses", response_model=LicenseBatchCreateResponse, status_code=201)
+@api_licenses_router.post("/", response_model=LicenseBatchCreateResponse, status_code=201)
 def api_create_license(
     payload: LicenseCreateRequest,
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("licenses", "manage")),
 ):
     service = LicenseService(db)
     try:
@@ -830,11 +929,11 @@ def api_create_license(
     }
 
 
-@router.get("/api/licenses/{card_code}", response_model=LicenseAdminResponse)
+@api_licenses_router.get("/{card_code}", response_model=LicenseAdminResponse)
 def api_get_license(
     card_code: str,
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("licenses", "view")),
 ):
     license_obj = LicenseService(db).get_license(card_code)
     if not license_obj:
@@ -842,12 +941,12 @@ def api_get_license(
     return _serialize_license(license_obj)
 
 
-@router.patch("/api/licenses/{card_code}", response_model=LicenseAdminResponse)
+@api_licenses_router.patch("/{card_code}", response_model=LicenseAdminResponse)
 def api_update_license(
     card_code: str,
     payload: LicenseUpdateRequest,
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("licenses", "manage")),
 ):
     if payload.expire_at is None and payload.status is None and payload.bound_fingerprint is None:
         raise HTTPException(status_code=400, detail="no_fields_provided")
@@ -870,12 +969,12 @@ def api_update_license(
     return _serialize_license(license_obj)
 
 
-@router.delete("/api/licenses/{card_code}", status_code=204)
+@api_licenses_router.delete("/{card_code}", status_code=204)
 def api_delete_license(
     card_code: str,
     force: bool = False,
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("licenses", "manage")),
 ):
     service = LicenseService(db)
     try:
@@ -890,13 +989,13 @@ def api_delete_license(
     return Response(status_code=204)
 
 
-@router.get("/license-types")
+@license_types_router.get("/")
 def license_types_page(
     request: Request,
     edit: Optional[int] = None,
     message: Optional[str] = None,
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("license-types", "view")),
 ):
     service = LicenseCardTypeService(db)
     card_types = service.list_types(include_inactive=True)
@@ -948,7 +1047,7 @@ def license_types_page(
     )
 
 
-@router.post("/license-types/create")
+@license_types_router.post("/create")
 def create_license_type_action(
     request: Request,
     code: str = Form(...),
@@ -961,7 +1060,7 @@ def create_license_type_action(
     is_active: Optional[str] = Form(None),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("license-types", "manage")),
 ):
     service = LicenseCardTypeService(db)
     try:
@@ -1001,7 +1100,7 @@ def create_license_type_action(
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
 
 
-@router.post("/license-types/{type_id}/update")
+@license_types_router.post("/{type_id}/update")
 def update_license_type_action(
     request: Request,
     type_id: int,
@@ -1014,7 +1113,7 @@ def update_license_type_action(
     is_active: Optional[str] = Form(None),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("license-types", "manage")),
 ):
     service = LicenseCardTypeService(db)
 
@@ -1063,13 +1162,13 @@ def update_license_type_action(
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
 
 
-@router.post("/license-types/{type_id}/toggle")
+@license_types_router.post("/{type_id}/toggle")
 def toggle_license_type_action(
     request: Request,
     type_id: int,
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("license-types", "manage")),
 ):
     service = LicenseCardTypeService(db)
     card_type = service.get_by_id(type_id)
@@ -1088,13 +1187,13 @@ def toggle_license_type_action(
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
 
 
-@router.post("/license-types/{type_id}/delete")
+@license_types_router.post("/{type_id}/delete")
 def delete_license_type_action(
     request: Request,
     type_id: int,
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("license-types", "manage")),
 ):
     service = LicenseCardTypeService(db)
     try:
@@ -1109,7 +1208,7 @@ def delete_license_type_action(
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
 
 
-@router.get("/users")
+@users_router.get("/")
 def users_page(
     request: Request,
     page: int = 1,
@@ -1117,7 +1216,7 @@ def users_page(
     q: Optional[str] = None,
     message: Optional[str] = None,
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("users", "view")),
 ):
     page = max(page, 1)
     page_size = max(1, min(page_size, MAX_PAGE_SIZE))
@@ -1210,20 +1309,20 @@ def users_page(
     )
 
 
-@router.get("/users/{user_id}")
+@users_router.get("/{user_id}")
 def user_detail(
     request: Request,
     user_id: int,
     message: Optional[str] = None,
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("users", "view")),
 ):
     user = _get_user_or_404(db, user_id)
     context = _build_user_detail_context(request, user, db, message=message)
     return templates.TemplateResponse(request, "admin/users/detail.html", context)
 
 
-@router.post("/users/register")
+@users_router.post("/register")
 def register_user_action(
     request: Request,
     username: str = Form(...),
@@ -1233,7 +1332,7 @@ def register_user_action(
     slot_code: str = Form(...),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("users", "manage")),
 ):
     username = username.strip()
     card_code = card_code.strip()
@@ -1271,7 +1370,7 @@ def register_user_action(
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
 
 
-@router.post("/users/{user_id}/profile")
+@users_router.post("/{user_id}/profile")
 def update_user_profile_action(
     request: Request,
     user_id: int,
@@ -1280,7 +1379,7 @@ def update_user_profile_action(
     slot_code: Optional[str] = Form(None),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("users", "manage")),
 ):
     username = (username or "").strip()
     card_code = (card_code or "").strip()
@@ -1327,7 +1426,7 @@ def update_user_profile_action(
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
 
 
-@router.post("/users/{user_id}/password")
+@users_router.post("/{user_id}/password")
 def update_user_password_action(
     request: Request,
     user_id: int,
@@ -1335,7 +1434,7 @@ def update_user_password_action(
     confirm_password: str = Form(...),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("users", "manage")),
 ):
     if password != confirm_password:
         message = "两次输入的密码不一致"
@@ -1356,13 +1455,13 @@ def update_user_password_action(
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
 
 
-@router.post("/users/{user_id}/delete")
+@users_router.post("/{user_id}/delete")
 def delete_user_action(
     request: Request,
     user_id: int,
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("users", "manage")),
 ):
     service = UserService(db)
     success = service.delete_user(user_id)
@@ -1371,7 +1470,7 @@ def delete_user_action(
     target = _append_message(_sanitize_return_path(return_to, fallback="/admin/users"), message)
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
 
-@router.get("/licenses")
+@licenses_router.get("/")
 def licenses_page(
     request: Request,
     status: str = "all",
@@ -1381,7 +1480,7 @@ def licenses_page(
     type_code: Optional[str] = None,
     message: str | None = None,
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("licenses", "view")),
 ):
     page = max(page, 1)
     page_size = max(1, min(page_size, MAX_PAGE_SIZE))
@@ -1546,7 +1645,7 @@ def licenses_page(
     )
 
 
-@router.post("/licenses/create")
+@licenses_router.post("/create")
 def create_license_action(
     request: Request,
     card_code: Optional[str] = Form(None),
@@ -1558,7 +1657,7 @@ def create_license_action(
     slot_code: str = Form(...),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("licenses", "manage")),
 ):
     service = LicenseService(db)
 
@@ -1643,13 +1742,13 @@ def create_license_action(
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
 
 
-@router.post("/licenses/revoke")
+@licenses_router.post("/revoke")
 def revoke_license(
     request: Request,
     card_code: str = Form(...),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("licenses", "manage")),
 ):
     service = LicenseService(db)
     success = service.revoke(card_code)
@@ -1669,27 +1768,27 @@ def revoke_license(
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
 
 
-@router.get("/licenses/{card_code}")
+@licenses_router.get("/{card_code}")
 def license_detail(
     request: Request,
     card_code: str,
     message: Optional[str] = None,
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("licenses", "view")),
 ):
     license_obj = _get_license_or_404(db, card_code)
     context = _build_license_detail_context(request, license_obj, db, message=message)
     return templates.TemplateResponse(request, "admin/licenses/detail.html", context)
 
 
-@router.post("/licenses/{card_code}/extend")
+@licenses_router.post("/{card_code}/extend")
 def extend_license_action(
     request: Request,
     card_code: str,
     extra_days: int = Form(...),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("licenses", "manage")),
 ):
     target = _sanitize_return_path(return_to)
     service = LicenseService(db)
@@ -1711,14 +1810,14 @@ def extend_license_action(
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
 
 
-@router.post("/licenses/{card_code}/offline")
+@licenses_router.post("/{card_code}/offline")
 def generate_offline_license_action(
     request: Request,
     card_code: str,
     fingerprint: str = Form(...),
     ttl_days: int = Form(7),
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("licenses", "manage")),
 ):
     license_obj = _get_license_or_404(db, card_code)
     service = LicenseService(db)
@@ -1768,13 +1867,13 @@ def generate_offline_license_action(
     return templates.TemplateResponse(request, "admin/licenses/detail.html", context)
 
 
-@router.post("/licenses/{card_code}/reset")
+@licenses_router.post("/{card_code}/reset")
 def reset_license_action(
     request: Request,
     card_code: str,
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("licenses", "manage")),
 ):
     service = LicenseService(db)
     success = service.reset_license(card_code)
@@ -1786,12 +1885,12 @@ def reset_license_action(
     target = _append_message(_sanitize_return_path(return_to), msg)
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
 
-@router.get("/cdn")
+@cdn_router.get("/")
 def cdn_page(
     request: Request,
     message: Optional[str] = None,
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("cdn", "view")),
 ):
     service = CDNService(db)
     endpoints = service.list_endpoints()
@@ -1861,7 +1960,7 @@ def cdn_page(
     )
     return templates.TemplateResponse(request, "admin/cdn/index.html", context)
 
-@router.post("/cdn/endpoints")
+@cdn_router.post("/endpoints")
 def create_cdn_endpoint_action(
     request: Request,
     name: str = Form(...),
@@ -1871,7 +1970,7 @@ def create_cdn_endpoint_action(
     notes: Optional[str] = Form(None),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("cdn", "manage")),
 ):
     service = CDNService(db)
     try:
@@ -1893,14 +1992,14 @@ def create_cdn_endpoint_action(
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
 
 
-@router.post("/cdn/endpoints/{endpoint_id}/status")
+@cdn_router.post("/endpoints/{endpoint_id}/status")
 def update_cdn_endpoint_status_action(
     request: Request,
     endpoint_id: int,
     status: str = Form(...),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("cdn", "manage")),
 ):
     service = CDNService(db)
     message: str
@@ -1924,7 +2023,7 @@ def update_cdn_endpoint_status_action(
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
 
 
-@router.post("/cdn/endpoints/{endpoint_id}/tasks")
+@cdn_router.post("/endpoints/{endpoint_id}/tasks")
 def create_cdn_task_action(
     request: Request,
     endpoint_id: int,
@@ -1932,7 +2031,7 @@ def create_cdn_task_action(
     payload: Optional[str] = Form(None),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("cdn", "manage")),
 ):
     service = CDNService(db)
     try:
@@ -1959,12 +2058,12 @@ def create_cdn_task_action(
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
 
 
-@router.get("/software")
+@software_router.get("/")
 def software_page(
     request: Request,
     message: Optional[str] = None,
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("software", "view")),
 ):
     service = SoftwareService(db)
     slots = service.list_slots()
@@ -2008,7 +2107,7 @@ def software_page(
     return templates.TemplateResponse(request, "admin/software/index.html", context)
 
 
-@router.post("/software/slots")
+@software_router.post("/slots")
 def create_software_slot_action(
     request: Request,
     code: str = Form(...),
@@ -2019,7 +2118,7 @@ def create_software_slot_action(
     notes: Optional[str] = Form(None),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("software", "manage")),
 ):
     service = SoftwareService(db)
     try:
@@ -2047,14 +2146,14 @@ def create_software_slot_action(
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
 
 
-@router.post("/software/slots/{slot_id}/status")
+@software_router.post("/slots/{slot_id}/status")
 def update_software_slot_status_action(
     request: Request,
     slot_id: int,
     status: str = Form(...),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("software", "manage")),
 ):
     try:
         enum_status = SoftwareSlotStatus(status)
@@ -2080,7 +2179,7 @@ def update_software_slot_status_action(
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
 
 
-@router.post("/software/slots/{slot_id}/packages")
+@software_router.post("/slots/{slot_id}/packages")
 def create_software_package_action(
     request: Request,
     slot_id: int,
@@ -2092,7 +2191,7 @@ def create_software_package_action(
     mark_critical: Optional[bool] = Form(False),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("software", "manage")),
 ):
     promote_flag = bool(promote)
     critical_flag = bool(mark_critical)
@@ -2125,13 +2224,13 @@ def create_software_package_action(
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
 
 
-@router.post("/software/packages/{package_id}/promote")
+@software_router.post("/packages/{package_id}/promote")
 def promote_software_package_action(
     request: Request,
     package_id: int,
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("software", "manage")),
 ):
     service = SoftwareService(db)
     try:
@@ -2149,13 +2248,13 @@ def promote_software_package_action(
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
 
 
-@router.post("/software/packages/{package_id}/retire")
+@software_router.post("/packages/{package_id}/retire")
 def retire_software_package_action(
     request: Request,
     package_id: int,
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("software", "manage")),
 ):
     service = SoftwareService(db)
     try:
@@ -2173,15 +2272,17 @@ def retire_software_package_action(
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
 
 
-@router.get("/settings")
+@settings_router.get("/")
 def settings_page(
     request: Request,
     message: Optional[str] = None,
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("settings", "view")),
 ):
     admin_service = AdminUserService(db)
     admins = admin_service.list_admins()
+    role_service = RoleService(db)
+    roles = role_service.list_roles(include_inactive=False)
 
     context = _base_context(
         request,
@@ -2191,6 +2292,7 @@ def settings_page(
         page_description="管理管理员账号、重置密码与启用状态，查看系统基础配置。",
         active_page="settings",
         admins=admins,
+        roles=roles,
         super_admin={
             "username": settings.admin_username,
             "role": "superadmin",
@@ -2199,7 +2301,7 @@ def settings_page(
     return templates.TemplateResponse(request, "admin/settings/index.html", context)
 
 
-@router.post("/settings/admins")
+@settings_router.post("/admins")
 def create_admin_user_action(
     request: Request,
     username: str = Form(...),
@@ -2208,7 +2310,7 @@ def create_admin_user_action(
     role: str = Form("admin"),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("settings", "manage")),
 ):
     username = (username or "").strip()
     role = (role or "admin").strip() or "admin"
@@ -2217,7 +2319,7 @@ def create_admin_user_action(
     else:
         service = AdminUserService(db)
         try:
-            service.create_admin(username=username, password=password, role=role)
+            service.create_admin(username=username, password=password, role_code=role)
         except ValueError as exc:
             db.rollback()
             error = str(exc)
@@ -2236,7 +2338,7 @@ def create_admin_user_action(
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
 
 
-@router.post("/settings/admins/{admin_id}/password")
+@settings_router.post("/admins/{admin_id}/password")
 def reset_admin_password_action(
     request: Request,
     admin_id: int,
@@ -2244,7 +2346,7 @@ def reset_admin_password_action(
     confirm_password: str = Form(...),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("settings", "manage")),
 ):
     if password != confirm_password:
         message = "两次密码不一致"
@@ -2267,14 +2369,14 @@ def reset_admin_password_action(
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
 
 
-@router.post("/settings/admins/{admin_id}/status")
+@settings_router.post("/admins/{admin_id}/status")
 def toggle_admin_status_action(
     request: Request,
     admin_id: int,
     is_active: bool = Form(...),
     return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    _: HTTPBasicCredentials = Depends(require_admin),
+    _: AdminPrincipal = Depends(require_permission("settings", "manage")),
 ):
     service = AdminUserService(db)
     try:
@@ -2290,3 +2392,16 @@ def toggle_admin_status_action(
 
     target = _append_message(_sanitize_return_path(return_to, fallback="/admin/settings"), message)
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+
+
+router.include_router(dashboard_router)
+router.include_router(licenses_router)
+router.include_router(license_types_router)
+router.include_router(users_router)
+router.include_router(software_router)
+router.include_router(cdn_router)
+router.include_router(settings_router)
+api_router.include_router(api_users_router, tags=["admin-api-users"])
+api_router.include_router(api_license_types_router, tags=["admin-api-license-types"])
+api_router.include_router(api_licenses_router, tags=["admin-api-licenses"])
+router.include_router(api_router, tags=["admin-api"])

@@ -16,4 +16,9 @@ def reset_database():
         default_slot = models.SoftwareSlot(code="default-slot", name="默认软件位")
         session.add(default_slot)
         session.commit()
+
+    with SessionLocal() as session:
+        from app.services.admin_user_service import AdminUserService
+
+        AdminUserService(session).ensure_roles()
     yield

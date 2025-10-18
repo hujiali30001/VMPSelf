@@ -66,7 +66,11 @@
             </div>
             <div class="full-row">
                 <label>角色</label>
-                <input type="text" name="role" value="admin" />
+                <select name="role" required>
+                    {% for role in roles %}
+                        <option value="{{ role.code }}" {% if role.code == 'admin' %}selected{% endif %}>{{ role.display_name }}</option>
+                    {% endfor %}
+                </select>
             </div>
             <div class="full-row">
                 <label>密码</label>
@@ -123,7 +127,7 @@
             <tr>
                 <td>{{ admin.id }}</td>
                 <td>{{ admin.username }}</td>
-                <td>{{ admin.role }}</td>
+                <td>{{ admin.role.display_name if admin.role else '-' }}</td>
                 <td>
                     {% if admin.is_active %}
                         <span class="badge badge-positive">启用</span>
