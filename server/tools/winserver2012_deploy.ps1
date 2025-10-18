@@ -270,13 +270,26 @@ Write-Step ("部署模式: {0}" -f $SelectedMode)
 
 Enter-DeletionSafeLocation -TargetPath $InstallRoot
 
+$ToolsDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ServerDir = if ($ToolsDir) { Split-Path -Parent $ToolsDir } else { $null }
+$RepoDir = if ($ServerDir) { Split-Path -Parent $ServerDir } else { $null }
+
+$InstallRootNormalized = [System.IO.Path]::GetFullPath($InstallRoot)
+$ServerDirNormalized = if ($ServerDir) { [System.IO.Path]::GetFullPath($ServerDir) } else { $null }
+$InstallRootIsSource = $false
+if ($ServerDirNormalized) {
+    $InstallRootIsSource = ($InstallRootNormalized.TrimEnd('\') -ieq $ServerDirNormalized.TrimEnd('\'))
+}
+
 $ExistingEnv = @{}
 
 switch ($SelectedMode) {
     "Fresh" {
         Write-Step "执行全新部署：将移除现有服务、环境与数据"
         Cleanup-PreviousDeployment -RootPath $InstallRoot -ServiceName $ServiceName -PreserveData:$false -PreserveEnv:$false
-        if (Test-Path -LiteralPath $InstallRoot) {
+        if ($InstallRootIsSource) {
+            Write-Step "检测到安装目录与源码目录相同，仅清理运行时资产，保留源文件"
+        } elseif (Test-Path -LiteralPath $InstallRoot) {
             Enter-DeletionSafeLocation -TargetPath $InstallRoot
             Write-Step ("删除旧的安装目录: {0}" -f $InstallRoot)
             try {
@@ -288,8 +301,10 @@ switch ($SelectedMode) {
                 throw ("无法删除安装目录 {0}，请确认没有程序正在使用该路径后重试。" -f $InstallRoot)
             }
         }
-        Write-Step ("创建安装目录: {0}" -f $InstallRoot)
-        New-Item -ItemType Directory -Path $InstallRoot | Out-Null
+        if (-not (Test-Path -LiteralPath $InstallRoot)) {
+            Write-Step ("创建安装目录: {0}" -f $InstallRoot)
+            New-Item -ItemType Directory -Path $InstallRoot | Out-Null
+        }
     }
     "Upgrade" {
         Write-Step "执行升级部署：保留 data/.env，仅重建运行环境"
@@ -302,7 +317,9 @@ switch ($SelectedMode) {
     "Uninstall" {
         Write-Step "执行卸载：停止服务并移除所有文件"
         Cleanup-PreviousDeployment -RootPath $InstallRoot -ServiceName $ServiceName -PreserveData:$false -PreserveEnv:$false
-        if (Test-Path -LiteralPath $InstallRoot) {
+        if ($InstallRootIsSource) {
+            Write-Warning "检测到安装目录与源码目录相同，将保留源文件，仅停止服务并清理运行时资产。"
+        } elseif (Test-Path -LiteralPath $InstallRoot) {
             Enter-DeletionSafeLocation -TargetPath $InstallRoot
             Write-Step ("删除安装目录: {0}" -f $InstallRoot)
             try {

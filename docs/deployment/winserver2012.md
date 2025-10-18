@@ -151,7 +151,7 @@ powershell -ExecutionPolicy Bypass -File server\tools\winserver2012_deploy.ps1 -
 
 > 提示：脚本会在存在生成/变更操作时打印醒目的英文提示。若不传 `-AdminPassword`，会生成高强度密码并在终端显示；同理，检测到默认占位值时会生成新的 `VMP_HMAC_SECRET`。请在窗口关闭前妥善记录这些值。
 
-> **目录建议**：请确保在安装目录的上一级（例如 `C:\Services\VMPSelf`）运行脚本，以免 PowerShell 会话仍锁定 `server` 目录导致旧文件无法删除。脚本内部已加入自动切换路径的保护，但遵循此约定可以显著降低权限占用引发的失败重试。
+> **目录建议**：请确保在安装目录的上一级（例如 `C:\Services\VMPSelf`）运行脚本，以免 PowerShell 会话仍锁定 `server` 目录导致旧文件无法删除。脚本内部已加入保护逻辑：若检测到安装目录与源码目录相同，会仅清理 `.venv`、`logs`、`data` 等运行时资产并保留源代码。但仍推荐将 `-InstallRoot` 指向独立目录（如 `C:\Services\VMPSelf\production`），以便与源代码分离并减少权限占用带来的干扰。
 
 运行脚本时若选择：
 
