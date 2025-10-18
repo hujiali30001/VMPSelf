@@ -156,6 +156,8 @@ powershell -ExecutionPolicy Bypass -File tools\winserver2012_deploy.ps1 -Install
 
 脚本将自动创建虚拟环境、安装依赖、生成/更新 `.env`、注册 NSSM 服务并输出后台访问信息。更多参数说明见《[WinServer 2012 部署指南](../docs/deployment/winserver2012.md)》。
 
+> 脚本内部调用 `python manage.py init-db`（已包含 Alembic 升级），因此无需再单独执行 `alembic upgrade head`；若需要独立排查迁移，可手动运行该命令。
+
 ## 发布前检查
 - 执行回归测试，确保核心授权流程以及新增后台模块可用：
   ```powershell

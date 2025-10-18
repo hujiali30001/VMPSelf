@@ -272,20 +272,12 @@ if ($GeneratedAdminPassword) {
     Write-Host "    VMP_ADMIN_PASS unchanged"
 }
 
-Write-Step "Initializing SQLite database"
+Write-Step "Initializing SQLite database (includes Alembic migrations)"
 $ManagePy = Join-Path $ServerDir "manage.py"
 if (-not (Test-Path -LiteralPath $ManagePy)) {
     throw "manage.py was not found in the server directory."
 }
 & $VenvPython $ManagePy init-db
-
-$AlembicIni = Join-Path $InstallRoot "alembic.ini"
-if (-not (Test-Path -LiteralPath $AlembicIni)) {
-    throw "alembic.ini was not found in the install directory."
-}
-
-Write-Step "Running Alembic migrations"
-& $VenvPython -m alembic -c $AlembicIni upgrade head
 
 Write-Step "Preparing NSSM"
 $NssmDir = Join-Path $InstallRoot "tools\nssm"

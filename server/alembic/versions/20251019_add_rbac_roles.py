@@ -21,6 +21,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    dialect = bind.dialect.name
+
     op.create_table(
         "roles",
         sa.Column("id", sa.Integer(), primary_key=True),
@@ -43,9 +46,28 @@ def upgrade() -> None:
         sa.UniqueConstraint("role_id", "module", "action", name="uq_role_permissions_role_module_action"),
     )
 
-    op.add_column("admin_users", sa.Column("role_id", sa.Integer(), nullable=True))
-    op.create_index("ix_admin_users_role_id", "admin_users", ["role_id"], unique=False)
-    op.create_foreign_key("fk_admin_users_role_id", "admin_users", "roles", ["role_id"], ["id"], ondelete="RESTRICT")
+    if dialect == "sqlite":
+        with op.batch_alter_table("admin_users") as batch_op:
+            batch_op.add_column(sa.Column("role_id", sa.Integer(), nullable=True))
+            batch_op.create_index("ix_admin_users_role_id", ["role_id"], unique=False)
+            batch_op.create_foreign_key(
+                "fk_admin_users_role_id",
+                "roles",
+                ["role_id"],
+                ["id"],
+                ondelete="RESTRICT",
+            )
+    else:
+        op.add_column("admin_users", sa.Column("role_id", sa.Integer(), nullable=True))
+        op.create_index("ix_admin_users_role_id", "admin_users", ["role_id"], unique=False)
+        op.create_foreign_key(
+            "fk_admin_users_role_id",
+            "admin_users",
+            "roles",
+            ["role_id"],
+            ["id"],
+            ondelete="RESTRICT",
+        )
 
     roles_table = sa.table(
         "roles",
@@ -149,14 +171,25 @@ def upgrade() -> None:
         {"role_id": role_code_to_id["admin"]},
     )
 
-    op.alter_column("admin_users", "role_id", existing_type=sa.Integer(), nullable=False)
-    op.drop_column("admin_users", "role")
+    if dialect == "sqlite":
+        with op.batch_alter_table("admin_users") as batch_op:
+            batch_op.alter_column("role_id", existing_type=sa.Integer(), nullable=False)
+            batch_op.drop_column("role")
+    else:
+        op.alter_column("admin_users", "role_id", existing_type=sa.Integer(), nullable=False)
+        op.drop_column("admin_users", "role")
 
 
 def downgrade() -> None:
-    op.add_column("admin_users", sa.Column("role", sa.String(length=32), nullable=True))
-
     bind = op.get_bind()
+    dialect = bind.dialect.name
+
+    if dialect == "sqlite":
+        with op.batch_alter_table("admin_users") as batch_op:
+            batch_op.add_column(sa.Column("role", sa.String(length=32), nullable=True))
+    else:
+        op.add_column("admin_users", sa.Column("role", sa.String(length=32), nullable=True))
+
     result = list(bind.execute(sa.text("SELECT id, role_id FROM admin_users")))
     roles_map = {row[0]: row[1] for row in bind.execute(sa.text("SELECT id, code FROM roles"))}
 
@@ -169,12 +202,27 @@ def downgrade() -> None:
             {"role_code": role_code, "admin_id": admin_id},
         )
 
-    op.drop_constraint("fk_admin_users_role_id", "admin_users", type_="foreignkey")
-    op.drop_index("ix_admin_users_role_id", table_name="admin_users")
-    op.drop_column("admin_users", "role_id")
+    if dialect == "sqlite":
+        with op.batch_alter_table("admin_users") as batch_op:
+            batch_op.drop_constraint("fk_admin_users_role_id", type_="foreignkey")
+            batch_op.drop_index("ix_admin_users_role_id")
+            batch_op.drop_column("role_id")
+    else:
+        op.drop_constraint("fk_admin_users_role_id", "admin_users", type_="foreignkey")
+        op.drop_index("ix_admin_users_role_id", table_name="admin_users")
+        op.drop_column("admin_users", "role_id")
 
     op.drop_table("role_permissions")
     op.drop_table("roles")
 
     bind.execute(sa.text("UPDATE admin_users SET role = 'admin' WHERE role IS NULL"))
-    op.alter_column("admin_users", "role", existing_type=sa.String(length=32), nullable=False, server_default="admin")
+    if dialect == "sqlite":
+        with op.batch_alter_table("admin_users") as batch_op:
+            batch_op.alter_column(
+                "role",
+                existing_type=sa.String(length=32),
+                nullable=False,
+                server_default="admin",
+            )
+    else:
+        op.alter_column("admin_users", "role", existing_type=sa.String(length=32), nullable=False, server_default="admin")

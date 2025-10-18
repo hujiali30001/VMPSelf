@@ -92,7 +92,7 @@ notepad .env
 
 ```powershell
 python manage.py init-db
-# 可选：针对升级场景执行 Alembic 迁移（init-db 已自动执行，此处便于单独排查）
+# 可选：仅在排查或 CI 场景手动执行 Alembic 迁移（init-db 已自动完成同样操作）
 alembic upgrade head
 python manage.py create-license --card DEMO-0001 --ttl 30
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
@@ -114,7 +114,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
 
 ## Step 5. 一键部署为 Windows 服务（可选）
 
-项目内提供 `server/tools/winserver2012_deploy.ps1`，脚本现已全英文输出，并可自动完成以下操作：
+- 项目内提供 `server/tools/winserver2012_deploy.ps1`，脚本现已全英文输出，并可自动完成以下操作：
 
 1. 创建/更新虚拟环境并安装依赖；
 2. 初始化数据库并执行 Alembic 迁移（若已存在则升级到最新 schema）；
@@ -153,7 +153,7 @@ powershell -ExecutionPolicy Bypass -File tools\winserver2012_deploy.ps1 -Install
 
 脚本执行成功后，服务将自动启动并设置为开机自启。控制台会输出后台地址、用户管理入口、HTTP Basic 凭据以及是否生成新的 HMAC 密钥，同时在安装目录保留更新后的 `.env`。日志位于 `C:\Services\VMPSelf\server\logs\`，已启用 NSSM 轮转（单文件 10 MB）。
 
-> 若从历史版本升级，请先执行 `git pull` 确认脚本更新到最新提交（含 `-ListenHost` 参数），再运行上述命令；脚本会先运行 `manage.py init-db` 并调用 `alembic upgrade head`，从而迁移已有数据库，同时复用 `.env` 与 `data\license.db` 等数据文件。
+> 若从历史版本升级，请先执行 `git pull` 确认脚本更新到最新提交（含 `-ListenHost` 参数），再运行上述命令；脚本会运行 `manage.py init-db`（内部已包含 `alembic upgrade head`），从而迁移已有数据库，同时复用 `.env` 与 `data\license.db` 等数据文件。
 
 ---
 

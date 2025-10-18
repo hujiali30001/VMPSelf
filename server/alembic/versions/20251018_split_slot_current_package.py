@@ -7,7 +7,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "20251018_split_slot_current_package"
-down_revision = None
+down_revision = "20251010_initial_schema"
 branch_labels = None
 depends_on = None
 

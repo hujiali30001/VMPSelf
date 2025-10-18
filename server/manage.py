@@ -4,13 +4,11 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from sqlalchemy import inspect, select, text
-
 from sqlalchemy import select
 
 from app.core.settings import get_settings
-from app.db import Base, License, LicenseCardType, LicenseStatus
-from app.db.session import SessionLocal, engine, database_url
+from app.db import License, LicenseCardType, LicenseStatus
+from app.db.session import SessionLocal, database_url
 from app.services.licensing import LicenseService
 
 from alembic import command
@@ -65,28 +63,6 @@ DEFAULT_CARD_TYPES: list[dict[str, object]] = [
     },
 ]
 
-
-def _ensure_card_type_schema() -> None:
-    Base.metadata.create_all(bind=engine)
-
-    inspector = inspect(engine)
-    tables = inspector.get_table_names()
-
-    if "license_card_types" not in tables:
-        LicenseCardType.__table__.create(bind=engine)
-
-    license_columns = {column["name"] for column in inspector.get_columns("licenses")}
-    with engine.begin() as conn:
-        if "card_type_id" not in license_columns:
-            conn.execute(text("ALTER TABLE licenses ADD COLUMN card_type_id INTEGER"))
-        if "custom_duration_days" not in license_columns:
-            conn.execute(text("ALTER TABLE licenses ADD COLUMN custom_duration_days INTEGER"))
-        if "card_prefix" not in license_columns:
-            conn.execute(text("ALTER TABLE licenses ADD COLUMN card_prefix VARCHAR(16)"))
-
-    _run_alembic_upgrade()
-
-
 def _run_alembic_upgrade() -> None:
     alembic_cfg = Config(str(BASE_DIR / "alembic.ini"))
     alembic_cfg.set_main_option("sqlalchemy.url", database_url)
@@ -111,7 +87,7 @@ def _seed_default_card_types() -> None:
 
 
 def init_db() -> None:
-    _ensure_card_type_schema()
+    _run_alembic_upgrade()
     _seed_default_card_types()
     print(f"Database initialized at {settings.sqlite_path}")
 
