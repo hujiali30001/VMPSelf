@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Iterable, Optional
 
 import paramiko
@@ -12,6 +13,10 @@ DEFAULT_SSL_KEY = "/etc/pki/tls/private/edge.key"
 
 class DeploymentError(RuntimeError):
     """Raised when deploying to an edge node fails."""
+
+    def __init__(self, message: str, *, log: Optional[str] = None) -> None:
+        super().__init__(message)
+        self.log = log or ""
 
 
 @dataclass
@@ -44,6 +49,18 @@ class DeploymentConfig:
             raise ValueError("port_invalid")
         if not self.origin_host:
             raise ValueError("origin_required")
+
+
+@dataclass
+class DeploymentResult:
+    started_at: datetime
+    completed_at: datetime
+    log: str
+    summary: str
+
+    @property
+    def duration_ms(self) -> int:
+        return int((self.completed_at - self.started_at).total_seconds() * 1000)
 
 
 def generate_nginx_config(config: DeploymentConfig) -> str:
@@ -124,12 +141,20 @@ def _connect(target: DeploymentTarget) -> paramiko.SSHClient:
     return ssh
 
 
-def _run_command(ssh: paramiko.SSHClient, command: str) -> None:
+def _run_command(ssh: paramiko.SSHClient, command: str) -> str:
     stdin, stdout, stderr = ssh.exec_command(command)
     exit_status = stdout.channel.recv_exit_status()
+    stdout_output = stdout.read().decode("utf-8", errors="ignore").strip()
+    stderr_output = stderr.read().decode("utf-8", errors="ignore").strip()
     if exit_status != 0:
-        error_output = stderr.read().decode("utf-8", errors="ignore")
+        error_output = stderr_output or stdout_output
         raise DeploymentError(f"Command failed ({exit_status}): {command}\n{error_output}")
+    return stdout_output
+
+
+def _append_log(log: list[str], message: str) -> None:
+    timestamp = datetime.now(timezone.utc).isoformat()
+    log.append(f"[{timestamp}] {message}")
 
 
 def _install_packages(ssh: paramiko.SSHClient, packages: Iterable[str]) -> None:
@@ -167,25 +192,68 @@ class CDNDeployer:
     def __init__(self, remote_config_path: str = EDGE_CONFIG_REMOTE_PATH) -> None:
         self.remote_config_path = remote_config_path
 
-    def deploy(self, target: DeploymentTarget, config: DeploymentConfig) -> None:
+    def deploy(self, target: DeploymentTarget, config: DeploymentConfig) -> DeploymentResult:
         config.normalize()
         config_text = generate_nginx_config(config)
-        ssh = _connect(target)
+        log_lines: list[str] = []
+        started_at = datetime.now(timezone.utc)
+        _append_log(log_lines, f"开始部署节点 {target.host}:{target.port} (模式: {config.mode})")
+
+        ssh: Optional[paramiko.SSHClient] = None
         try:
+            ssh = _connect(target)
+        except Exception as exc:  # pragma: no cover - network dependent
+            _append_log(log_lines, f"SSH 连接失败: {exc}")
+            raise DeploymentError(f"Unable to connect to target host: {exc}", log="\n".join(log_lines)) from exc
+
+        _append_log(log_lines, "SSH 连接已建立")
+        try:
+            _append_log(log_lines, f"安装依赖软件包: {', '.join(config.extra_packages)}")
             _install_packages(ssh, config.extra_packages)
-            firewall_ports = set(config.firewall_ports)
-            firewall_ports.add(config.listen_port)
-            _configure_firewall(ssh, sorted(firewall_ports))
+            _append_log(log_lines, "依赖安装完成")
+
+            firewall_ports = sorted({*config.firewall_ports, config.listen_port})
+            _append_log(log_lines, f"配置防火墙端口: {firewall_ports}")
+            _configure_firewall(ssh, firewall_ports)
+            _append_log(log_lines, "防火墙规则已更新")
+
+            _append_log(log_lines, f"上传 Nginx 配置到 {self.remote_config_path}")
             _upload_config(ssh, config_text, self.remote_config_path)
+            _append_log(log_lines, "配置上传完成")
+
+            _append_log(log_lines, "启用并重启 Nginx 服务")
             _enable_services(ssh)
+            _append_log(log_lines, "Nginx 服务已重启")
+
+            summary = "部署成功，Nginx 配置已刷新"
+            completed_at = datetime.now(timezone.utc)
+            _append_log(log_lines, summary)
+            return DeploymentResult(
+                started_at=started_at,
+                completed_at=completed_at,
+                log="\n".join(log_lines),
+                summary=summary,
+            )
+        except DeploymentError as exc:
+            _append_log(log_lines, f"部署失败: {exc}")
+            merged_log = "\n".join(log_lines)
+            if exc.log:
+                merged_log = f"{exc.log}\n{merged_log}"
+            exc.log = merged_log
+            raise
+        except Exception as exc:  # pragma: no cover - defensive
+            _append_log(log_lines, f"部署出现未预期异常: {exc}")
+            raise DeploymentError(f"Unexpected deployment error: {exc}", log="\n".join(log_lines)) from exc
         finally:
-            ssh.close()
+            if ssh is not None:
+                ssh.close()
 
 
 __all__ = [
     "CDNDeployer",
     "DeploymentConfig",
     "DeploymentError",
+    "DeploymentResult",
     "DeploymentTarget",
     "EDGE_CONFIG_REMOTE_PATH",
     "generate_nginx_config",

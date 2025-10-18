@@ -16,6 +16,7 @@ from app.api.admin_portal.common_components.auth import (
     require_permission,
 )
 from app.api.admin_portal.common_components.constants import (
+    CDN_HEALTH_STATUS_LABELS,
     CDN_STATUS_LABELS,
     CDN_TASK_STATUS_LABELS,
     DEFAULT_NAV_ITEMS,
@@ -148,6 +149,7 @@ __all__ = [
     "AdminPrincipal",
     "STATUS_LABELS",
     "CDN_STATUS_LABELS",
+    "CDN_HEALTH_STATUS_LABELS",
     "CDN_TASK_STATUS_LABELS",
     "SOFTWARE_SLOT_STATUS_LABELS",
     "SOFTWARE_PACKAGE_STATUS_LABELS",

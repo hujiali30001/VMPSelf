@@ -61,6 +61,63 @@
     .task-table tbody tr td {
         vertical-align: top;
     }
+    .health-info {
+        margin-top: 6px;
+        font-size: 12px;
+        color: var(--text-secondary);
+    }
+    .health-error {
+        margin-top: 4px;
+        font-size: 12px;
+        color: #dc2626;
+    }
+    .deployment-summary {
+        margin-top: 6px;
+        font-size: 12px;
+        color: var(--text-secondary);
+    }
+    .deployment-summary-text {
+        margin-top: 4px;
+    }
+    details.deploy-log {
+        margin-top: 6px;
+    }
+    details.deploy-log summary {
+        cursor: pointer;
+        color: var(--primary-color);
+        font-size: 12px;
+    }
+    details.deploy-log pre {
+        margin-top: 8px;
+        background: #0f172a;
+        color: #e2e8f0;
+        padding: 12px;
+        border-radius: 6px;
+        max-height: 200px;
+        overflow-y: auto;
+        font-size: 12px;
+        white-space: pre-wrap;
+    }
+    .endpoint-actions .compact-select {
+        font-size: 12px;
+        padding: 4px 6px;
+    }
+    .badge-healthy {
+        background: rgba(16, 185, 129, 0.16);
+        color: #059669;
+    }
+    .badge-degraded {
+        background: rgba(245, 158, 11, 0.16);
+        color: #b45309;
+    }
+    .badge-unhealthy {
+        background: rgba(239, 68, 68, 0.16);
+        color: #b91c1c;
+    }
+    .badge-unknown {
+        background: rgba(107, 114, 128, 0.16);
+        color: #374151;
+    }
     @media (max-width: 1080px) {
         .cdn-grid {
             grid-template-columns: 1fr;
@@ -75,6 +132,13 @@
     <span class="provider-chip">活跃 {{ endpoint_statuses['active'] }} 个</span>
     <span class="provider-chip">暂停 {{ endpoint_statuses['paused'] }} 个</span>
     <span class="provider-chip">异常 {{ endpoint_statuses['error'] }} 个</span>
+    {% for stat in health_stats %}
+        {% if stat.count and stat.status != 'unknown' %}
+            <span class="provider-chip">{{ stat.label }} {{ stat.count }} 个</span>
+        {% elif stat.status == 'unknown' and stat.count > 0 %}
+            <span class="provider-chip">无历史探活 {{ stat.count }} 个</span>
+        {% endif %}
+    {% endfor %}
     {% for provider, count in provider_stats.items() %}
         <span class="provider-chip">{{ provider }} · {{ count }}</span>
     {% endfor %}
@@ -218,6 +282,44 @@
                                 {% endif %}
                             </div>
                         {% endif %}
+                        {% set health_status = endpoint.health_status or 'unknown' %}
+                        <div class="health-info">
+                            健康：
+                            <span class="badge badge-{{ health_status }}">{{ health_status_labels.get(health_status, health_status) }}</span>
+                            {% if row.last_health and row.last_health.protocol %}
+                                · {{ row.last_health.protocol.upper() }}
+                            {% endif %}
+                            {% if endpoint.health_latency_ms %}
+                                · {{ endpoint.health_latency_ms }} ms
+                            {% endif %}
+                            {% if endpoint.health_checked_at %}
+                                · {{ endpoint.health_checked_at.isoformat() }}
+                            {% endif %}
+                        </div>
+                        {% if endpoint.health_error and health_status != 'healthy' %}
+                            <div class="health-error">{{ endpoint.health_error }}</div>
+                        {% endif %}
+                        {% if row.last_deployment %}
+                            <div class="deployment-summary">
+                                最近部署：
+                                <span class="badge badge-{{ row.last_deployment.status }}">{{ task_status_labels.get(row.last_deployment.status, row.last_deployment.status) }}</span>
+                                {% if row.last_deployment.completed_at %}
+                                    · {{ row.last_deployment.completed_at.isoformat() }}
+                                {% endif %}
+                                {% if row.last_deployment.duration_ms %}
+                                    · {{ row.last_deployment.duration_ms }} ms
+                                {% endif %}
+                                {% if row.last_deployment.summary %}
+                                    <div class="deployment-summary-text">{{ row.last_deployment.summary }}</div>
+                                {% endif %}
+                                {% if row.last_deployment.log %}
+                                    <details class="deploy-log">
+                                        <summary>查看日志</summary>
+                                        <pre>{{ row.last_deployment.log | e }}</pre>
+                                    </details>
+                                {% endif %}
+                            </div>
+                        {% endif %}
                     </td>
                     <td>
                         {% if row.last_task %}
@@ -242,6 +344,21 @@
                                     同时开放 80 端口
                                 </label>
                                 <button class="primary-btn" type="submit">一键部署</button>
+                            </form>
+                            <form method="post" action="/admin/cdn/endpoints/{{ endpoint.id }}/health-check" style="display:flex;gap:6px;align-items:center;">
+                                <input type="hidden" name="return_to" value="{{ return_to }}" />
+                                {% if endpoint.deployment_mode == 'http' %}
+                                    <select name="protocol" class="compact-select">
+                                        <option value="">自动</option>
+                                        <option value="https">HTTPS</option>
+                                        <option value="http">HTTP</option>
+                                    </select>
+                                {% else %}
+                                    <input type="hidden" name="protocol" value="tcp" />
+                                {% endif %}
+                                <button class="secondary-btn" type="submit">
+                                    {% if endpoint.deployment_mode == 'tcp' %}探测 TCP{% else %}探测健康{% endif %}
+                                </button>
                             </form>
                             {% if endpoint.status != 'active' %}
                             <form method="post" action="/admin/cdn/endpoints/{{ endpoint.id }}/status">

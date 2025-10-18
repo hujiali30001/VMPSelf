@@ -10,6 +10,7 @@ from starlette.status import HTTP_303_SEE_OTHER
 
 from app.api.admin_portal.common import (
     AdminPrincipal,
+    CDN_HEALTH_STATUS_LABELS,
     CDN_STATUS_LABELS,
     CDN_TASK_STATUS_LABELS,
     _append_message,
@@ -19,7 +20,7 @@ from app.api.admin_portal.common import (
     templates,
 )
 from app.api.deps import get_db
-from app.db import CDNEndpointStatus, CDNTaskType
+from app.db import CDNEndpointStatus, CDNHealthStatus, CDNTaskType
 from app.services.cdn import CDNService, DeploymentError
 
 router = APIRouter(prefix="/cdn")
@@ -41,6 +42,12 @@ def cdn_page(
     active_count = 0
     paused_count = 0
     error_count = 0
+    health_counts: dict[str, int] = {
+        CDNHealthStatus.HEALTHY.value: 0,
+        CDNHealthStatus.DEGRADED.value: 0,
+        CDNHealthStatus.UNHEALTHY.value: 0,
+        CDNHealthStatus.UNKNOWN.value: 0,
+    }
 
     for endpoint in endpoints:
         provider_stats[endpoint.provider] = provider_stats.get(endpoint.provider, 0) + 1
@@ -58,11 +65,21 @@ def cdn_page(
                 key=lambda t: t.created_at or datetime.min.replace(tzinfo=timezone.utc),
             )
 
+        health_state = endpoint.health_status or CDNHealthStatus.UNKNOWN.value
+        if health_state not in health_counts:
+            health_state = CDNHealthStatus.UNKNOWN.value
+        health_counts[health_state] = health_counts.get(health_state, 0) + 1
+
+        last_deployment = endpoint.deployments[0] if endpoint.deployments else None
+        last_health = endpoint.health_checks[0] if endpoint.health_checks else None
+
         endpoint_rows.append(
             {
                 "endpoint": endpoint,
                 "last_task": last_task,
                 "task_count": len(endpoint.tasks or []),
+                "last_deployment": last_deployment,
+                "last_health": last_health,
             }
         )
 
@@ -82,6 +99,20 @@ def cdn_page(
             }
         )
 
+    health_stats = [
+        {
+            "status": status,
+            "label": CDN_HEALTH_STATUS_LABELS.get(status, status),
+            "count": health_counts.get(status, 0),
+        }
+        for status in (
+            CDNHealthStatus.HEALTHY.value,
+            CDNHealthStatus.DEGRADED.value,
+            CDNHealthStatus.UNHEALTHY.value,
+            CDNHealthStatus.UNKNOWN.value,
+        )
+    ]
+
     context = _base_context(
         request,
         message=message,
@@ -97,8 +128,10 @@ def cdn_page(
             "paused": paused_count,
             "error": error_count,
         },
+        health_stats=health_stats,
         tasks=task_rows,
         status_labels=CDN_STATUS_LABELS,
+        health_status_labels=CDN_HEALTH_STATUS_LABELS,
         task_status_labels=CDN_TASK_STATUS_LABELS,
         task_types=[
             (CDNTaskType.PURGE.value, "刷新缓存"),
@@ -261,6 +294,38 @@ def create_cdn_task_action(
                 message = f"创建任务失败: {exc}"
         else:
             message = "任务已提交"
+
+    target = _append_message(_sanitize_return_path(return_to, fallback="/admin/cdn"), message)
+    return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+
+
+@router.post("/endpoints/{endpoint_id}/health-check")
+def run_cdn_health_check_action(
+    request: Request,
+    endpoint_id: int,
+    protocol: Optional[str] = Form(None),
+    return_to: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    _: AdminPrincipal = Depends(require_permission("cdn", "manage")),
+):
+    service = CDNService(db)
+    normalized_protocol = (protocol or "").strip().lower() or None
+
+    try:
+        record = service.run_health_check(endpoint_id, protocol=normalized_protocol)
+    except ValueError as exc:
+        db.rollback()
+        error = str(exc)
+        if error == "endpoint_not_found":
+            message = "未找到指定的 CDN 节点"
+        elif error in {"health_protocol_invalid", "health_protocol_unsupported"}:
+            message = "健康检查协议无效或当前节点不支持"
+        else:
+            message = f"探测失败: {exc}"
+    else:
+        label = CDN_HEALTH_STATUS_LABELS.get(record.status, record.status)
+        latency_note = f" · {record.latency_ms} ms" if record.latency_ms is not None else ""
+        message = f"健康检查完成：{label}{latency_note}"
 
     target = _append_message(_sanitize_return_path(return_to, fallback="/admin/cdn"), message)
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)

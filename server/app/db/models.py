@@ -189,6 +189,13 @@ class CDNTaskType(str, Enum):
     DEPLOY = "deploy"
 
 
+class CDNHealthStatus(str, Enum):
+    UNKNOWN = "unknown"
+    HEALTHY = "healthy"
+    DEGRADED = "degraded"
+    UNHEALTHY = "unhealthy"
+
+
 class CDNEndpoint(Base):
     __tablename__ = "cdn_endpoints"
 
@@ -211,10 +218,24 @@ class CDNEndpoint(Base):
     edge_token: Mapped[Optional[str]] = mapped_column(String(128))
     last_deployed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     last_deploy_status: Mapped[Optional[str]] = mapped_column(String(32))
+    health_status: Mapped[str] = mapped_column(String(16), default=CDNHealthStatus.UNKNOWN.value)
+    health_checked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    health_latency_ms: Mapped[Optional[int]] = mapped_column(Integer)
+    health_error: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     tasks: Mapped[list["CDNTask"]] = relationship(back_populates="endpoint", cascade="all, delete-orphan")
+    deployments: Mapped[list["CDNDeployment"]] = relationship(
+        back_populates="endpoint",
+        cascade="all, delete-orphan",
+        order_by="CDNDeployment.started_at.desc()",
+    )
+    health_checks: Mapped[list["CDNHealthCheck"]] = relationship(
+        back_populates="endpoint",
+        cascade="all, delete-orphan",
+        order_by="CDNHealthCheck.checked_at.desc()",
+    )
 
 
 class CDNTask(Base):
@@ -230,6 +251,53 @@ class CDNTask(Base):
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     endpoint: Mapped[CDNEndpoint] = relationship(back_populates="tasks")
+    deployment: Mapped[Optional["CDNDeployment"]] = relationship(
+        back_populates="task",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+
+
+class CDNDeployment(Base):
+    __tablename__ = "cdn_deployments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    endpoint_id: Mapped[int] = mapped_column(ForeignKey("cdn_endpoints.id", ondelete="CASCADE"), nullable=False, index=True)
+    task_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("cdn_tasks.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(String(16), default=CDNTaskStatus.PENDING.value, index=True)
+    mode: Mapped[str] = mapped_column(String(16), default="http")
+    allow_http: Mapped[bool] = mapped_column(Boolean, default=True)
+    proxy_protocol: Mapped[bool] = mapped_column(Boolean, default=False)
+    summary: Mapped[Optional[str]] = mapped_column(Text)
+    log: Mapped[Optional[str]] = mapped_column(Text)
+    config_snapshot: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON)
+    initiated_by: Mapped[Optional[str]] = mapped_column(String(128))
+    initiated_by_id: Mapped[Optional[int]] = mapped_column(Integer)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    duration_ms: Mapped[Optional[int]] = mapped_column(Integer)
+
+    endpoint: Mapped[CDNEndpoint] = relationship(back_populates="deployments")
+    task: Mapped[Optional[CDNTask]] = relationship(back_populates="deployment")
+
+
+class CDNHealthCheck(Base):
+    __tablename__ = "cdn_health_checks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    endpoint_id: Mapped[int] = mapped_column(ForeignKey("cdn_endpoints.id", ondelete="CASCADE"), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(16), default=CDNHealthStatus.UNKNOWN.value, index=True)
+    protocol: Mapped[str] = mapped_column(String(16))
+    latency_ms: Mapped[Optional[int]] = mapped_column(Integer)
+    status_code: Mapped[Optional[int]] = mapped_column(Integer)
+    message: Mapped[Optional[str]] = mapped_column(Text)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+    endpoint: Mapped[CDNEndpoint] = relationship(back_populates="health_checks")
 
 
 class SoftwareSlotStatus(str, Enum):

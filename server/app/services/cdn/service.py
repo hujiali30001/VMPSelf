@@ -11,8 +11,11 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.crypto import decrypt_secret, encrypt_secret
 from app.core.settings import get_settings
 from app.db import (
+    CDNDeployment,
     CDNEndpoint,
     CDNEndpointStatus,
+    CDNHealthCheck,
+    CDNHealthStatus,
     CDNTask,
     CDNTaskStatus,
     CDNTaskType,
@@ -23,6 +26,7 @@ from app.services.cdn.deployer import (
     DeploymentError,
     DeploymentTarget,
 )
+from app.services.cdn.health import CDNHealthChecker, HealthCheckResult
 
 
 @dataclass
@@ -35,15 +39,26 @@ class EndpointCredentials:
 
 
 class CDNService:
-    def __init__(self, db: Session, *, deployer: Optional[CDNDeployer] = None) -> None:
+    def __init__(
+        self,
+        db: Session,
+        *,
+        deployer: Optional[CDNDeployer] = None,
+        health_checker: Optional[CDNHealthChecker] = None,
+    ) -> None:
         self.db = db
         self.deployer = deployer or CDNDeployer()
+        self.health_checker = health_checker or CDNHealthChecker()
 
     # Endpoints -----------------------------------------------------------------
     def list_endpoints(self) -> List[CDNEndpoint]:
         stmt = (
             select(CDNEndpoint)
-            .options(selectinload(CDNEndpoint.tasks))
+            .options(
+                selectinload(CDNEndpoint.tasks),
+                selectinload(CDNEndpoint.deployments),
+                selectinload(CDNEndpoint.health_checks),
+            )
             .order_by(CDNEndpoint.created_at.desc())
         )
         return list(self.db.scalars(stmt).all())
@@ -155,6 +170,58 @@ class CDNService:
             ssh_private_key=decrypt_secret(endpoint.ssh_private_key_encrypted),
         )
 
+    def _resolve_health_protocol(self, endpoint: CDNEndpoint, protocol: Optional[str]) -> str:
+        if protocol:
+            normalized = protocol.strip().lower()
+        else:
+            normalized = "tcp" if endpoint.deployment_mode == "tcp" else "https"
+
+        if normalized not in {"http", "https", "tcp"}:
+            raise ValueError("health_protocol_invalid")
+        if endpoint.deployment_mode == "tcp" and normalized in {"http", "https"}:
+            raise ValueError("health_protocol_unsupported")
+        return normalized
+
+    def _perform_health_probe(self, endpoint: CDNEndpoint, protocol: Optional[str]) -> HealthCheckResult:
+        resolved = self._resolve_health_protocol(endpoint, protocol)
+        if resolved == "tcp":
+            return self.health_checker.check_tcp(endpoint.host, endpoint.listen_port)
+
+        use_https = resolved != "http"
+        host = endpoint.domain or endpoint.host
+        return self.health_checker.check_http(host, endpoint.listen_port, use_https=use_https)
+
+    def _apply_health_result(self, endpoint: CDNEndpoint, result: HealthCheckResult) -> CDNHealthCheck:
+        record = CDNHealthCheck(
+            endpoint=endpoint,
+            status=result.status.value,
+            protocol=result.protocol,
+            latency_ms=result.latency_ms,
+            status_code=result.status_code,
+            message=result.message,
+            checked_at=result.checked_at,
+        )
+        endpoint.health_status = result.status.value
+        endpoint.health_checked_at = result.checked_at
+        endpoint.health_latency_ms = result.latency_ms
+        endpoint.health_error = None if result.status == CDNHealthStatus.HEALTHY else result.message
+        endpoint.updated_at = result.checked_at
+        self.db.add(record)
+        return record
+
+    def run_health_check(self, endpoint_id: int, *, protocol: Optional[str] = None) -> CDNHealthCheck:
+        endpoint = self.db.get(CDNEndpoint, endpoint_id)
+        if not endpoint:
+            raise ValueError("endpoint_not_found")
+
+        result = self._perform_health_probe(endpoint, protocol)
+        record = self._apply_health_result(endpoint, result)
+
+        self.db.commit()
+        self.db.refresh(record)
+        self.db.refresh(endpoint)
+        return record
+
     def deploy_endpoint(
         self,
         endpoint_id: int,
@@ -193,33 +260,93 @@ class CDNService:
         self.db.add(task)
         self.db.flush()
 
-        now = datetime.now(timezone.utc)
-        endpoint.updated_at = now
+        settings = get_settings()
+        started_at = datetime.now(timezone.utc)
+        firewall_ports_snapshot = sorted({*deploy_config.firewall_ports, deploy_config.listen_port})
+        config_snapshot: dict[str, object] = {
+            "origin_host": endpoint.origin,
+            "origin_port": endpoint.origin_port,
+            "listen_port": endpoint.listen_port,
+            "mode": endpoint.deployment_mode,
+            "allow_http": deploy_config.allow_http,
+            "proxy_protocol": endpoint.deployment_mode == "tcp",
+            "edge_token_present": bool(endpoint.edge_token),
+            "firewall_ports": firewall_ports_snapshot,
+        }
+        if settings.cdn_ip_whitelist:
+            config_snapshot["recommended_origin_ip_whitelist"] = list(settings.cdn_ip_whitelist)
+
+        deployment = CDNDeployment(
+            endpoint=endpoint,
+            task=task,
+            status=CDNTaskStatus.PENDING.value,
+            mode=endpoint.deployment_mode,
+            allow_http=deploy_config.allow_http,
+            proxy_protocol=endpoint.deployment_mode == "tcp",
+            summary="部署初始化",
+            config_snapshot=config_snapshot,
+            started_at=started_at,
+        )
+        self.db.add(deployment)
+        self.db.flush()
+
+        endpoint.updated_at = started_at
+        endpoint.last_deploy_status = CDNTaskStatus.PENDING.value
+
+        health_record: Optional[CDNHealthCheck] = None
 
         try:
-            self.deployer.deploy(target, deploy_config)
+            result = self.deployer.deploy(target, deploy_config)
         except DeploymentError as exc:
+            failure_time = datetime.now(timezone.utc)
             task.status = CDNTaskStatus.FAILED.value
             task.message = str(exc)
-            task.completed_at = datetime.now(timezone.utc)
+            task.completed_at = failure_time
             endpoint.status = CDNEndpointStatus.ERROR.value
             endpoint.last_deploy_status = task.status
-            endpoint.last_deployed_at = task.completed_at
+            endpoint.last_deployed_at = failure_time
+            endpoint.updated_at = failure_time
+            endpoint.health_status = CDNHealthStatus.UNHEALTHY.value
+            endpoint.health_checked_at = failure_time
+            endpoint.health_latency_ms = None
+            endpoint.health_error = str(exc)
+
+            deployment.status = CDNTaskStatus.FAILED.value
+            deployment.summary = str(exc)
+            deployment.log = exc.log or None
+            deployment.completed_at = failure_time
+            if deployment.started_at:
+                deployment.duration_ms = int((failure_time - deployment.started_at).total_seconds() * 1000)
+
             self.db.commit()
             self.db.refresh(task)
+            self.db.refresh(deployment)
             raise
 
-        completion = datetime.now(timezone.utc)
+        completion = result.completed_at
         task.status = CDNTaskStatus.COMPLETED.value
-        task.message = "Deployment succeeded"
+        task.message = result.summary
         task.completed_at = completion
+
+        deployment.status = CDNTaskStatus.COMPLETED.value
+        deployment.summary = result.summary
+        deployment.log = result.log
+        deployment.completed_at = completion
+        deployment.duration_ms = result.duration_ms
+
+        health_result = self._perform_health_probe(endpoint, None)
+        health_record = self._apply_health_result(endpoint, health_result)
+
         endpoint.status = CDNEndpointStatus.ACTIVE.value
         endpoint.last_deployed_at = completion
         endpoint.last_deploy_status = task.status
-        endpoint.updated_at = completion
+        endpoint.updated_at = max(completion, health_result.checked_at)
 
         self.db.commit()
         self.db.refresh(task)
+        self.db.refresh(deployment)
+        if health_record is not None:
+            self.db.refresh(health_record)
         return task
 
     # Tasks ----------------------------------------------------------------------

@@ -9,6 +9,7 @@ from fastapi.templating import Jinja2Templates
 from app.core.settings import get_settings
 from app.db import (
     CDNEndpointStatus,
+    CDNHealthStatus,
     CDNTaskStatus,
     LicenseStatus,
     SoftwarePackageStatus,
@@ -36,6 +37,13 @@ CDN_TASK_STATUS_LABELS = {
     CDNTaskStatus.PENDING.value: "排队中",
     CDNTaskStatus.COMPLETED.value: "已完成",
     CDNTaskStatus.FAILED.value: "失败",
+}
+
+CDN_HEALTH_STATUS_LABELS = {
+    CDNHealthStatus.HEALTHY.value: "健康",
+    CDNHealthStatus.DEGRADED.value: "降级",
+    CDNHealthStatus.UNHEALTHY.value: "异常",
+    CDNHealthStatus.UNKNOWN.value: "未知",
 }
 
 SOFTWARE_SLOT_STATUS_LABELS = {
@@ -75,6 +83,7 @@ __all__ = [
     "templates",
     "STATUS_LABELS",
     "CDN_STATUS_LABELS",
+    "CDN_HEALTH_STATUS_LABELS",
     "CDN_TASK_STATUS_LABELS",
     "SOFTWARE_SLOT_STATUS_LABELS",
     "SOFTWARE_PACKAGE_STATUS_LABELS",
