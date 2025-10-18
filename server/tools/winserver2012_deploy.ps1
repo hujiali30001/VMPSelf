@@ -429,10 +429,29 @@ Wait-NssmServiceRunning -ServiceName $ServiceName -TimeoutSeconds 60 -LogHint $L
 $BaseUrl = "http://{0}:{1}" -f $ListenHost, $Port
 Write-Step ("Deployment finished. Listening on {0}" -f $BaseUrl)
 
+$DisplayUrl = $BaseUrl
+if ($ListenHost -eq "0.0.0.0" -or $ListenHost -eq "::") {
+    $DisplayUrl = "http://<server-ip>:{0}" -f $Port
+    Write-Host " Bound to all interfaces; replace <server-ip> with the machine's address when accessing remotely." -ForegroundColor Yellow
+}
+
+$HealthUrl = "http://127.0.0.1:{0}/api/v1/ping" -f $Port
+try {
+    $health = Invoke-RestMethod -Uri $HealthUrl -Method Get -TimeoutSec 5
+    if ($health -and $health.message -eq "pong") {
+        Write-Host (" Health check: {0} -> {1}" -f $HealthUrl, $health.message) -ForegroundColor Green
+    } else {
+        Write-Host (" Health check returned unexpected payload from {0}" -f $HealthUrl) -ForegroundColor Yellow
+    }
+} catch {
+    Write-Host (" Health check failed for {0}: {1}" -f $HealthUrl, $_.Exception.Message) -ForegroundColor Yellow
+}
+
 Write-Host ""
-Write-Host (" Admin dashboard: {0}/admin/" -f $BaseUrl) -ForegroundColor Green
-Write-Host (" Admin portal: {0}/admin/licenses" -f $BaseUrl) -ForegroundColor Green
-Write-Host (" Users portal: {0}/admin/users" -f $BaseUrl) -ForegroundColor Green
+Write-Host (" Admin dashboard: {0}/admin/" -f $DisplayUrl) -ForegroundColor Green
+Write-Host (" Admin portal (licenses): {0}/admin/licenses" -f $DisplayUrl) -ForegroundColor Green
+Write-Host (" CDN management: {0}/admin/cdn" -f $DisplayUrl) -ForegroundColor Green
+Write-Host (" Users portal: {0}/admin/users" -f $DisplayUrl) -ForegroundColor Green
 Write-Host (" HTTP Basic user: {0}" -f $FinalAdminUser)
 if ($GeneratedAdminPassword) {
     Write-Host (" HTTP Basic password: {0} (generated; store it safely)" -f $FinalAdminPass) -ForegroundColor Yellow

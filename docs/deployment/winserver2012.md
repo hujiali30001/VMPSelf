@@ -5,6 +5,8 @@
 > **最近更新（2025-10）**
 > - 新版后台提供统一仪表盘（`/admin/`），可在部署后快速了解用户、卡密与即将过期提醒。
 > - 部署脚本 `tools/winserver2012_deploy.ps1` 会自动生成后台凭据与仪表盘入口提示，请在控制台记录脚本输出。
+> - CDN 管理页面现已上线，可直接新增加速节点、创建刷新/预取任务。
+> - 脚本新增本地健康检查与 CDN 管理入口提示，部署完成后可立即验证服务可用性。
 > - 新增“仪表盘巡检”章节，帮助你在上线前核查各模块卡片与关键指标。
 
 ---
@@ -103,7 +105,8 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
 - 访问 `http://192.168.132.132:8000/admin/licenses`，浏览器会弹出 HTTP Basic 登录框，使用 `.env` 中的 `VMP_ADMIN_USER` / `VMP_ADMIN_PASS` 登录。新版模块化卡密管理界面支持快速创建卡密、批量筛选、快捷导向详情页以延期或重置授权。
 - 访问 `http://192.168.132.132:8000/admin/users`，查看全新的用户列表：支持关键字搜索、快速跳转到用户详情（含审计日志与激活设备），可直接解绑或删除账号。
 - 访问 `http://192.168.132.132:8000/admin/card-types`，管理卡密类型与时长模板；界面与其他后台页面采用统一布局，便于后续扩展。
-- 在仪表盘「功能模块一览」区域核对卡片状态：卡密管理、用户中心、卡密类型应显示“前往页面”，CDN/软件位/系统设置卡片标记为“规划中”属正常现象。
+- 访问 `http://192.168.132.132:8000/admin/cdn`，可新增加速节点、创建刷新或预取任务，并查看最近执行记录与各状态统计。
+- 在仪表盘「功能模块一览」区域核对卡片状态：卡密管理、用户中心、卡密类型、CDN 管理应显示“前往页面”；软件位与系统设置仍标记为“规划中”属正常现象。
 - 验证完毕后在终端按 `Ctrl+C` 停止 Uvicorn。
 - 可选：保持虚拟环境激活状态执行 `python -m pytest tests/test_admin_api_crud.py tests/test_admin_service.py`，快速确认后台接口的关键用例与仪表盘 HTML。
 
@@ -120,6 +123,8 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
 5. 创建日志目录 `logs/`，将 stdout/stderr 轮转写入；
 6. 设置防火墙规则放行指定端口；
 7. 自动把 `.env` 调整为生产配置（写入绝对路径的 SQLite、生成随机 HMAC/后台密码），并输出最终服务访问信息。
+
+脚本完成后还会主动请求 `http://127.0.0.1:<端口>/api/v1/ping` 做本地健康检查，并在输出中给出仪表盘、卡密管理、CDN 管理等入口。当监听地址为 `0.0.0.0` 或 `::` 时，控制台会提示将 `<server-ip>` 替换为服务器的实际地址后再访问。
 
 常用参数：
 
@@ -166,7 +171,7 @@ nssm stop VMPAuthService
 Get-Content -Path "C:\Services\VMPSelf\server\logs\uvicorn.log" -Wait
 ```
 
-若需调整端口或环境变量，可执行 `nssm edit VMPAuthService`，修改后再 `nssm restart VMPAuthService` 生效。后台入口统一采用新版界面：`/admin/licenses` 管理卡密、`/admin/users` 维护账号、`/admin/card-types` 配置卡密类型，可随时手动解绑账号或删除异常用户。
+若需调整端口或环境变量，可执行 `nssm edit VMPAuthService`，修改后再 `nssm restart VMPAuthService` 生效。后台入口统一采用新版界面：`/admin/licenses` 管理卡密、`/admin/users` 维护账号、`/admin/card-types` 配置卡密类型、`/admin/cdn` 管理加速节点，可随时手动解绑账号或删除异常用户。
 
 ---
 
@@ -186,7 +191,7 @@ Get-Content -Path "C:\Services\VMPSelf\server\logs\uvicorn.log" -Wait
 
 ## Step 8. 快速自检
 
-服务或脚本运行完毕后，可执行以下命令确认接口可用：
+服务或脚本运行完毕后，可执行以下命令确认接口可用（自动化脚本已在 127.0.0.1 上执行一次同样的检查，若需从运维终端复核可再次运行）：
 
 ```powershell
 Invoke-RestMethod -Uri "http://192.168.132.132:8000/api/v1/ping"
@@ -218,10 +223,10 @@ pong    2025-10-16T19:28:29.680446+00:00
 ## Step 10. 发布前复核清单
 
 - 检查 `.env` 中的 `VMP_ADMIN_PASS`、`VMP_HMAC_SECRET`、`VMP_SQLITE_PATH` 等关键字段是否已替换为生产值，并将该文件纳入受控备份。
-- 在虚拟环境内执行核心回归测试（包含统一仪表盘与软件位关联逻辑的断言）：
+- 在虚拟环境内执行核心回归测试（覆盖统一仪表盘、CDN 守卫及软件位关联逻辑）：
 	```powershell
 	.\.venv\Scripts\Activate.ps1
-	python -m pytest tests/test_admin_api_crud.py tests/test_admin_service.py
+	python -m pytest tests/test_admin_api_crud.py tests/test_admin_service.py tests/test_cdn_guard.py
 	```
 - 定期备份 `data\license.db` 与导出的离线授权文件，可结合计划任务 `schtasks` 或 `robocopy` 实现多副本。
 - 若启用 CDN 校验，可先在测试环境执行 `python tools\deploy_cdn.py --dry-run`（需在仓库根目录运行），核对 CDN 配置与密钥。
@@ -234,7 +239,7 @@ pong    2025-10-16T19:28:29.680446+00:00
 - 登录 `http://<服务器IP>:8000/admin/`，确认首页顶部统计（注册用户、卡密总量、激活中的卡密等）与数据库数据一致，如无数据可忽略统计空值。
 - 「即将过期」列表默认展示未来 7 天内到期的卡密，若列表为空说明近期无即将过期的记录；可通过创建临时期卡密来验证提醒功能。
 - 「最新注册用户」与「最新创建卡密」分别抓取最近 6 条记录，如需查看更多可跳转到对应模块页面进行分页查询。
-- CDN 管理、软件位、系统设置等卡片当前标记为“规划中”，部署后无需处理；后续迭代上线时将通过同一仪表盘解锁。
+- CDN 管理卡片应显示“前往页面”，并能跳转到节点列表与任务面板；软件位与系统设置仍标记为“规划中”，后续迭代上线时会在同一仪表盘解锁。
 - 建议在每次发布或脚本重装后重复上述巡检，确保后台入口与导航指向正确；如遇模板渲染异常，可重新运行 `python -m pytest -k dashboard` 协助定位。
 
 ---
