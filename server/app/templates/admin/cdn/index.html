@@ -9,9 +9,65 @@
 <style>
     .cdn-grid {
         display: grid;
-        grid-template-columns: minmax(320px, 360px) 1fr;
-        gap: 28px;
+        grid-template-columns: minmax(340px, 380px) minmax(0, 1fr);
+        gap: 32px;
         align-items: start;
+    }
+    .panel-aside {
+        position: sticky;
+        top: calc(var(--content-padding-y) + 20px);
+        align-self: start;
+        display: grid;
+        gap: 24px;
+    }
+    .panel-stack {
+        display: grid;
+        gap: 24px;
+    }
+    .section-heading {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 12px;
+        margin: 0;
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+    .section-subtitle {
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin: 4px 0 0;
+    }
+    .form-section {
+        display: grid;
+        gap: 16px;
+        padding: 18px;
+        border-radius: 16px;
+        background: rgba(37, 99, 235, 0.04);
+        border: 1px solid rgba(37, 99, 235, 0.08);
+    }
+    .form-section + .form-section {
+        margin-top: 12px;
+    }
+    .form-grid--balanced {
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+    .form-grid__item--full {
+        grid-column: 1 / -1;
+    }
+    .form-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 12px;
+        margin-top: 16px;
+    }
+    .checkbox-row {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        color: var(--text-secondary);
     }
     .stat-card.accent-blue {
         background: linear-gradient(135deg, rgba(37, 99, 235, 0.12), rgba(14, 116, 244, 0.16));
@@ -39,8 +95,8 @@
     }
     .provider-chips {
         display: flex;
-        gap: 10px;
-        flex-wrap: wrap;
+        gap: 8px;
+        row-gap: 8px;
         font-size: 12px;
     }
     .grid-half {
@@ -196,6 +252,9 @@
         .cdn-grid {
             grid-template-columns: 1fr;
         }
+        .panel-aside {
+            position: static;
+        }
     }
 </style>
 {% endblock %}
@@ -285,116 +344,147 @@
 </section>
 
 <div class="cdn-grid">
-    <section class="panel">
-        <h2>新增加速节点</h2>
-        <form class="form-grid" method="post" action="/admin/cdn/endpoints">
-            <div class="full-row">
-                <label>节点名称</label>
-                <input type="text" name="name" placeholder="例如 公网加速" required minlength="3" />
-            </div>
-            <div class="full-row">
-                <label>绑定域名</label>
-                <input type="text" name="domain" placeholder="如 api.example.com" required />
-            </div>
-            <div class="full-row">
-                <label>节点地址 (IP / 域名)</label>
-                <input type="text" name="host" placeholder="203.0.113.10" required />
-            </div>
-            <div class="full-row">
-                <label>服务商</label>
-                <input type="text" name="provider" placeholder="例如 阿里云 CDN" required />
-            </div>
-            <div class="full-row">
-                <label>源站地址</label>
-                <input type="text" name="origin" placeholder="源站 IP 或域名" required />
-            </div>
-            <div class="full-row">
-                <label>端口映射</label>
-                <div class="port-mapping-editor" data-port-mapping-form>
-                    <table class="port-mapping-table">
-                        <thead>
-                            <tr>
-                                <th>监听端口</th>
-                                <th>源站端口</th>
-                                <th class="checkbox-cell">HTTP</th>
-                                <th></th>
-                            </tr>
-                        </thead>
-                        <tbody data-port-list>
-                            <tr data-port-row>
-                                <td><input type="number" name="port_listen" value="443" min="1" max="65535" required /></td>
-                                <td><input type="number" name="port_origin" value="443" min="1" max="65535" required /></td>
-                                <td class="checkbox-cell">
-                                    <label class="checkbox-inline">
-                                        <input type="checkbox" name="port_allow_http" value="0" />
-                                        HTTP
-                                    </label>
-                                </td>
-                                <td><button type="button" class="link-btn" data-remove-port disabled>删除</button></td>
-                            </tr>
-                        </tbody>
-                    </table>
-                    <button type="button" class="secondary-btn" data-add-port>新增映射</button>
-                    <p class="input-hint">第一行作为主端口；勾选 HTTP 表示该端口使用明文转发。</p>
-                </div>
-            </div>
-            <div class="grid-half">
+    <section class="panel panel-aside">
+        <div>
+            <h2>新增加速节点</h2>
+            <p class="section-subtitle">填写基础信息、端口映射与连接凭据，即可立即部署。</p>
+        </div>
+        <form method="post" action="/admin/cdn/endpoints">
+            <div class="form-section">
                 <div>
-                    <label>部署模式</label>
-                    <select name="deployment_mode">
-                        <option value="http">HTTP / HTTPS 反向代理</option>
-                        <option value="tcp">TCP 四层转发</option>
-                    </select>
+                    <h3 class="section-heading">基础信息</h3>
+                    <p class="section-subtitle">用于标识节点并指向源站。</p>
                 </div>
-                <div>
-                    <label>共享密钥 (可选)</label>
-                    <input type="text" name="edge_token" placeholder="留空则使用默认" />
-                </div>
-            </div>
-            <div class="full-row" style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary);">
-                <input type="checkbox" id="create-proxy-protocol" name="proxy_protocol" value="on" />
-                <label for="create-proxy-protocol">启用 PROXY protocol（仅 TCP 模式生效，用于保留原始客户端 IP）</label>
-            </div>
-            <div class="grid-half">
-                <div>
-                    <label>SSH 用户名</label>
-                    <input type="text" name="ssh_username" value="root" required />
-                </div>
-                <div>
-                    <label>SSH 端口</label>
-                    <input type="number" name="ssh_port" value="22" min="1" max="65535" />
-                </div>
-            </div>
-            <div class="grid-half">
-                <div>
-                    <label>SSH 密码 (可选)</label>
-                    <input type="password" name="ssh_password" autocomplete="new-password" />
-                </div>
-                <div>
-                    <label>SSH 私钥 (可选)</label>
-                    <textarea name="ssh_private_key" rows="3" placeholder="-----BEGIN PRIVATE KEY-----"></textarea>
+                <div class="form-grid form-grid--balanced">
+                    <div>
+                        <label>节点名称</label>
+                        <input type="text" name="name" placeholder="例如 公网加速" required minlength="3" />
+                    </div>
+                    <div>
+                        <label>绑定域名</label>
+                        <input type="text" name="domain" placeholder="如 api.example.com" required />
+                    </div>
+                    <div>
+                        <label>节点地址 (IP / 域名)</label>
+                        <input type="text" name="host" placeholder="203.0.113.10" required />
+                    </div>
+                    <div>
+                        <label>源站地址</label>
+                        <input type="text" name="origin" placeholder="源站 IP 或域名" required />
+                    </div>
+                    <div>
+                        <label>服务商</label>
+                        <input type="text" name="provider" placeholder="例如 阿里云 CDN" required />
+                    </div>
                 </div>
             </div>
-            <div class="full-row">
-                <label>sudo 密码 (可选)</label>
-                <input type="password" name="sudo_password" autocomplete="new-password" />
-                <p class="input-hint">若远程主机要求输入与 SSH 不同的 sudo 密码，请在此填写；留空则沿用 SSH 密码或依赖免密 sudo。</p>
+            <div class="form-section">
+                <div>
+                    <h3 class="section-heading">监听与部署</h3>
+                    <p class="section-subtitle">维护端口映射、代理模式与可选共享密钥。</p>
+                </div>
+                <div class="form-grid form-grid--balanced">
+                    <div class="form-grid__item--full">
+                        <label>端口映射</label>
+                        <div class="port-mapping-editor" data-port-mapping-form>
+                            <table class="port-mapping-table">
+                                <thead>
+                                    <tr>
+                                        <th>监听端口</th>
+                                        <th>源站端口</th>
+                                        <th class="checkbox-cell">HTTP</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody data-port-list>
+                                    <tr data-port-row>
+                                        <td><input type="number" name="port_listen" value="443" min="1" max="65535" required /></td>
+                                        <td><input type="number" name="port_origin" value="443" min="1" max="65535" required /></td>
+                                        <td class="checkbox-cell">
+                                            <label class="checkbox-inline">
+                                                <input type="checkbox" name="port_allow_http" value="0" />
+                                                HTTP
+                                            </label>
+                                        </td>
+                                        <td><button type="button" class="link-btn" data-remove-port disabled>删除</button></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                            <button type="button" class="secondary-btn" data-add-port>新增映射</button>
+                            <p class="input-hint">第一行作为主端口；勾选 HTTP 表示该端口使用明文转发。</p>
+                        </div>
+                    </div>
+                    <div>
+                        <label>部署模式</label>
+                        <select name="deployment_mode">
+                            <option value="http">HTTP / HTTPS 反向代理</option>
+                            <option value="tcp">TCP 四层转发</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>共享密钥 (可选)</label>
+                        <input type="text" name="edge_token" placeholder="留空则使用默认" />
+                    </div>
+                    <div class="form-grid__item--full">
+                        <label class="checkbox-row" for="create-proxy-protocol">
+                            <input type="checkbox" id="create-proxy-protocol" name="proxy_protocol" value="on" />
+                            启用 PROXY protocol（仅 TCP 模式生效，用于保留原始客户端 IP）
+                        </label>
+                    </div>
+                </div>
             </div>
-            <div class="full-row">
-                <label>备注信息</label>
-                <textarea name="notes" rows="3" placeholder="可选：记录负载均衡、探活配置等"></textarea>
+            <div class="form-section">
+                <div>
+                    <h3 class="section-heading">连接凭据</h3>
+                    <p class="section-subtitle">用于登录节点并执行部署脚本。</p>
+                </div>
+                <div class="form-grid form-grid--balanced">
+                    <div>
+                        <label>SSH 用户名</label>
+                        <input type="text" name="ssh_username" value="root" required />
+                    </div>
+                    <div>
+                        <label>SSH 端口</label>
+                        <input type="number" name="ssh_port" value="22" min="1" max="65535" />
+                    </div>
+                    <div>
+                        <label>SSH 密码 (可选)</label>
+                        <input type="password" name="ssh_password" autocomplete="new-password" />
+                    </div>
+                    <div class="form-grid__item--full">
+                        <label>SSH 私钥 (可选)</label>
+                        <textarea name="ssh_private_key" rows="3" placeholder="-----BEGIN PRIVATE KEY-----"></textarea>
+                    </div>
+                    <div class="form-grid__item--full">
+                        <label>sudo 密码 (可选)</label>
+                        <input type="password" name="sudo_password" autocomplete="new-password" />
+                        <p class="input-hint">留空则沿用 SSH 密码或依赖免密 sudo。</p>
+                    </div>
+                </div>
+            </div>
+            <div class="form-section">
+                <div>
+                    <h3 class="section-heading">备注信息</h3>
+                    <p class="section-subtitle">记录负载均衡、探活策略等补充说明。</p>
+                </div>
+                <div class="form-grid form-grid--balanced">
+                    <div class="form-grid__item--full">
+                        <textarea name="notes" rows="3" placeholder="可选：记录负载均衡、探活配置等"></textarea>
+                    </div>
+                </div>
             </div>
             <input type="hidden" name="return_to" value="{{ return_to }}" />
             <input type="hidden" name="default_listen_port" value="443" />
             <input type="hidden" name="default_origin_port" value="443" />
-            <div class="full-row">
+            <div class="form-actions">
                 <button class="primary-btn" type="submit">创建节点</button>
             </div>
         </form>
     </section>
 
-    <section class="panel">
-        <h2>节点列表</h2>
+    <div class="panel-stack">
+        <section class="panel">
+            <h2>节点列表</h2>
         {% if endpoints %}
         <table>
             <thead>
@@ -693,7 +783,8 @@
         {% else %}
         <div class="empty-state">暂无 CDN 节点，先在左侧创建一个新的节点。</div>
         {% endif %}
-    </section>
+        </section>
+    </div>
 </div>
 
 <section class="panel">
