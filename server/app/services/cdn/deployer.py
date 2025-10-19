@@ -330,11 +330,16 @@ def _prepare_nginx_runtime(
         "sudo mkdir -p /var/cache/nginx/vmp",
         "sudo chown -R nginx:nginx /var/cache/nginx",
         "sudo mkdir -p /var/run/nginx",
-        "sudo chown nginx:nginx /var/run/nginx",
+        "sudo chown root:root /var/run/nginx",
         "sudo chmod 755 /var/run/nginx",
     ]
     for command in commands:
         _run_command(ssh, command, sudo_password=sudo_password)
+    try:
+        _run_command(ssh, "sudo restorecon -RF /var/run/nginx", sudo_password=sudo_password)
+    except DeploymentError:
+        # SELinux may be disabled or restorecon unavailable; ignore in that case.
+        pass
 
 
 def _ensure_ssl_assets(
