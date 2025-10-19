@@ -578,6 +578,7 @@ if (-not (Test-Path -LiteralPath $ManagePy)) {
     throw "manage.py was not found in the server directory."
 }
 & $VenvPython $ManagePy init-db
+Write-Host "    CDN deployment schema synced (stage timelines & rollback chain ready)."
 
 Write-Step "Preparing NSSM"
 $NssmDir = Join-Path $InstallRoot "tools\nssm"
@@ -743,6 +744,7 @@ Write-Host ""
 Write-Host (" Admin dashboard: {0}/admin/" -f $DisplayUrl) -ForegroundColor Green
 Write-Host (" Admin portal (licenses): {0}/admin/licenses" -f $DisplayUrl) -ForegroundColor Green
 Write-Host (" CDN management: {0}/admin/cdn" -f $DisplayUrl) -ForegroundColor Green
+Write-Host "  · 查看最新部署阶段日志与一键回滚工具" -ForegroundColor Yellow
 Write-Host (" Users portal: {0}/admin/users" -f $DisplayUrl) -ForegroundColor Green
 Write-Host (" HTTP Basic user: {0}" -f $FinalAdminUser)
 if ($GeneratedAdminPassword) {

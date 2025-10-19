@@ -10,6 +10,7 @@
 > - 一键部署脚本支持交互式部署模式选择，可在全新部署、升级或卸载之间切换，并进行数据保留控制。
 > - 新增“仪表盘巡检”章节，帮助你在上线前核查各模块卡片与关键指标。
 > - 自动健康巡检现可在后台 UI 中即时调整，并支持通过部署脚本参数设定默认开关与周期。
+> - CDN 部署记录新增阶段时间线与一键回滚功能；从旧版本升级时请重新执行 `python manage.py init-db`（或运行部署脚本）以完成数据库迁移，否则访问 `/admin/cdn` 会返回 500。
 
 ---
 
@@ -102,6 +103,8 @@ python manage.py create-license --card DEMO-0001 --ttl 30
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
 ```
 
+> **注意**：若你刚从旧版本拉取代码，请务必再次运行 `python manage.py init-db` 以创建 CDN 部署阶段日志与回滚链字段；否则访问 `/admin/cdn` 会因缺少列而触发 `Internal Server Error`。
+
 - `python manage.py init-db` 会在 SQLite 中创建/升级基础表结构，并自动触发 Alembic 迁移到最新版本（包括新引入的 `software_slot_current_packages` 关联表以消除软件位循环外键告警）。
 - 如果你希望单独检查迁移日志，可执行 `alembic upgrade head`（若命令未命中，可改用 `..\.venv\Scripts\alembic.exe upgrade head`），其效果与 `init-db` 内部调用一致。
 - 打开浏览器访问 `http://192.168.132.132:8000/docs`，查看 Swagger 文档确认接口可访问。
@@ -129,6 +132,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
 5. 创建日志目录 `logs/`，将 stdout/stderr 轮转写入；
 6. 设置防火墙规则放行指定端口；
 7. 自动把 `.env` 调整为生产配置（写入绝对路径的 SQLite、生成随机 HMAC/后台密码），并输出最终服务访问信息。
+8. 同步最新 CDN 部署结构（阶段日志、配置快照、回滚链），并在完成后提示可在 `/admin/cdn` 查看部署时间线。
 
 脚本完成后还会主动请求 `http://127.0.0.1:<端口>/api/v1/ping` 做本地健康检查，并在输出中给出仪表盘、卡密管理、CDN 管理等入口。当监听地址为 `0.0.0.0` 或 `::` 时，控制台会提示将 `<server-ip>` 替换为服务器的实际地址后再访问。
 
@@ -159,6 +163,8 @@ powershell -ExecutionPolicy Bypass -File server\tools\winserver2012_deploy.ps1 -
 ```
 
 > 提示：脚本会在存在生成/变更操作时打印醒目的英文提示。若不传 `-AdminPassword`，会生成高强度密码并在终端显示；同理，检测到默认占位值时会生成新的 `VMP_HMAC_SECRET`。请在窗口关闭前妥善记录这些值。
+
+> 新版脚本在运行 `python manage.py init-db` 后会打印 “CDN deployment schema synced...” 提示，表明阶段时间线与回滚功能的数据库列已就绪。
 
 > 运行结束后请留意脚本输出的 `VMP_CDN_HEALTH_MONITOR_ENABLED` 与 `VMP_CDN_HEALTH_MONITOR_INTERVAL` 行，确认设置已按预期写入；同时后台 “CDN 管理 → 自动健康巡检” 面板会即时反映该状态，可在上线前再次校验。
 
@@ -261,6 +267,7 @@ pong    2025-10-16T19:28:29.680446+00:00
 - 「即将过期」列表默认展示未来 7 天内到期的卡密，若列表为空说明近期无即将过期的记录；可通过创建临时期卡密来验证提醒功能。
 - 「最新注册用户」与「最新创建卡密」分别抓取最近 6 条记录，如需查看更多可跳转到对应模块页面进行分页查询。
 - CDN 管理卡片应显示“前往页面”，并能跳转到节点列表与任务面板；软件位与系统设置仍标记为“规划中”，后续迭代上线时会在同一仪表盘解锁。
+- 在 CDN 管理页面展开最近一次部署，确认“部署阶段时间线”与“回滚到部署”按钮正常显示，且可查看到同步后的配置快照。
 - 建议在每次发布或脚本重装后重复上述巡检，确保后台入口与导航指向正确；如遇模板渲染异常，可重新运行 `python -m pytest -k dashboard` 协助定位。
 
 ---
