@@ -13,6 +13,7 @@ from app.services.cdn.deployer import (
     _cleanup_previous_deployment,
     _configure_centos_vault_repo,
     _ensure_ssl_assets,
+    _prepare_nginx_runtime,
     _install_packages,
     _enable_services,
     _is_tls_enabled,
@@ -216,6 +217,26 @@ def test_cleanup_previous_deployment_runs_commands(monkeypatch):
     assert any("预清理完成" in entry for entry in log)
 
 
+def test_prepare_nginx_runtime_creates_directories(monkeypatch):
+    commands: List[str] = []
+
+    def fake_run_command(_ssh, command: str, *, sudo_password: Optional[str] = None):
+        commands.append(command)
+        return ""
+
+    monkeypatch.setattr("app.services.cdn.deployer._run_command", fake_run_command)
+
+    _prepare_nginx_runtime(object())
+
+    expected = [
+        "sudo mkdir -p /var/cache/nginx/vmp",
+        "sudo chown -R nginx:nginx /var/cache/nginx",
+        "sudo mkdir -p /var/run/nginx",
+        "sudo chown nginx:nginx /var/run/nginx",
+    ]
+    assert commands == expected
+
+
 def test_is_tls_enabled_false_for_plain_http():
     config = DeploymentConfig(origin_host="edge.local", listen_port=80)
 
@@ -294,6 +315,10 @@ def test_deployer_calls_cleanup_before_install(monkeypatch):
         lambda *_args, **_kwargs: order.append("ssl"),
     )
     monkeypatch.setattr(
+        "app.services.cdn.deployer._prepare_nginx_runtime",
+        lambda *_args, **_kwargs: order.append("prepare"),
+    )
+    monkeypatch.setattr(
         "app.services.cdn.deployer._configure_firewall",
         lambda *_args, **_kwargs: order.append("firewall"),
     )
@@ -314,4 +339,5 @@ def test_deployer_calls_cleanup_before_install(monkeypatch):
 
     assert order[0] == "cleanup"
     assert order[1] == "install"
+    assert "prepare" in order
     assert dummy_ssh.closed

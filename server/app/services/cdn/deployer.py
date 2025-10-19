@@ -319,6 +319,21 @@ def _cleanup_previous_deployment(
         _append_log(log, "预清理完成")
 
 
+def _prepare_nginx_runtime(
+    ssh: paramiko.SSHClient,
+    *,
+    sudo_password: Optional[str] = None,
+) -> None:
+    commands = [
+        "sudo mkdir -p /var/cache/nginx/vmp",
+        "sudo chown -R nginx:nginx /var/cache/nginx",
+        "sudo mkdir -p /var/run/nginx",
+        "sudo chown nginx:nginx /var/run/nginx",
+    ]
+    for command in commands:
+        _run_command(ssh, command, sudo_password=sudo_password)
+
+
 def _ensure_ssl_assets(
     ssh: paramiko.SSHClient,
     *,
@@ -508,6 +523,8 @@ class CDNDeployer:
                         log=log_lines,
                         generate_missing=not (config.ssl_certificate or config.ssl_certificate_key),
                     )
+
+            _prepare_nginx_runtime(ssh, sudo_password=target.sudo_password)
 
             firewall_ports = sorted({*config.firewall_ports, config.listen_port})
             _append_log(log_lines, f"配置防火墙端口: {firewall_ports}")
