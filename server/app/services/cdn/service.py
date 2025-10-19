@@ -8,7 +8,7 @@ import logging
 import os
 import socket
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Iterable, List, Optional
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -30,6 +30,7 @@ from app.services.cdn.deployer import (
     DeploymentConfig,
     DeploymentError,
     DeploymentTarget,
+    generate_nginx_config,
 )
 from app.services.cdn.health import CDNHealthChecker, HealthCheckResult
 
@@ -303,6 +304,91 @@ class CDNService:
         host = endpoint.domain or endpoint.host
         return self.health_checker.check_http(host, endpoint.listen_port, use_https=use_https)
 
+    def _create_config_snapshot(
+        self,
+        endpoint: CDNEndpoint,
+        deploy_config: DeploymentConfig,
+        firewall_ports: Iterable[int],
+        *,
+        whitelist: Optional[List[str]] = None,
+    ) -> dict[str, object]:
+        snapshot: dict[str, object] = {
+            "origin_host": deploy_config.origin_host,
+            "origin_port": deploy_config.origin_port,
+            "listen_port": deploy_config.listen_port,
+            "mode": deploy_config.mode,
+            "allow_http": deploy_config.allow_http,
+            "proxy_protocol": deploy_config.proxy_protocol,
+            "edge_token": deploy_config.edge_token,
+            "firewall_ports": list(firewall_ports),
+            "extra_packages": list(deploy_config.extra_packages),
+            "ssl_certificate": deploy_config.ssl_certificate,
+            "ssl_certificate_key": deploy_config.ssl_certificate_key,
+        }
+        if whitelist:
+            snapshot["recommended_origin_ip_whitelist"] = list(whitelist)
+        return snapshot
+
+    def _config_from_snapshot(
+        self,
+        endpoint: CDNEndpoint,
+        snapshot: Optional[dict[str, Any]],
+    ) -> DeploymentConfig:
+        data = snapshot or {}
+
+        def _coerce_int(value: Any, default: int) -> int:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return default
+
+        origin_host = str(data.get("origin_host") or endpoint.origin)
+        origin_port = _coerce_int(data.get("origin_port"), endpoint.origin_port)
+        listen_port = _coerce_int(data.get("listen_port"), endpoint.listen_port)
+        mode = str(data.get("mode") or endpoint.deployment_mode).lower()
+
+        allow_http_raw = data.get("allow_http")
+        if allow_http_raw is None:
+            allow_http_value = endpoint.deployment_mode == "http"
+        else:
+            allow_http_value = bool(allow_http_raw)
+
+        proxy_protocol_raw = data.get("proxy_protocol")
+        if proxy_protocol_raw is None:
+            proxy_protocol_value = endpoint.proxy_protocol_enabled
+        else:
+            proxy_protocol_value = bool(proxy_protocol_raw)
+
+        config = DeploymentConfig(
+            origin_host=origin_host,
+            origin_port=origin_port,
+            listen_port=listen_port,
+            edge_token=data.get("edge_token") or endpoint.edge_token,
+            mode=mode,
+            allow_http=allow_http_value,
+            proxy_protocol=proxy_protocol_value,
+        )
+
+        extra_packages = data.get("extra_packages")
+        if extra_packages:
+            config.extra_packages = list(extra_packages)
+
+        firewall_ports = data.get("firewall_ports")
+        if firewall_ports:
+            config.firewall_ports = list(firewall_ports)
+
+        if data.get("ssl_certificate"):
+            config.ssl_certificate = data.get("ssl_certificate")
+        if data.get("ssl_certificate_key"):
+            config.ssl_certificate_key = data.get("ssl_certificate_key")
+
+        if config.mode != "http":
+            config.allow_http = False
+        if config.mode != "tcp":
+            config.proxy_protocol = False
+
+        return config
+
     def _apply_health_result(self, endpoint: CDNEndpoint, result: HealthCheckResult) -> CDNHealthCheck:
         record = CDNHealthCheck(
             endpoint=endpoint,
@@ -371,6 +457,7 @@ class CDNService:
             allow_http=allow_http if endpoint.deployment_mode == "http" else False,
             proxy_protocol=endpoint.proxy_protocol_enabled if endpoint.deployment_mode == "tcp" else False,
         )
+        config_text = generate_nginx_config(deploy_config)
 
         task = CDNTask(
             endpoint=endpoint,
@@ -384,18 +471,26 @@ class CDNService:
         settings = get_settings()
         started_at = datetime.now(timezone.utc)
         firewall_ports_snapshot = sorted({*deploy_config.firewall_ports, deploy_config.listen_port})
-        config_snapshot: dict[str, object] = {
-            "origin_host": endpoint.origin,
-            "origin_port": endpoint.origin_port,
-            "listen_port": endpoint.listen_port,
-            "mode": endpoint.deployment_mode,
-            "allow_http": deploy_config.allow_http,
-            "proxy_protocol": endpoint.proxy_protocol_enabled,
-            "edge_token_present": bool(endpoint.edge_token),
-            "firewall_ports": firewall_ports_snapshot,
-        }
-        if settings.cdn_ip_whitelist:
-            config_snapshot["recommended_origin_ip_whitelist"] = list(settings.cdn_ip_whitelist)
+        whitelist = list(settings.cdn_ip_whitelist) if settings.cdn_ip_whitelist else None
+        config_snapshot = self._create_config_snapshot(
+            endpoint,
+            deploy_config,
+            firewall_ports_snapshot,
+            whitelist=whitelist,
+        )
+
+        stage_events: list[dict[str, str]] = []
+
+        def _record_stage(stage: str, status: str, message: Optional[str] = None) -> None:
+            entry = {
+                "stage": stage,
+                "status": status,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            if message:
+                entry["message"] = message
+            stage_events.append(entry)
+            deployment.stage_logs = list(stage_events)  # type: ignore[name-defined]
 
         deployment = CDNDeployment(
             endpoint=endpoint,
@@ -407,9 +502,15 @@ class CDNService:
             summary="部署初始化",
             config_snapshot=dict(config_snapshot),
             started_at=started_at,
+            config_text=config_text,
+            stage_logs=[],
         )
         self.db.add(deployment)
         self.db.flush()
+
+        # Initialize stage timeline after deployment object is available
+        stage_events.clear()
+        _record_stage("queued", "completed")
 
         endpoint.updated_at = started_at
         endpoint.last_deploy_status = CDNTaskStatus.PENDING.value
@@ -417,8 +518,11 @@ class CDNService:
         health_record: Optional[CDNHealthCheck] = None
 
         try:
-            result = self.deployer.deploy(target, deploy_config)
+            _record_stage("deployment", "started")
+            result = self.deployer.deploy(target, deploy_config, precomputed_config=config_text)
+            _record_stage("deployment", "completed")
         except DeploymentError as exc:
+            _record_stage("deployment", "failed", str(exc))
             failure_time = datetime.now(timezone.utc)
             task.status = CDNTaskStatus.FAILED.value
             task.message = str(exc)
@@ -440,7 +544,11 @@ class CDNService:
                 deployment.duration_ms = int((failure_time - deployment.started_at).total_seconds() * 1000)
 
             self._sync_origin_whitelist()
-            config_snapshot["recommended_origin_ip_whitelist"] = settings.cdn_ip_whitelist
+            latest_whitelist = list(settings.cdn_ip_whitelist) if settings.cdn_ip_whitelist else None
+            if latest_whitelist:
+                config_snapshot["recommended_origin_ip_whitelist"] = latest_whitelist
+            else:
+                config_snapshot.pop("recommended_origin_ip_whitelist", None)
             deployment.config_snapshot = dict(config_snapshot)
 
             self.db.commit()
@@ -459,16 +567,199 @@ class CDNService:
         deployment.completed_at = completion
         deployment.duration_ms = result.duration_ms
 
+        _record_stage("health_check", "started")
         health_result = self._perform_health_probe(endpoint, None)
         health_record = self._apply_health_result(endpoint, health_result)
+        _record_stage("health_check", "completed", health_result.status.value)
 
         endpoint.status = CDNEndpointStatus.ACTIVE.value
         endpoint.last_deployed_at = completion
         endpoint.last_deploy_status = task.status
         endpoint.updated_at = max(completion, health_result.checked_at)
 
+        _record_stage("sync_whitelist", "started")
         whitelist = self._sync_origin_whitelist()
-        config_snapshot["recommended_origin_ip_whitelist"] = whitelist
+        _record_stage("sync_whitelist", "completed")
+        if whitelist:
+            config_snapshot["recommended_origin_ip_whitelist"] = whitelist
+        else:
+            config_snapshot.pop("recommended_origin_ip_whitelist", None)
+        deployment.config_snapshot = dict(config_snapshot)
+
+        self.db.commit()
+        self.db.refresh(task)
+        self.db.refresh(deployment)
+        if health_record is not None:
+            self.db.refresh(health_record)
+        return task
+
+    def rollback_deployment(
+        self,
+        endpoint_id: int,
+        deployment_id: int,
+        *,
+        allow_http: Optional[bool] = None,
+        initiated_by: Optional[str] = None,
+        initiated_by_id: Optional[int] = None,
+    ) -> CDNTask:
+        endpoint = self.db.get(CDNEndpoint, endpoint_id)
+        if not endpoint:
+            raise ValueError("endpoint_not_found")
+
+        source_deployment = self.db.get(CDNDeployment, deployment_id)
+        if not source_deployment or source_deployment.endpoint_id != endpoint_id:
+            raise ValueError("deployment_not_found")
+
+        deploy_config = self._config_from_snapshot(endpoint, source_deployment.config_snapshot)
+        if allow_http is not None and deploy_config.mode == "http":
+            deploy_config.allow_http = allow_http
+
+        config_text = source_deployment.config_text or generate_nginx_config(deploy_config)
+
+        credentials = self.get_credentials(endpoint)
+        target = DeploymentTarget(
+            name=endpoint.name,
+            host=credentials.host,
+            username=credentials.ssh_username,
+            port=credentials.ssh_port,
+            password=credentials.ssh_password,
+            private_key=credentials.ssh_private_key,
+            sudo_password=credentials.sudo_password or credentials.ssh_password,
+        )
+
+        task = CDNTask(
+            endpoint=endpoint,
+            task_type=CDNTaskType.DEPLOY.value,
+            status=CDNTaskStatus.PENDING.value,
+            payload=f"rollback={deployment_id}",
+        )
+        self.db.add(task)
+        self.db.flush()
+
+        settings = get_settings()
+        started_at = datetime.now(timezone.utc)
+        firewall_ports_snapshot = sorted({*deploy_config.firewall_ports, deploy_config.listen_port})
+        whitelist = list(settings.cdn_ip_whitelist) if settings.cdn_ip_whitelist else None
+        config_snapshot = self._create_config_snapshot(
+            endpoint,
+            deploy_config,
+            firewall_ports_snapshot,
+            whitelist=whitelist,
+        )
+
+        stage_events: list[dict[str, str]] = []
+
+        def _record_stage(stage: str, status: str, message: Optional[str] = None) -> None:
+            entry = {
+                "stage": stage,
+                "status": status,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            if message:
+                entry["message"] = message
+            stage_events.append(entry)
+            deployment.stage_logs = list(stage_events)  # type: ignore[name-defined]
+
+        deployment = CDNDeployment(
+            endpoint=endpoint,
+            task=task,
+            status=CDNTaskStatus.PENDING.value,
+            mode=deploy_config.mode,
+            allow_http=deploy_config.allow_http,
+            proxy_protocol=deploy_config.proxy_protocol,
+            summary=f"回滚到部署 {deployment_id}",
+            config_snapshot=dict(config_snapshot),
+            started_at=started_at,
+            config_text=config_text,
+            rolled_back_from=source_deployment,
+            stage_logs=[],
+            initiated_by=initiated_by,
+            initiated_by_id=initiated_by_id,
+        )
+        self.db.add(deployment)
+        self.db.flush()
+
+        stage_events.clear()
+        _record_stage("queued", "completed")
+
+        endpoint.updated_at = started_at
+        endpoint.last_deploy_status = CDNTaskStatus.PENDING.value
+
+        health_record: Optional[CDNHealthCheck] = None
+
+        try:
+            _record_stage("deployment", "started")
+            result = self.deployer.deploy(target, deploy_config, precomputed_config=config_text)
+            _record_stage("deployment", "completed")
+        except DeploymentError as exc:
+            _record_stage("deployment", "failed", str(exc))
+            failure_time = datetime.now(timezone.utc)
+            task.status = CDNTaskStatus.FAILED.value
+            task.message = str(exc)
+            task.completed_at = failure_time
+            endpoint.status = CDNEndpointStatus.ERROR.value
+            endpoint.last_deploy_status = task.status
+            endpoint.last_deployed_at = failure_time
+            endpoint.updated_at = failure_time
+            endpoint.health_status = CDNHealthStatus.UNHEALTHY.value
+            endpoint.health_checked_at = failure_time
+            endpoint.health_latency_ms = None
+            endpoint.health_error = str(exc)
+
+            deployment.status = CDNTaskStatus.FAILED.value
+            deployment.summary = str(exc)
+            deployment.log = exc.log or None
+            deployment.completed_at = failure_time
+            if deployment.started_at:
+                deployment.duration_ms = int((failure_time - deployment.started_at).total_seconds() * 1000)
+
+            self._sync_origin_whitelist()
+            latest_whitelist = list(settings.cdn_ip_whitelist) if settings.cdn_ip_whitelist else None
+            if latest_whitelist:
+                config_snapshot["recommended_origin_ip_whitelist"] = latest_whitelist
+            else:
+                config_snapshot.pop("recommended_origin_ip_whitelist", None)
+            deployment.config_snapshot = dict(config_snapshot)
+
+            self.db.commit()
+            self.db.refresh(task)
+            self.db.refresh(deployment)
+            raise
+
+        completion = result.completed_at
+        task.status = CDNTaskStatus.COMPLETED.value
+        task.message = result.summary
+        task.completed_at = completion
+
+        deployment.status = CDNTaskStatus.COMPLETED.value
+        deployment.summary = result.summary
+        deployment.log = result.log
+        deployment.completed_at = completion
+        deployment.duration_ms = result.duration_ms
+
+        _record_stage("health_check", "started")
+        health_result = self._perform_health_probe(endpoint, None)
+        health_record = self._apply_health_result(endpoint, health_result)
+        _record_stage("health_check", "completed", health_result.status.value)
+
+        endpoint.status = CDNEndpointStatus.ACTIVE.value
+        endpoint.origin = deploy_config.origin_host
+        endpoint.origin_port = deploy_config.origin_port
+        endpoint.listen_port = deploy_config.listen_port
+        endpoint.deployment_mode = deploy_config.mode
+        endpoint.edge_token = deploy_config.edge_token
+        endpoint.proxy_protocol_enabled = deploy_config.proxy_protocol if deploy_config.mode == "tcp" else False
+        endpoint.last_deployed_at = completion
+        endpoint.last_deploy_status = task.status
+        endpoint.updated_at = max(completion, health_result.checked_at)
+
+        _record_stage("sync_whitelist", "started")
+        whitelist_after = self._sync_origin_whitelist()
+        _record_stage("sync_whitelist", "completed")
+        if whitelist_after:
+            config_snapshot["recommended_origin_ip_whitelist"] = whitelist_after
+        else:
+            config_snapshot.pop("recommended_origin_ip_whitelist", None)
         deployment.config_snapshot = dict(config_snapshot)
 
         self.db.commit()

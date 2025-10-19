@@ -283,9 +283,26 @@ class CDNDeployment(Base):
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     duration_ms: Mapped[Optional[int]] = mapped_column(Integer)
+    stage_logs: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(JSON)
+    config_text: Mapped[Optional[str]] = mapped_column(Text)
+    rolled_back_from_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("cdn_deployments.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     endpoint: Mapped[CDNEndpoint] = relationship(back_populates="deployments")
     task: Mapped[Optional[CDNTask]] = relationship(back_populates="deployment")
+    rolled_back_from: Mapped[Optional["CDNDeployment"]] = relationship(
+        remote_side="CDNDeployment.id",
+        back_populates="rollbacks",
+        foreign_keys=[rolled_back_from_id],
+    )
+    rollbacks: Mapped[list["CDNDeployment"]] = relationship(
+        back_populates="rolled_back_from",
+        cascade="all, delete-orphan",
+        foreign_keys="CDNDeployment.rolled_back_from_id",
+    )
 
 
 class CDNHealthCheck(Base):

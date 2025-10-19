@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 import pytest
 
@@ -23,10 +24,16 @@ from app.services.cdn import (
 class _FakeDeployer:
     def __init__(self, *, should_fail: bool = False) -> None:
         self.should_fail = should_fail
-        self.calls: list[tuple[DeploymentTarget, DeploymentConfig]] = []
+        self.calls: list[tuple[DeploymentTarget, DeploymentConfig, Optional[str]]] = []
 
-    def deploy(self, target: DeploymentTarget, config: DeploymentConfig) -> DeploymentResult:  # type: ignore[override]
-        self.calls.append((target, config))
+    def deploy(
+        self,
+        target: DeploymentTarget,
+        config: DeploymentConfig,
+        *,
+        precomputed_config: Optional[str] = None,
+    ) -> DeploymentResult:  # type: ignore[override]
+        self.calls.append((target, config, precomputed_config))
         if self.should_fail:
             raise DeploymentError("boom", log="failed during fake deploy")
 
@@ -148,6 +155,17 @@ def test_deploy_endpoint_success_updates_status_and_creates_task():
         assert "fake deploy step" in (latest_deployment.log or "")
         assert latest_deployment.allow_http is True
         assert latest_deployment.config_snapshot.get("recommended_origin_ip_whitelist") == ["203.0.113.10"]
+        assert latest_deployment.config_snapshot.get("firewall_ports") == [80, 443, 8000]
+        assert latest_deployment.config_text is not None
+        assert latest_deployment.stage_logs
+        stage_sequence = [(entry.get("stage"), entry.get("status")) for entry in latest_deployment.stage_logs]
+        assert stage_sequence[0] == ("queued", "completed")
+        assert ("deployment", "started") in stage_sequence
+        assert ("deployment", "completed") in stage_sequence
+        assert ("health_check", "started") in stage_sequence
+        assert any(stage == "health_check" and status == "completed" for stage, status in stage_sequence)
+        assert ("sync_whitelist", "started") in stage_sequence
+        assert ("sync_whitelist", "completed") in stage_sequence
 
         assert refreshed.health_checks
         latest_health = refreshed.health_checks[0]
@@ -156,7 +174,7 @@ def test_deploy_endpoint_success_updates_status_and_creates_task():
         assert latest_health.latency_ms == 42
 
         assert len(fake.calls) == 1
-        target, config = fake.calls[0]
+        target, config, config_text = fake.calls[0]
         assert target.host == "203.0.113.10"
         assert target.username == "root"
         assert target.password == "password123"
@@ -166,6 +184,8 @@ def test_deploy_endpoint_success_updates_status_and_creates_task():
         assert config.proxy_protocol is False
         assert config.listen_port == 443
         assert config.origin_port == 8443
+        assert config_text is not None
+        assert latest_deployment.config_text == config_text
 
         assert fake_health.http_calls
         host, port, use_https = fake_health.http_calls[0]
@@ -191,9 +211,10 @@ def test_deploy_endpoint_supports_distinct_sudo_password():
 
         service.deploy_endpoint(endpoint_id)
         assert fake.calls
-        target, _ = fake.calls[-1]
+        target, _, config_text = fake.calls[-1]
         assert target.password == "ssh-secret"
         assert target.sudo_password == "sudo-secret"
+        assert config_text is not None
 
 
 def test_deploy_endpoint_failure_marks_endpoint_error():
@@ -221,10 +242,93 @@ def test_deploy_endpoint_failure_marks_endpoint_error():
         assert failed_deployment.status == CDNTaskStatus.FAILED.value
         assert failed_deployment.summary == "boom"
         assert "failed" in (failed_deployment.log or "")
+        assert failed_deployment.stage_logs
+        failure_sequence = [(entry.get("stage"), entry.get("status")) for entry in failed_deployment.stage_logs]
+        assert failure_sequence[0] == ("queued", "completed")
+        assert failure_sequence[-1] == ("deployment", "failed")
+        assert any(entry.get("message") == "boom" for entry in failed_deployment.stage_logs)
 
         tasks = service.list_recent_tasks(limit=5)
         assert tasks
         assert tasks[0].status == CDNTaskStatus.FAILED.value
+
+
+def test_rollback_deployment_reuses_snapshot_and_stage_logs():
+    fake = _FakeDeployer()
+    fake_health = _FakeHealthChecker()
+    with SessionLocal() as session:
+        service = CDNService(session, deployer=fake, health_checker=fake_health)
+        endpoint_id = _create_endpoint(service)
+
+        service.deploy_endpoint(endpoint_id, allow_http=True)
+        refreshed = service.get_endpoint(endpoint_id)
+        assert refreshed is not None
+        assert refreshed.deployments
+        first_deployment = refreshed.deployments[0]
+        first_deployment_id = first_deployment.id
+        assert first_deployment_id is not None
+        first_config_text = first_deployment.config_text
+        assert first_config_text
+
+        endpoint = service.get_endpoint(endpoint_id)
+        assert endpoint is not None
+        endpoint.origin = "modified.internal"
+        endpoint.origin_port = 9443
+        endpoint.listen_port = 5443
+        session.commit()
+
+        service.deploy_endpoint(endpoint_id, allow_http=False)
+        assert len(fake.calls) == 2
+
+        rollback_task = service.rollback_deployment(
+            endpoint_id,
+            first_deployment_id,
+            allow_http=True,
+            initiated_by="ops-bot",
+            initiated_by_id=42,
+        )
+
+        assert rollback_task.status == CDNTaskStatus.COMPLETED.value
+        assert len(fake.calls) == 3
+        target, config, config_text = fake.calls[-1]
+        assert target.host == "203.0.113.10"
+        assert config.origin_host == "origin.internal"
+        assert config.origin_port == 8443
+        assert config.listen_port == 443
+        assert config.allow_http is True
+        assert config_text == first_config_text
+
+        session.expire_all()
+        refreshed = service.get_endpoint(endpoint_id)
+        assert refreshed is not None
+        assert refreshed.origin == "origin.internal"
+        assert refreshed.origin_port == 8443
+        assert refreshed.listen_port == 443
+
+        latest_deployment = refreshed.deployments[0]
+        assert latest_deployment.status == CDNTaskStatus.COMPLETED.value
+        assert latest_deployment.rolled_back_from_id == first_deployment_id
+        assert latest_deployment.rolled_back_from is not None
+        assert latest_deployment.summary == "模拟部署成功"
+        assert latest_deployment.initiated_by == "ops-bot"
+        assert latest_deployment.initiated_by_id == 42
+        assert latest_deployment.config_text == first_config_text
+        assert latest_deployment.config_snapshot
+        assert latest_deployment.config_snapshot.get("origin_host") == "origin.internal"
+        assert latest_deployment.config_snapshot.get("listen_port") == 443
+        assert latest_deployment.stage_logs
+        assert any(
+            entry.get("stage") == "deployment" and entry.get("status") == "completed"
+            for entry in latest_deployment.stage_logs
+        )
+        assert any(
+            entry.get("stage") == "health_check" and entry.get("status") == "completed"
+            for entry in latest_deployment.stage_logs
+        )
+
+        session.refresh(first_deployment)
+        assert first_deployment.rollbacks
+        assert any(child.id == latest_deployment.id for child in first_deployment.rollbacks)
 
 
 def test_tcp_deploy_respects_proxy_protocol_toggle():
@@ -245,11 +349,12 @@ def test_tcp_deploy_respects_proxy_protocol_toggle():
         assert refreshed is not None
         assert refreshed.proxy_protocol_enabled is True
         assert refreshed.egress_ips == ["203.0.113.10"]
-        target, config = fake.calls[-1]
+        target, config, config_text = fake.calls[-1]
         assert config.mode == "tcp"
         assert config.proxy_protocol is True
         assert config.allow_http is False
         assert target.sudo_password == "password123"
+        assert config_text is not None
 
         latest_deployment = refreshed.deployments[0]
         assert latest_deployment.proxy_protocol is True
@@ -258,19 +363,21 @@ def test_tcp_deploy_respects_proxy_protocol_toggle():
         service.deploy_endpoint(endpoint_id)
         refreshed = service.get_endpoint(endpoint_id)
         assert refreshed.proxy_protocol_enabled is True
-        target, config = fake.calls[-1]
+        target, config, config_text = fake.calls[-1]
         assert config.proxy_protocol is True
         assert target.sudo_password == "password123"
+        assert config_text is not None
 
         # Disable proxy protocol
         service.deploy_endpoint(endpoint_id, use_proxy_protocol=False)
         refreshed = service.get_endpoint(endpoint_id)
         assert refreshed.proxy_protocol_enabled is False
         assert refreshed.egress_ips == ["203.0.113.10"]
-        target, config = fake.calls[-1]
+        target, config, config_text = fake.calls[-1]
         assert config.proxy_protocol is False
         assert target.sudo_password == "password123"
         assert refreshed.deployments[0].proxy_protocol is False
+        assert config_text is not None
 
 
 def test_run_health_check_records_entry():
