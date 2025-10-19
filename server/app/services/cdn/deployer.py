@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import re
 from typing import Iterable, Optional
 
 import paramiko
@@ -196,14 +197,58 @@ def _configure_centos_vault_repo(
     *,
     sudo_password: Optional[str] = None,
 ) -> None:
-    commands = [
-        "sudo sed -i \"s|^mirrorlist=|#mirrorlist=|g\" /etc/yum.repos.d/CentOS-*.repo",
-        "sudo sed -i \"s|^#baseurl=http://mirror.centos.org/centos/$releasever|baseurl=https://vault.centos.org/centos/$releasever|g\" /etc/yum.repos.d/CentOS-*.repo",
-        "sudo yum clean all",
-        "sudo yum makecache",
+    try:
+        release_info = _run_command(ssh, "cat /etc/centos-release")
+    except DeploymentError:
+        release_info = ""
+
+    match = re.search(r"(\d+\.\d+\.\d+)", release_info)
+    if match:
+        release_version = match.group(1)
+    else:
+        release_version = "7.9.2009"
+
+    major_version = release_version.split(".")[0]
+
+    repo_text = f"""[centos-vault-base]
+name=CentOS {release_version} - Vault - Base
+baseurl=https://vault.centos.org/{release_version}/os/$basearch/
+gpgcheck=1
+enabled=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-{major_version}
+
+[centos-vault-updates]
+name=CentOS {release_version} - Vault - Updates
+baseurl=https://vault.centos.org/{release_version}/updates/$basearch/
+gpgcheck=1
+enabled=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-{major_version}
+
+[centos-vault-extras]
+name=CentOS {release_version} - Vault - Extras
+baseurl=https://vault.centos.org/{release_version}/extras/$basearch/
+gpgcheck=1
+enabled=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-{major_version}
+"""
+
+    _upload_config(
+        ssh,
+        repo_text,
+        "/etc/yum.repos.d/CentOS-Vault.repo",
+        sudo_password=sudo_password,
+    )
+
+    disable_commands = [
+        "sudo sed -i 's/^enabled=1/enabled=0/g' /etc/yum.repos.d/CentOS-Base.repo",
+        "sudo sed -i 's/^enabled=1/enabled=0/g' /etc/yum.repos.d/CentOS-Updates.repo",
+        "sudo sed -i 's/^enabled=1/enabled=0/g' /etc/yum.repos.d/CentOS-Extras.repo",
     ]
-    for command in commands:
+    for command in disable_commands:
         _run_command(ssh, command, sudo_password=sudo_password)
+
+    _run_command(ssh, "sudo yum clean all", sudo_password=sudo_password)
+    _run_command(ssh, "sudo yum makecache", sudo_password=sudo_password)
 
 
 def _install_packages(

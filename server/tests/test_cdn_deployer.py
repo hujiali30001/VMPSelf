@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import pytest
 
@@ -40,6 +40,7 @@ def test_install_packages_fallback_to_vault(monkeypatch):
     ssh = _FakeSSH("/usr/bin/yum\n")
     commands: List[str] = []
     install_attempts = {"count": 0}
+    uploaded: Dict[str, str] = {}
 
     def fake_run_command(_ssh, command: str, *, sudo_password: Optional[str] = None):
         commands.append(command)
@@ -49,21 +50,29 @@ def test_install_packages_fallback_to_vault(monkeypatch):
                 raise DeploymentError(
                     "Command failed (1): sudo /usr/bin/yum -y install nginx\nCould not resolve host: mirrorlist.centos.org"
                 )
+        if "cat /etc/centos-release" in command:
+            return "CentOS Linux release 7.9.2009 (Core)"
         return ""
 
     monkeypatch.setattr("app.services.cdn.deployer._run_command", fake_run_command)
+    monkeypatch.setattr(
+        "app.services.cdn.deployer._upload_config",
+        lambda _ssh, text, path, *, sudo_password=None: uploaded.update({"path": path, "text": text}),
+    )
 
     log: List[str] = []
     _install_packages(ssh, ["nginx"], sudo_password=None, log=log)
 
     assert install_attempts["count"] == 2
-    assert any("vault.centos.org" in cmd for cmd in commands)
     assert any("默认仓库不可达" in entry for entry in log)
     assert any("已切换仓库" in entry for entry in log)
+    assert uploaded.get("path") == "/etc/yum.repos.d/CentOS-Vault.repo"
+    assert "vault.centos.org/7.9.2009/os" in uploaded.get("text", "")
 
 
 def test_install_packages_without_fallback(monkeypatch):
     ssh = _FakeSSH("/usr/bin/yum\n")
+    uploaded: Dict[str, str] = {}
 
     def fake_run_command(_ssh, command: str, *, sudo_password: Optional[str] = None):
         if "yum -y install" in command:
@@ -71,6 +80,11 @@ def test_install_packages_without_fallback(monkeypatch):
         return ""
 
     monkeypatch.setattr("app.services.cdn.deployer._run_command", fake_run_command)
+    monkeypatch.setattr(
+        "app.services.cdn.deployer._upload_config",
+        lambda *_args, **_kwargs: uploaded.update({"called": "yes"}),
+    )
 
     with pytest.raises(DeploymentError):
         _install_packages(ssh, ["nginx"], sudo_password=None, log=[])
+    assert "called" not in uploaded
