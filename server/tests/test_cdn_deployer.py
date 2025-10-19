@@ -67,7 +67,9 @@ def test_install_packages_fallback_to_vault(monkeypatch):
     assert any("默认仓库不可达" in entry for entry in log)
     assert any("已切换仓库" in entry for entry in log)
     assert uploaded.get("path") == "/etc/yum.repos.d/CentOS-Vault.repo"
-    assert "vault.centos.org/7.9.2009/os" in uploaded.get("text", "")
+    text = uploaded.get("text", "")
+    assert "vault.centos.org/7.9.2009/os" in text
+    assert "nginx.org/packages/centos/7" in text
 
 
 def test_install_packages_without_fallback(monkeypatch):

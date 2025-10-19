@@ -224,12 +224,12 @@ gpgcheck=1
 enabled=1
 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-{major_version}
 
-[centos-vault-extras]
-name=CentOS {release_version} - Vault - Extras
-baseurl=https://vault.centos.org/{release_version}/extras/$basearch/
+[nginx-stable]
+name=Nginx Stable Repository
+baseurl=http://nginx.org/packages/centos/{major_version}/$basearch/
 gpgcheck=1
 enabled=1
-gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-{major_version}
+gpgkey=https://nginx.org/keys/nginx_signing.key
 """
 
     _upload_config(
@@ -247,6 +247,11 @@ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-{major_version}
     for command in disable_commands:
         _run_command(ssh, command, sudo_password=sudo_password)
 
+    _run_command(
+        ssh,
+        "sudo rpm --import https://nginx.org/keys/nginx_signing.key",
+        sudo_password=sudo_password,
+    )
     _run_command(ssh, "sudo yum clean all", sudo_password=sudo_password)
     _run_command(ssh, "sudo yum makecache", sudo_password=sudo_password)
 
