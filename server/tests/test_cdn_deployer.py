@@ -6,6 +6,7 @@ import pytest
 
 from app.services.cdn.deployer import (
     DeploymentError,
+    _configure_centos_vault_repo,
     _install_packages,
 )
 
@@ -113,3 +114,32 @@ def test_install_packages_fallback_for_mirrorlist(monkeypatch):
 
     _install_packages(ssh, ["nginx"], sudo_password=None, log=[])
     assert install_attempts["count"] == 2
+
+
+def test_configure_vault_repo_skips_missing_repo_files(monkeypatch):
+    ssh = object()
+    commands: List[str] = []
+
+    def fake_run_command(_ssh, command: str, *, sudo_password: Optional[str] = None):
+        commands.append(command)
+        if "cat /etc/centos-release" in command:
+            return "CentOS Linux release 7.9.2009 (Core)"
+        if "CentOS-Updates.repo" in command:
+            raise DeploymentError(
+                "Command failed (2): sudo sed -i 's/^enabled=1/enabled=0/g' /etc/yum.repos.d/CentOS-Updates.repo\nsed: can't read /etc/yum.repos.d/CentOS-Updates.repo: No such file or directory"
+            )
+        return ""
+
+    uploaded: Dict[str, str] = {}
+
+    monkeypatch.setattr("app.services.cdn.deployer._run_command", fake_run_command)
+    monkeypatch.setattr(
+        "app.services.cdn.deployer._upload_config",
+        lambda _ssh, text, path, *, sudo_password=None: uploaded.update({"path": path, "text": text}),
+    )
+
+    _configure_centos_vault_repo(ssh, sudo_password=None)
+
+    assert uploaded["path"] == "/etc/yum.repos.d/CentOS-Vault.repo"
+    assert any("CentOS-Updates.repo" in command for command in commands)
+    assert any("yum makecache" in command for command in commands)

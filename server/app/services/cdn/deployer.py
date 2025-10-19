@@ -250,7 +250,12 @@ gpgkey=https://nginx.org/keys/nginx_signing.key
         "sudo sed -i 's/^enabled=1/enabled=0/g' /etc/yum.repos.d/CentOS-Extras.repo",
     ]
     for command in disable_commands:
-        _run_command(ssh, command, sudo_password=sudo_password)
+        try:
+            _run_command(ssh, command, sudo_password=sudo_password)
+        except DeploymentError as exc:
+            if "no such file or directory" in str(exc).lower():
+                continue
+            raise
 
     _run_command(
         ssh,
