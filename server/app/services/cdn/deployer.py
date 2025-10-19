@@ -12,6 +12,7 @@ EDGE_CONFIG_REMOTE_PATH = "/etc/nginx/conf.d/vmp_edge.conf"
 STREAM_CONFIG_REMOTE_PATH = "/etc/nginx/stream.d/vmp_edge.conf"
 DEFAULT_SSL_CERT = "/etc/pki/tls/certs/edge.crt"
 DEFAULT_SSL_KEY = "/etc/pki/tls/private/edge.key"
+DEFAULT_HEALTH_CHECK_PORT = 8000
 
 
 class DeploymentError(RuntimeError):
@@ -45,7 +46,7 @@ class DeploymentConfig:
     ssl_certificate: Optional[str] = None
     ssl_certificate_key: Optional[str] = None
     extra_packages: list[str] = field(default_factory=lambda: ["nginx"])
-    firewall_ports: list[int] = field(default_factory=lambda: [80, 443])
+    firewall_ports: list[int] = field(default_factory=lambda: [80, 443, DEFAULT_HEALTH_CHECK_PORT])
 
     def normalize(self) -> None:
         if self.mode not in {"http", "tcp"}:
@@ -544,7 +545,7 @@ class CDNDeployer:
 
             _prepare_nginx_runtime(ssh, sudo_password=target.sudo_password)
 
-            firewall_ports = sorted({*config.firewall_ports, config.listen_port})
+            firewall_ports = sorted({*config.firewall_ports, config.listen_port, DEFAULT_HEALTH_CHECK_PORT})
             _append_log(log_lines, f"配置防火墙端口: {firewall_ports}")
             _configure_firewall(ssh, firewall_ports, sudo_password=target.sudo_password)
             _append_log(log_lines, "防火墙规则已更新")

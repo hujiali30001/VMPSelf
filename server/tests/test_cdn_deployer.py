@@ -10,6 +10,7 @@ from app.services.cdn.deployer import (
     DeploymentError,
     DeploymentTarget,
     EDGE_CONFIG_REMOTE_PATH,
+    DEFAULT_HEALTH_CHECK_PORT,
     STREAM_CONFIG_REMOTE_PATH,
     _cleanup_previous_deployment,
     _configure_centos_vault_repo,
@@ -368,6 +369,7 @@ def test_deployer_uses_stream_config_for_tcp_mode(monkeypatch):
     monkeypatch.setattr("app.services.cdn.deployer._connect", lambda _target: DummySSH())
     monkeypatch.setattr("app.services.cdn.deployer._cleanup_previous_deployment", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("app.services.cdn.deployer._install_packages", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("app.services.cdn.deployer._ensure_ssl_assets", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("app.services.cdn.deployer._prepare_nginx_runtime", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("app.services.cdn.deployer._configure_firewall", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("app.services.cdn.deployer._enable_services", lambda *_args, **_kwargs: None)
@@ -383,3 +385,32 @@ def test_deployer_uses_stream_config_for_tcp_mode(monkeypatch):
     deployer.deploy(target, config)
 
     assert uploaded_paths == [STREAM_CONFIG_REMOTE_PATH]
+
+
+def test_deployer_firewall_includes_health_check_port(monkeypatch):
+    captured_ports: List[List[int]] = []
+
+    class DummySSH:
+        def close(self) -> None:
+            return
+
+    monkeypatch.setattr("app.services.cdn.deployer._connect", lambda _target: DummySSH())
+    monkeypatch.setattr("app.services.cdn.deployer._cleanup_previous_deployment", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("app.services.cdn.deployer._install_packages", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("app.services.cdn.deployer._ensure_ssl_assets", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("app.services.cdn.deployer._prepare_nginx_runtime", lambda *_args, **_kwargs: None)
+
+    def capture_firewall(_ssh, ports, *, sudo_password=None):
+        captured_ports.append(list(ports))
+
+    monkeypatch.setattr("app.services.cdn.deployer._configure_firewall", capture_firewall)
+    monkeypatch.setattr("app.services.cdn.deployer._upload_config", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("app.services.cdn.deployer._enable_services", lambda *_args, **_kwargs: None)
+
+    target = DeploymentTarget(name="edge", host="1.2.3.4", username="root")
+    config = DeploymentConfig(origin_host="origin.local", listen_port=8443, firewall_ports=[443])
+
+    deployer = CDNDeployer()
+    deployer.deploy(target, config)
+
+    assert captured_ports == [[443, DEFAULT_HEALTH_CHECK_PORT, 8443]]
