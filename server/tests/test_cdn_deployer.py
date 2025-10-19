@@ -202,7 +202,7 @@ def test_cleanup_previous_deployment_runs_commands(monkeypatch):
 
     def fake_run_command(_ssh, command: str, *, sudo_password: Optional[str] = None):
         commands.append(command)
-        if "rm -f" in command:
+        if "rm -f" in command or "rm -rf" in command:
             raise DeploymentError("Command failed (1): rm -f\nmissing")
         return ""
 
@@ -213,7 +213,8 @@ def test_cleanup_previous_deployment_runs_commands(monkeypatch):
 
     assert commands[0] == "sudo systemctl stop nginx"
     assert any(f"sudo rm -f {EDGE_CONFIG_REMOTE_PATH}" in cmd for cmd in commands)
-    assert any("sudo rm -f /var/run/nginx.pid" in cmd for cmd in commands)
+    assert any("sudo rm -rf /var/run/nginx.pid" in cmd for cmd in commands)
+    assert any("sudo rm -rf /var/run/nginx" in cmd for cmd in commands)
     assert any("执行部署前清理任务" in entry for entry in log)
     assert any("预清理完成" in entry for entry in log)
 
