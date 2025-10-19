@@ -101,20 +101,17 @@ def generate_nginx_config(config: DeploymentConfig) -> str:
         )
         return "\n".join(stream_block) + "\n"
 
-    listen_blocks: list[str] = []
-    if config.allow_http:
-        listen_blocks.append("    listen 80;")
-    ssl_cert = config.ssl_certificate or DEFAULT_SSL_CERT
-    ssl_key = config.ssl_certificate_key or DEFAULT_SSL_KEY
-    listen_blocks.extend(
-        [
-            f"    listen {config.listen_port} ssl http2;",
-            f"    ssl_certificate {ssl_cert};",
-            f"    ssl_certificate_key {ssl_key};",
-            "    ssl_protocols TLSv1.2 TLSv1.3;",
-            "    ssl_ciphers HIGH:!aNULL:!MD5;",
-        ]
-    )
+    listen_directives: list[str] = []
+    tls_enabled = _is_tls_enabled(config)
+
+    if config.allow_http and (not tls_enabled or config.listen_port != 80):
+        listen_directives.append("    listen 80;")
+
+    if tls_enabled:
+        listen_directives.append(f"    listen {config.listen_port} ssl;")
+    else:
+        if not (config.allow_http and config.listen_port == 80):
+            listen_directives.append(f"    listen {config.listen_port};")
 
     header_lines = [
         "        proxy_set_header Host {host};".format(host=config.origin_host),
@@ -126,23 +123,49 @@ def generate_nginx_config(config: DeploymentConfig) -> str:
 
     config_block = [
         "server {",
-        *listen_blocks,
-        "    server_name _;",
-        "",
-        "    proxy_buffering on;",
-        "    proxy_cache_path /var/cache/nginx/vmp levels=1:2 keys_zone=vmp_cache:10m max_size=1g inactive=10m use_temp_path=off;",
-        "",
-        "    location / {",
-        f"        proxy_pass https://{config.origin_host}:{config.origin_port};",
-        *header_lines,
-        "        proxy_cache vmp_cache;",
-        "        proxy_cache_valid 200 302 10m;",
-        "        proxy_cache_valid 404 1m;",
-        "        add_header X-Cache-Status $upstream_cache_status always;",
-        "    }",
-        "}",
+        *listen_directives,
     ]
+
+    if tls_enabled:
+        ssl_cert = config.ssl_certificate or DEFAULT_SSL_CERT
+        ssl_key = config.ssl_certificate_key or DEFAULT_SSL_KEY
+        config_block.extend(
+            [
+                "    http2 on;",
+                f"    ssl_certificate {ssl_cert};",
+                f"    ssl_certificate_key {ssl_key};",
+                "    ssl_protocols TLSv1.2 TLSv1.3;",
+                "    ssl_ciphers HIGH:!aNULL:!MD5;",
+            ]
+        )
+
+    config_block.extend(
+        [
+            "    server_name _;",
+            "",
+            "    proxy_buffering on;",
+            "    proxy_cache_path /var/cache/nginx/vmp levels=1:2 keys_zone=vmp_cache:10m max_size=1g inactive=10m use_temp_path=off;",
+            "",
+            "    location / {",
+            f"        proxy_pass https://{config.origin_host}:{config.origin_port};",
+            *header_lines,
+            "        proxy_cache vmp_cache;",
+            "        proxy_cache_valid 200 302 10m;",
+            "        proxy_cache_valid 404 1m;",
+            "        add_header X-Cache-Status $upstream_cache_status always;",
+            "    }",
+            "}",
+        ]
+    )
     return "\n".join(config_block) + "\n"
+
+
+def _is_tls_enabled(config: DeploymentConfig) -> bool:
+    if config.mode != "http":
+        return False
+    if config.listen_port == 80 and not (config.ssl_certificate or config.ssl_certificate_key):
+        return False
+    return True
 
 
 def _connect(target: DeploymentTarget) -> paramiko.SSHClient:
@@ -438,16 +461,18 @@ class CDNDeployer:
             _append_log(log_lines, "依赖安装完成")
 
             if config.mode == "http":
-                ssl_cert_path = config.ssl_certificate or DEFAULT_SSL_CERT
-                ssl_key_path = config.ssl_certificate_key or DEFAULT_SSL_KEY
-                _ensure_ssl_assets(
-                    ssh,
-                    cert_path=ssl_cert_path,
-                    key_path=ssl_key_path,
-                    sudo_password=target.sudo_password,
-                    log=log_lines,
-                    generate_missing=not (config.ssl_certificate or config.ssl_certificate_key),
-                )
+                tls_enabled = _is_tls_enabled(config)
+                if tls_enabled:
+                    ssl_cert_path = config.ssl_certificate or DEFAULT_SSL_CERT
+                    ssl_key_path = config.ssl_certificate_key or DEFAULT_SSL_KEY
+                    _ensure_ssl_assets(
+                        ssh,
+                        cert_path=ssl_cert_path,
+                        key_path=ssl_key_path,
+                        sudo_password=target.sudo_password,
+                        log=log_lines,
+                        generate_missing=not (config.ssl_certificate or config.ssl_certificate_key),
+                    )
 
             firewall_ports = sorted({*config.firewall_ports, config.listen_port})
             _append_log(log_lines, f"配置防火墙端口: {firewall_ports}")

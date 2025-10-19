@@ -5,11 +5,13 @@ from typing import Dict, List, Optional, Tuple
 import pytest
 
 from app.services.cdn.deployer import (
+    DeploymentConfig,
     DeploymentError,
     _configure_centos_vault_repo,
     _ensure_ssl_assets,
     _install_packages,
     _enable_services,
+    _is_tls_enabled,
 )
 
 
@@ -188,6 +190,22 @@ def test_ensure_ssl_assets_custom_path_missing_raises(monkeypatch):
         )
 
     assert "/custom/cert.pem" in str(excinfo.value)
+
+
+def test_is_tls_enabled_false_for_plain_http():
+    config = DeploymentConfig(origin_host="edge.local", listen_port=80)
+
+    assert not _is_tls_enabled(config)
+
+
+def test_is_tls_enabled_true_with_custom_cert_on_port_80():
+    config = DeploymentConfig(
+        origin_host="edge.local",
+        listen_port=80,
+        ssl_certificate="/etc/pki/tls/certs/custom.crt",
+    )
+
+    assert _is_tls_enabled(config)
 
 
 def test_enable_services_runs_nginx_test(monkeypatch):
