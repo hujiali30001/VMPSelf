@@ -16,12 +16,17 @@
             --brand: #2563eb;
             --brand-dark: #1d4ed8;
             --brand-gradient: linear-gradient(135deg, rgba(37, 99, 235, 0.85), rgba(59, 130, 246, 0.85));
-            --shadow-soft: 0 20px 45px rgba(15, 23, 42, 0.10);
-            --shadow-card: 0 16px 40px rgba(37, 99, 235, 0.20);
+            --shadow-soft: 0 18px 42px rgba(15, 23, 42, 0.08);
+            --shadow-card: 0 18px 42px rgba(37, 99, 235, 0.18);
             --success: #10b981;
             --danger: #ef4444;
             --warning: #f59e0b;
-            --sidebar-width: 240px;
+            --sidebar-width: 248px;
+            --content-max-width: 1240px;
+            --content-padding-x: clamp(1.5rem, 4vw, 3.25rem);
+            --content-padding-y: clamp(1.75rem, 5vw, 3.25rem);
+            --topbar-height: 72px;
+            --radius-lg: 20px;
         }
 
         *, *::before, *::after {
@@ -41,18 +46,50 @@
             min-height: 100vh;
         }
 
+        body.sidebar-open {
+            overflow: hidden;
+        }
+
         a {
             color: inherit;
+            text-decoration: none;
+        }
+
+        a:hover {
+            color: var(--brand-dark);
         }
 
         a, button {
             transition: all 0.2s ease;
         }
 
+        button {
+            font-family: inherit;
+        }
+
         .app-shell {
             display: grid;
             grid-template-columns: var(--sidebar-width) 1fr;
             min-height: 100vh;
+            width: 100%;
+            position: relative;
+            background: var(--bg-surface);
+        }
+
+        .sidebar-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.35);
+            backdrop-filter: blur(4px);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.25s ease;
+            z-index: 25;
+        }
+
+        body.sidebar-open .sidebar-backdrop {
+            opacity: 1;
+            pointer-events: auto;
         }
 
         .app-sidebar {
@@ -60,13 +97,21 @@
             top: 0;
             height: 100vh;
             background: var(--bg-panel);
-            border-right: 1px solid rgba(15, 23, 42, 0.05);
+            border-right: 1px solid rgba(15, 23, 42, 0.06);
             box-shadow: 12px 0 32px rgba(15, 23, 42, 0.08);
             display: flex;
             flex-direction: column;
-            padding: 24px 20px;
+            padding: 28px 22px;
             gap: 24px;
             z-index: 30;
+            overflow: hidden;
+        }
+
+        .sidebar-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
         }
 
         .sidebar-brand {
@@ -99,6 +144,58 @@
             display: block;
             font-size: 12px;
             color: var(--text-secondary);
+        }
+
+        .sidebar-close {
+            display: none;
+            align-items: center;
+            justify-content: center;
+            width: 36px;
+            height: 36px;
+            border-radius: 12px;
+            border: 1px solid rgba(37, 99, 235, 0.18);
+            background: rgba(37, 99, 235, 0.08);
+            color: var(--brand-dark);
+            cursor: pointer;
+        }
+
+        .sidebar-close:hover {
+            background: rgba(37, 99, 235, 0.12);
+        }
+
+        .sidebar-close-icon {
+            position: relative;
+            width: 16px;
+            height: 16px;
+        }
+
+        .sidebar-close-icon::before,
+        .sidebar-close-icon::after {
+            content: "";
+            position: absolute;
+            top: 50%;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background: currentColor;
+            border-radius: 999px;
+        }
+
+        .sidebar-close-icon::before {
+            transform: translateY(-50%) rotate(45deg);
+        }
+
+        .sidebar-close-icon::after {
+            transform: translateY(-50%) rotate(-45deg);
+        }
+
+        .sidebar-scroll {
+            flex: 1;
+            overflow-y: auto;
+            padding-right: 4px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
         }
 
         .sidebar-nav {
@@ -145,39 +242,73 @@
 
         .sidebar-footer {
             margin-top: auto;
-            padding-top: 12px;
-            border-top: 1px solid rgba(15, 23, 42, 0.05);
+            padding-top: 16px;
+            border-top: 1px solid rgba(15, 23, 42, 0.08);
             font-size: 12px;
             color: var(--text-secondary);
+            display: grid;
+            gap: 6px;
         }
 
         .app-main {
             display: flex;
             flex-direction: column;
             min-height: 100vh;
+            position: relative;
         }
 
         .topbar {
             position: sticky;
             top: 0;
             z-index: 20;
-            background: var(--bg-panel);
-            box-shadow: 0 12px 30px rgba(37, 99, 235, 0.08);
+            background: rgba(255, 255, 255, 0.92);
+            backdrop-filter: blur(18px);
+            border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+            box-shadow: 0 12px 30px rgba(15, 23, 42, 0.07);
         }
 
         .topbar-inner {
+            width: min(100%, var(--content-max-width));
+            margin: 0 auto;
+            padding: 16px var(--content-padding-x);
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 20px;
-            padding: 18px 42px;
-            flex-wrap: wrap;
+            gap: 24px;
+        }
+
+        .sidebar-toggle {
+            display: none;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 4px;
+            width: 40px;
+            height: 40px;
+            border-radius: 14px;
+            border: 1px solid rgba(37, 99, 235, 0.18);
+            background: rgba(37, 99, 235, 0.1);
+            color: var(--brand-dark);
+            cursor: pointer;
+            padding: 0;
+        }
+
+        .sidebar-toggle span {
+            width: 18px;
+            height: 2px;
+            border-radius: 999px;
+            background: currentColor;
+        }
+
+        .sidebar-toggle:hover {
+            background: rgba(37, 99, 235, 0.14);
         }
 
         .topbar-title {
             display: flex;
             flex-direction: column;
             gap: 6px;
+            flex: 1;
         }
 
         .topbar-title h2 {
@@ -195,20 +326,76 @@
         .topbar-actions {
             display: flex;
             align-items: center;
-            gap: 14px;
+            gap: 12px;
             flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .topbar-actions form {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin: 0;
+        }
+
+        .primary-btn,
+        .secondary-btn,
+        .danger-btn {
+            border: none;
+            padding: 10px 18px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            text-decoration: none;
+        }
+
+        .primary-btn {
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+            color: #fff;
+            box-shadow: 0 18px 35px rgba(37, 99, 235, 0.28);
+        }
+
+        .primary-btn:hover {
+            transform: translateY(-1px);
+        }
+
+        .secondary-btn {
+            background: linear-gradient(135deg, rgba(37, 99, 235, 0.08), rgba(37, 99, 235, 0.12));
+            color: var(--brand-dark);
+        }
+
+        .secondary-btn:hover {
+            background: linear-gradient(135deg, rgba(37, 99, 235, 0.12), rgba(37, 99, 235, 0.18));
+        }
+
+        .danger-btn {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.12), rgba(239, 68, 68, 0.18));
+            color: var(--danger);
         }
 
         .app-content {
             flex: 1;
-            padding: 36px 48px 64px;
-            display: grid;
+            padding: var(--content-padding-y) var(--content-padding-x) calc(var(--content-padding-y) + 56px);
+            display: flex;
+            justify-content: center;
+        }
+
+        .content-container {
+            width: min(100%, var(--content-max-width));
+            display: flex;
+            flex-direction: column;
             gap: 32px;
         }
 
         .panel {
             background: var(--bg-panel);
-            border-radius: 20px;
+            border-radius: var(--radius-lg);
             padding: 24px;
             box-shadow: var(--shadow-soft);
         }
@@ -246,35 +433,20 @@
             font-weight: 700;
         }
 
-        .primary-btn,
-        .secondary-btn,
-        .danger-btn {
-            border: none;
-            padding: 10px 18px;
-            border-radius: 10px;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
+        .grid-two-columns {
+            display: grid;
+            grid-template-columns: minmax(320px, 360px) 1fr;
+            gap: 28px;
         }
 
-        .primary-btn {
-            background: linear-gradient(135deg, #2563eb, #1d4ed8);
-            color: #fff;
-            box-shadow: 0 18px 35px rgba(37, 99, 235, 0.28);
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
         }
 
-        .primary-btn:hover {
-            transform: translateY(-1px);
-        }
-
-        .secondary-btn {
-            background: linear-gradient(135deg, rgba(37, 99, 235, 0.08), rgba(37, 99, 235, 0.12));
-            color: var(--brand-dark);
-        }
-
-        .danger-btn {
-            background: linear-gradient(135deg, rgba(239, 68, 68, 0.12), rgba(239, 68, 68, 0.18));
-            color: var(--danger);
+        .form-grid .full-row {
+            grid-column: 1 / -1;
         }
 
         input[type="text"],
@@ -350,36 +522,52 @@
         .badge-revoked { background: rgba(239, 68, 68, 0.12); color: var(--danger); }
         .badge-expired { background: rgba(245, 158, 11, 0.15); color: var(--warning); }
 
-        .grid-two-columns {
-            display: grid;
-            grid-template-columns: minmax(320px, 360px) 1fr;
-            gap: 28px;
-        }
-
-        .form-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-            gap: 16px;
-        }
-
-        .form-grid .full-row {
-            grid-column: 1 / -1;
-        }
-
         .flash {
-            border-radius: 14px;
-            padding: 14px 18px;
+            border-radius: 16px;
+            padding: 16px 20px;
             font-size: 13px;
             font-weight: 600;
             display: flex;
-            align-items: center;
-            gap: 10px;
+            align-items: flex-start;
+            gap: 12px;
+            box-shadow: var(--shadow-soft);
+            border: 1px solid transparent;
+            transition: all 0.18s ease;
         }
 
-        .flash-info { background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(37, 99, 235, 0.08)); color: var(--brand-dark); border: 1px solid rgba(37, 99, 235, 0.18); box-shadow: var(--shadow-card); }
-        .flash-success { background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(59, 130, 246, 0.06)); color: var(--success); border: 1px solid rgba(16, 185, 129, 0.24); }
-        .flash-warning { background: linear-gradient(135deg, rgba(245, 158, 11, 0.18), rgba(252, 211, 77, 0.16)); color: #b45309; border: 1px solid rgba(245, 158, 11, 0.28); }
-        .flash-danger { background: linear-gradient(135deg, rgba(239, 68, 68, 0.14), rgba(248, 113, 113, 0.16)); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.26); }
+        .flash .flash-content {
+            flex: 1;
+        }
+
+        .flash-close {
+            border: none;
+            background: transparent;
+            color: inherit;
+            font-size: 18px;
+            line-height: 1;
+            cursor: pointer;
+            padding: 2px;
+            border-radius: 6px;
+        }
+
+        .flash-close:hover {
+            background: rgba(255, 255, 255, 0.35);
+        }
+
+        .flash-info { background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(37, 99, 235, 0.08)); color: var(--brand-dark); border-color: rgba(37, 99, 235, 0.18); }
+        .flash-success { background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(59, 130, 246, 0.06)); color: var(--success); border-color: rgba(16, 185, 129, 0.24); }
+        .flash-warning { background: linear-gradient(135deg, rgba(245, 158, 11, 0.18), rgba(252, 211, 77, 0.16)); color: #b45309; border-color: rgba(245, 158, 11, 0.28); }
+        .flash-danger { background: linear-gradient(135deg, rgba(239, 68, 68, 0.14), rgba(248, 113, 113, 0.16)); color: var(--danger); border-color: rgba(239, 68, 68, 0.26); }
+
+        .flash.is-dismissed {
+            opacity: 0;
+            transform: translateY(-6px);
+            pointer-events: none;
+        }
+
+        .flash + .flash {
+            margin-top: -4px;
+        }
 
         .empty-state {
             border: 1px dashed rgba(37, 99, 235, 0.18);
@@ -389,30 +577,85 @@
             color: var(--text-secondary);
         }
 
-        footer {
-            text-align: center;
-            padding: 18px;
-            font-size: 12px;
+        .app-footer {
+            padding: 24px var(--content-padding-x) 32px;
             color: var(--text-secondary);
+            font-size: 12px;
+        }
+
+        .footer-inner {
+            width: min(100%, var(--content-max-width));
+            margin: 0 auto;
+            text-align: center;
+        }
+
+        @media (max-width: 1320px) {
+            :root {
+                --sidebar-width: 232px;
+            }
         }
 
         @media (max-width: 1080px) {
-            :root { --sidebar-width: 82px; }
-            .app-shell { display: block; }
+            :root {
+                --sidebar-width: min(320px, 80vw);
+            }
+
+            .app-shell {
+                grid-template-columns: 1fr;
+            }
+
             .app-sidebar {
                 position: fixed;
                 inset: 0 auto 0 0;
-                height: 100vh;
+                width: var(--sidebar-width);
                 transform: translateX(-100%);
                 transition: transform 0.3s ease;
+                height: 100vh;
             }
-            .app-sidebar.is-open {
+
+            body.sidebar-open .app-sidebar {
                 transform: translateX(0);
             }
-            .sidebar-nav a { justify-content: center; }
-            .sidebar-nav a span.label { display: none; }
-            .topbar-inner { padding: 18px 24px; }
-            .app-content { padding: 28px 24px 48px; }
+
+            .sidebar-close {
+                display: inline-flex;
+            }
+
+            .topbar-inner {
+                padding: 16px clamp(1.25rem, 5vw, 2rem);
+            }
+
+            .sidebar-toggle {
+                display: inline-flex;
+            }
+
+            .topbar-title {
+                gap: 4px;
+            }
+
+            .app-content {
+                padding: calc(var(--content-padding-y) - 8px) clamp(1.25rem, 5vw, 2rem) calc(var(--content-padding-y) + 56px);
+            }
+        }
+
+        @media (max-width: 720px) {
+            .topbar-inner {
+                flex-wrap: wrap;
+                align-items: flex-start;
+            }
+
+            .topbar-actions {
+                width: 100%;
+                justify-content: flex-start;
+            }
+
+            .grid-two-columns {
+                grid-template-columns: 1fr;
+            }
+
+            .panel {
+                padding: 20px;
+            }
         }
     </style>
     {% block head_extra %}{% endblock %}
@@ -430,9 +673,15 @@
     ] %}
     {% set active_page = active_page if active_page is defined else "" %}
     {% include "admin/partials/sidebar.html" %}
+    <div class="sidebar-backdrop" data-sidebar-backdrop></div>
     <div class="app-main">
         <header class="topbar">
             <div class="topbar-inner">
+                <button class="sidebar-toggle" type="button" aria-label="切换导航" aria-expanded="false" data-sidebar-toggle>
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
                 <div class="topbar-title">
                     <h2>{{ page_title | default("授权管理后台") }}</h2>
                     {% if page_subtitle is defined and page_subtitle %}
@@ -447,14 +696,97 @@
             </div>
         </header>
         <main class="app-content">
-            {% include "admin/partials/flash_messages.html" %}
-            {% block content %}{% endblock %}
+            <div class="content-container">
+                {% include "admin/partials/flash_messages.html" %}
+                {% block content %}{% endblock %}
+            </div>
         </main>
-        <footer>
-            VMPSelf Admin · 构建日期 {{ build_date | default("2025") }}
+        <footer class="app-footer">
+            <div class="footer-inner">
+                VMPSelf Admin · 构建日期 {{ build_date | default("2025") }}
+            </div>
         </footer>
     </div>
 </div>
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const root = document.body;
+        const sidebar = document.querySelector("[data-sidebar]");
+        const toggle = document.querySelector("[data-sidebar-toggle]");
+        const closeBtn = document.querySelector("[data-sidebar-close]");
+        const backdrop = document.querySelector("[data-sidebar-backdrop]");
+
+        const openSidebar = () => {
+            if (!sidebar || isDesktop()) { return; }
+            root.classList.add("sidebar-open");
+            sidebar.setAttribute("aria-hidden", "false");
+            toggle?.setAttribute("aria-expanded", "true");
+        };
+
+        const closeSidebar = () => {
+            if (!sidebar || isDesktop()) { return; }
+            root.classList.remove("sidebar-open");
+            sidebar.setAttribute("aria-hidden", "true");
+            toggle?.setAttribute("aria-expanded", "false");
+        };
+
+        const isDesktop = () => window.matchMedia("(min-width: 1080px)").matches;
+
+        const syncSidebarState = () => {
+            if (!sidebar) { return; }
+            if (isDesktop()) {
+                root.classList.remove("sidebar-open");
+                sidebar.removeAttribute("aria-hidden");
+                toggle?.setAttribute("aria-expanded", "true");
+            } else {
+                const isOpen = root.classList.contains("sidebar-open");
+                sidebar.setAttribute("aria-hidden", isOpen ? "false" : "true");
+                if (!isOpen) {
+                    toggle?.setAttribute("aria-expanded", "false");
+                }
+            }
+        };
+
+        toggle?.addEventListener("click", function () {
+            if (root.classList.contains("sidebar-open")) {
+                closeSidebar();
+            } else {
+                openSidebar();
+            }
+        });
+
+        closeBtn?.addEventListener("click", closeSidebar);
+        backdrop?.addEventListener("click", closeSidebar);
+
+        document.addEventListener("keydown", function (event) {
+            if (event.key === "Escape" && !isDesktop()) {
+                closeSidebar();
+            }
+        });
+
+        window.addEventListener("resize", syncSidebarState);
+        syncSidebarState();
+
+        sidebar?.querySelectorAll(".sidebar-nav a").forEach(function (link) {
+            link.addEventListener("click", function () {
+                if (!isDesktop()) {
+                    closeSidebar();
+                }
+            });
+        });
+
+        document.querySelectorAll("[data-flash-dismiss]").forEach(function (button) {
+            button.addEventListener("click", function () {
+                const flash = button.closest("[data-flash]");
+                if (!flash) { return; }
+                flash.classList.add("is-dismissed");
+                window.setTimeout(function () {
+                    flash.remove();
+                }, 180);
+            });
+        });
+    });
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

@@ -1,7 +1,10 @@
 {% set has_message = message is defined and message %}
 {% set has_messages = messages is defined and messages %}
 {% if has_message %}
-    <div class="flash flash-info">{{ message }}</div>
+    <div class="flash flash-info" data-flash>
+        <div class="flash-content">{{ message }}</div>
+        <button type="button" class="flash-close" aria-label="关闭通知" data-flash-dismiss>×</button>
+    </div>
 {% endif %}
 {% if has_messages %}
     {% for item in messages %}
@@ -15,6 +18,9 @@
             {% set level = 'info' %}
             {% set text = item %}
         {% endif %}
-        <div class="flash flash-{{ level }}">{{ text }}</div>
+        <div class="flash flash-{{ level }}" data-flash>
+            <div class="flash-content">{{ text }}</div>
+            <button type="button" class="flash-close" aria-label="关闭通知" data-flash-dismiss>×</button>
+        </div>
     {% endfor %}
 {% endif %}
