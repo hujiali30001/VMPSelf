@@ -189,7 +189,12 @@ def _append_log(log: list[str], message: str) -> None:
 
 def _should_retry_with_vault(error_output: str) -> bool:
     lowered = error_output.lower()
-    return "mirrorlist.centos.org" in lowered or "cannot find a valid baseurl" in lowered
+    return (
+        "mirrorlist.centos.org" in lowered
+        or "cannot find a valid baseurl" in lowered
+        or ("no package" in lowered and "nginx" in lowered)
+        or "error: nothing to do" in lowered
+    )
 
 
 def _configure_centos_vault_repo(

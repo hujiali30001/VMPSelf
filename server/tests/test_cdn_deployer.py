@@ -48,7 +48,7 @@ def test_install_packages_fallback_to_vault(monkeypatch):
             install_attempts["count"] += 1
             if install_attempts["count"] == 1:
                 raise DeploymentError(
-                    "Command failed (1): sudo /usr/bin/yum -y install nginx\nCould not resolve host: mirrorlist.centos.org"
+                    "Command failed (1): sudo /usr/bin/yum -y install nginx\nNo package nginx available. Error: Nothing to do"
                 )
         if "cat /etc/centos-release" in command:
             return "CentOS Linux release 7.9.2009 (Core)"
@@ -90,3 +90,26 @@ def test_install_packages_without_fallback(monkeypatch):
     with pytest.raises(DeploymentError):
         _install_packages(ssh, ["nginx"], sudo_password=None, log=[])
     assert "called" not in uploaded
+
+
+def test_install_packages_fallback_for_mirrorlist(monkeypatch):
+    ssh = _FakeSSH("/usr/bin/yum\n")
+    install_attempts = {"count": 0}
+
+    def fake_run_command(_ssh, command: str, *, sudo_password: Optional[str] = None):
+        if "yum -y install" in command:
+            install_attempts["count"] += 1
+            if install_attempts["count"] == 1:
+                raise DeploymentError(
+                    "Command failed (1): sudo /usr/bin/yum -y install nginx\nCould not resolve host: mirrorlist.centos.org"
+                )
+        return ""
+
+    monkeypatch.setattr("app.services.cdn.deployer._run_command", fake_run_command)
+    monkeypatch.setattr(
+        "app.services.cdn.deployer._configure_centos_vault_repo",
+        lambda *_args, **_kwargs: None,
+    )
+
+    _install_packages(ssh, ["nginx"], sudo_password=None, log=[])
+    assert install_attempts["count"] == 2
