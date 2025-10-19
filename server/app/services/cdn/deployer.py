@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import posixpath
 import re
 from typing import Iterable, Optional
 
@@ -266,6 +267,59 @@ gpgkey=https://nginx.org/keys/nginx_signing.key
     _run_command(ssh, "sudo yum makecache", sudo_password=sudo_password)
 
 
+def _ensure_ssl_assets(
+    ssh: paramiko.SSHClient,
+    *,
+    cert_path: str,
+    key_path: str,
+    sudo_password: Optional[str] = None,
+    log: Optional[list[str]] = None,
+    generate_missing: bool = True,
+) -> None:
+    def _path_exists(path: str) -> bool:
+        try:
+            _run_command(ssh, f"sudo test -f {path}", sudo_password=sudo_password)
+            return True
+        except DeploymentError:
+            return False
+
+    cert_exists = _path_exists(cert_path)
+    key_exists = _path_exists(key_path)
+    if cert_exists and key_exists:
+        return
+
+    if not generate_missing:
+        missing: list[str] = []
+        if not cert_exists:
+            missing.append(cert_path)
+        if not key_exists:
+            missing.append(key_path)
+        raise DeploymentError(
+            "SSL certificate or key not found on target host: " + ", ".join(missing)
+        )
+
+    if log is not None:
+        _append_log(log, f"检测到缺少证书文件，正在生成自签名证书 ({cert_path})")
+
+    for directory in {posixpath.dirname(cert_path), posixpath.dirname(key_path)}:
+        if directory:
+            _run_command(ssh, f"sudo mkdir -p {directory}", sudo_password=sudo_password)
+
+    subj = "/CN=vmp-edge"
+    _run_command(
+        ssh,
+        (
+            "sudo openssl req -x509 -nodes -days 825 -newkey rsa:2048 "
+            f"-subj '{subj}' -keyout {key_path} -out {cert_path}"
+        ),
+        sudo_password=sudo_password,
+    )
+    _run_command(ssh, f"sudo chmod 600 {key_path}", sudo_password=sudo_password)
+    _run_command(ssh, f"sudo chmod 644 {cert_path}", sudo_password=sudo_password)
+    if log is not None:
+        _append_log(log, "已生成自签名证书")
+
+
 def _install_packages(
     ssh: paramiko.SSHClient,
     packages: Iterable[str],
@@ -368,6 +422,18 @@ class CDNDeployer:
                 log=log_lines,
             )
             _append_log(log_lines, "依赖安装完成")
+
+            if config.mode == "http":
+                ssl_cert_path = config.ssl_certificate or DEFAULT_SSL_CERT
+                ssl_key_path = config.ssl_certificate_key or DEFAULT_SSL_KEY
+                _ensure_ssl_assets(
+                    ssh,
+                    cert_path=ssl_cert_path,
+                    key_path=ssl_key_path,
+                    sudo_password=target.sudo_password,
+                    log=log_lines,
+                    generate_missing=not (config.ssl_certificate or config.ssl_certificate_key),
+                )
 
             firewall_ports = sorted({*config.firewall_ports, config.listen_port})
             _append_log(log_lines, f"配置防火墙端口: {firewall_ports}")

@@ -7,6 +7,7 @@ import pytest
 from app.services.cdn.deployer import (
     DeploymentError,
     _configure_centos_vault_repo,
+    _ensure_ssl_assets,
     _install_packages,
 )
 
@@ -143,3 +144,46 @@ def test_configure_vault_repo_skips_missing_repo_files(monkeypatch):
     assert uploaded["path"] == "/etc/yum.repos.d/CentOS-Vault.repo"
     assert any("CentOS-Updates.repo" in command for command in commands)
     assert any("yum makecache" in command for command in commands)
+
+
+def test_ensure_ssl_assets_generates_missing_cert(monkeypatch):
+    commands: List[str] = []
+
+    def fake_run_command(_ssh, command: str, *, sudo_password: Optional[str] = None):
+        commands.append(command)
+        if "test -f" in command:
+            raise DeploymentError(f"Command failed (1): {command}\nmissing file")
+        return ""
+
+    monkeypatch.setattr("app.services.cdn.deployer._run_command", fake_run_command)
+
+    log: List[str] = []
+    _ensure_ssl_assets(
+        object(),
+        cert_path="/etc/pki/tls/certs/edge.crt",
+        key_path="/etc/pki/tls/private/edge.key",
+        log=log,
+    )
+
+    assert any("openssl req" in command for command in commands)
+    assert any("检测到缺少证书文件" in entry for entry in log)
+    assert any("已生成自签名证书" in entry for entry in log)
+
+
+def test_ensure_ssl_assets_custom_path_missing_raises(monkeypatch):
+    def fake_run_command(_ssh, command: str, *, sudo_password: Optional[str] = None):
+        if "test -f" in command:
+            raise DeploymentError(f"Command failed (1): {command}\nmissing file")
+        return ""
+
+    monkeypatch.setattr("app.services.cdn.deployer._run_command", fake_run_command)
+
+    with pytest.raises(DeploymentError) as excinfo:
+        _ensure_ssl_assets(
+            object(),
+            cert_path="/custom/cert.pem",
+            key_path="/custom/key.pem",
+            generate_missing=False,
+        )
+
+    assert "/custom/cert.pem" in str(excinfo.value)
