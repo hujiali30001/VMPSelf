@@ -234,7 +234,7 @@ def test_prepare_nginx_runtime_creates_directories(monkeypatch):
         "sudo mkdir -p /var/cache/nginx/vmp",
         "sudo chown -R nginx:nginx /var/cache/nginx",
         "sudo mkdir -p /var/run/nginx",
-        "sudo chown root:root /var/run/nginx",
+        "sudo chown nginx:nginx /var/run/nginx",
         "sudo chmod 755 /var/run/nginx",
     ]
     assert commands == expected
