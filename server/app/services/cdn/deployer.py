@@ -186,18 +186,57 @@ def _append_log(log: list[str], message: str) -> None:
     log.append(f"[{timestamp}] {message}")
 
 
+def _should_retry_with_vault(error_output: str) -> bool:
+    lowered = error_output.lower()
+    return "mirrorlist.centos.org" in lowered or "cannot find a valid baseurl" in lowered
+
+
+def _configure_centos_vault_repo(
+    ssh: paramiko.SSHClient,
+    *,
+    sudo_password: Optional[str] = None,
+) -> None:
+    commands = [
+        "sudo sed -i \"s|^mirrorlist=|#mirrorlist=|g\" /etc/yum.repos.d/CentOS-*.repo",
+        "sudo sed -i \"s|^#baseurl=http://mirror.centos.org/centos/$releasever|baseurl=https://vault.centos.org/centos/$releasever|g\" /etc/yum.repos.d/CentOS-*.repo",
+        "sudo yum clean all",
+        "sudo yum makecache",
+    ]
+    for command in commands:
+        _run_command(ssh, command, sudo_password=sudo_password)
+
+
 def _install_packages(
     ssh: paramiko.SSHClient,
     packages: Iterable[str],
     *,
     sudo_password: Optional[str] = None,
+    log: Optional[list[str]] = None,
 ) -> None:
     pkg_list = " ".join(packages)
     stdin, stdout, _ = ssh.exec_command("command -v dnf || command -v yum")
     manager = stdout.read().decode().strip()
     if not manager:
         raise DeploymentError("Unable to locate dnf or yum on target host")
-    _run_command(ssh, f"sudo {manager} -y install {pkg_list}", sudo_password=sudo_password)
+    install_command = f"sudo {manager} -y install {pkg_list}"
+    try:
+        _run_command(ssh, install_command, sudo_password=sudo_password)
+    except DeploymentError as exc:
+        output = str(exc)
+        if manager.endswith("yum") and _should_retry_with_vault(output):
+            if log is not None:
+                _append_log(log, "默认仓库不可达，尝试切换至 vault.centos.org")
+            try:
+                _configure_centos_vault_repo(ssh, sudo_password=sudo_password)
+            except DeploymentError as repo_exc:
+                raise DeploymentError(
+                    f"Failed to switch to CentOS vault repository: {repo_exc}"
+                ) from exc
+            _run_command(ssh, install_command, sudo_password=sudo_password)
+            if log is not None:
+                _append_log(log, "已切换仓库并重新安装依赖")
+        else:
+            raise
 
 
 def _configure_firewall(
@@ -262,7 +301,12 @@ class CDNDeployer:
         _append_log(log_lines, "SSH 连接已建立")
         try:
             _append_log(log_lines, f"安装依赖软件包: {', '.join(config.extra_packages)}")
-            _install_packages(ssh, config.extra_packages, sudo_password=target.sudo_password)
+            _install_packages(
+                ssh,
+                config.extra_packages,
+                sudo_password=target.sudo_password,
+                log=log_lines,
+            )
             _append_log(log_lines, "依赖安装完成")
 
             firewall_ports = sorted({*config.firewall_ports, config.listen_port})
