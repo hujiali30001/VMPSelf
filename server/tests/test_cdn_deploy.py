@@ -49,7 +49,7 @@ def test_generate_nginx_config_tcp_mode_with_proxy_protocol():
     nginx_config = generate_nginx_config(deployment_config)
 
     assert "listen 9000;" in nginx_config
-    assert "proxy_protocol on;" in nginx_config
+    assert "proxy_protocol on;" not in nginx_config
     assert "listen 9000 proxy_protocol" not in nginx_config
 
 

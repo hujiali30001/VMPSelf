@@ -89,8 +89,6 @@ def generate_nginx_config(config: DeploymentConfig) -> str:
             "        proxy_timeout 300s;",
             "        proxy_pass vmp_origin;",
         ]
-        if config.proxy_protocol:
-            stream_block.append("        proxy_protocol on;")
         stream_block.extend(
             [
                 "    }",
