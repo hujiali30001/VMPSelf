@@ -312,6 +312,7 @@ def _cleanup_previous_deployment(
 
     _run_ignoring_failure("sudo systemctl stop nginx")
     _run_ignoring_failure(f"sudo rm -f {EDGE_CONFIG_REMOTE_PATH}")
+    _run_ignoring_failure("sudo rm -f /var/run/nginx.pid")
     _run_ignoring_failure("sudo rm -rf /var/cache/nginx/vmp")
     _run_ignoring_failure("sudo mkdir -p /var/cache/nginx")
 
@@ -328,6 +329,9 @@ def _prepare_nginx_runtime(
         "sudo mkdir -p /var/cache/nginx/vmp",
         "sudo chown -R nginx:nginx /var/cache/nginx",
         "sudo mkdir -p /var/run/nginx",
+        "sudo touch /var/run/nginx.pid",
+        "sudo chown nginx:nginx /var/run/nginx.pid",
+        "sudo chmod 644 /var/run/nginx.pid",
         "sudo chown nginx:nginx /var/run/nginx",
     ]
     for command in commands:

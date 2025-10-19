@@ -213,6 +213,7 @@ def test_cleanup_previous_deployment_runs_commands(monkeypatch):
 
     assert commands[0] == "sudo systemctl stop nginx"
     assert any(f"sudo rm -f {EDGE_CONFIG_REMOTE_PATH}" in cmd for cmd in commands)
+    assert any("sudo rm -f /var/run/nginx.pid" in cmd for cmd in commands)
     assert any("执行部署前清理任务" in entry for entry in log)
     assert any("预清理完成" in entry for entry in log)
 
@@ -232,6 +233,9 @@ def test_prepare_nginx_runtime_creates_directories(monkeypatch):
         "sudo mkdir -p /var/cache/nginx/vmp",
         "sudo chown -R nginx:nginx /var/cache/nginx",
         "sudo mkdir -p /var/run/nginx",
+        "sudo touch /var/run/nginx.pid",
+        "sudo chown nginx:nginx /var/run/nginx.pid",
+        "sudo chmod 644 /var/run/nginx.pid",
         "sudo chown nginx:nginx /var/run/nginx",
     ]
     assert commands == expected
