@@ -456,6 +456,52 @@ def _configure_firewall(
         _run_command(ssh, "sudo firewall-cmd --reload", sudo_password=sudo_password)
 
 
+def _allow_selinux_ports(
+    ssh: paramiko.SSHClient,
+    ports: Iterable[int],
+    *,
+    sudo_password: Optional[str] = None,
+    log: Optional[list[str]] = None,
+) -> None:
+    try:
+        _run_command(ssh, "sudo which semanage", sudo_password=sudo_password)
+    except DeploymentError:
+        if log is not None:
+            _append_log(log, "未检测到 semanage，跳过 SELinux 端口调整")
+        return
+
+    for port in ports:
+        try:
+            _run_command(
+                ssh,
+                f"sudo semanage port -a -t http_port_t -p tcp {port}",
+                sudo_password=sudo_password,
+            )
+        except DeploymentError as exc:
+            lowered = str(exc).lower()
+            if "already defined" in lowered or "exists" in lowered:
+                try:
+                    _run_command(
+                        ssh,
+                        f"sudo semanage port -m -t http_port_t -p tcp {port}",
+                        sudo_password=sudo_password,
+                    )
+                except DeploymentError as modify_exc:
+                    if "is not defined" in str(modify_exc).lower():
+                        continue
+                    raise
+            elif "command failed" in lowered and "semanage" in lowered:
+                raise
+            elif "not found" in lowered:
+                if log is not None:
+                    _append_log(log, "semanage 命令不可用，跳过 SELinux 端口调整")
+                return
+            else:
+                raise
+        if log is not None:
+            _append_log(log, f"SELinux 已允许端口 {port}")
+
+
 def _upload_config(
     ssh: paramiko.SSHClient,
     config_text: str,
@@ -558,6 +604,13 @@ class CDNDeployer:
             _append_log(log_lines, f"配置防火墙端口: {firewall_ports}")
             _configure_firewall(ssh, firewall_ports, sudo_password=target.sudo_password)
             _append_log(log_lines, "防火墙规则已更新")
+
+            _allow_selinux_ports(
+                ssh,
+                firewall_ports,
+                sudo_password=target.sudo_password,
+                log=log_lines,
+            )
 
             target_config_path = self.remote_config_path
             if config.mode == "tcp":

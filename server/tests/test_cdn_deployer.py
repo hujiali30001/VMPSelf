@@ -341,6 +341,10 @@ def test_deployer_calls_cleanup_before_install(monkeypatch):
         lambda *_args, **_kwargs: order.append("firewall"),
     )
     monkeypatch.setattr(
+        "app.services.cdn.deployer._allow_selinux_ports",
+        lambda *_args, **_kwargs: order.append("selinux"),
+    )
+    monkeypatch.setattr(
         "app.services.cdn.deployer._upload_config",
         lambda *_args, **_kwargs: order.append("upload"),
     )
@@ -374,6 +378,7 @@ def test_deployer_uses_stream_config_for_tcp_mode(monkeypatch):
     monkeypatch.setattr("app.services.cdn.deployer._ensure_ssl_assets", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("app.services.cdn.deployer._prepare_nginx_runtime", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("app.services.cdn.deployer._configure_firewall", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("app.services.cdn.deployer._allow_selinux_ports", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("app.services.cdn.deployer._enable_services", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         "app.services.cdn.deployer._upload_config",
@@ -391,6 +396,7 @@ def test_deployer_uses_stream_config_for_tcp_mode(monkeypatch):
 
 def test_deployer_firewall_includes_health_check_port(monkeypatch):
     captured_ports: List[List[int]] = []
+    captured_selinux_ports: List[List[int]] = []
 
     class DummySSH:
         def close(self) -> None:
@@ -406,6 +412,11 @@ def test_deployer_firewall_includes_health_check_port(monkeypatch):
         captured_ports.append(list(ports))
 
     monkeypatch.setattr("app.services.cdn.deployer._configure_firewall", capture_firewall)
+
+    def capture_selinux(_ssh, ports, *, sudo_password=None, log=None):
+        captured_selinux_ports.append(list(ports))
+
+    monkeypatch.setattr("app.services.cdn.deployer._allow_selinux_ports", capture_selinux)
     monkeypatch.setattr("app.services.cdn.deployer._upload_config", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("app.services.cdn.deployer._enable_services", lambda *_args, **_kwargs: None)
 
@@ -415,4 +426,6 @@ def test_deployer_firewall_includes_health_check_port(monkeypatch):
     deployer = CDNDeployer()
     deployer.deploy(target, config)
 
-    assert captured_ports == [[443, DEFAULT_HEALTH_CHECK_PORT, 8443]]
+    expected_ports = [[443, DEFAULT_HEALTH_CHECK_PORT, 8443]]
+    assert captured_ports == expected_ports
+    assert captured_selinux_ports == expected_ports
