@@ -118,6 +118,80 @@
         background: rgba(107, 114, 128, 0.16);
         color: #374151;
     }
+    .port-mapping-editor {
+        border: 1px solid rgba(15, 23, 42, 0.12);
+        border-radius: 8px;
+        padding: 12px;
+        background: rgba(15, 23, 42, 0.02);
+        margin-top: 4px;
+    }
+    .port-mapping-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 8px;
+    }
+    .port-mapping-table th,
+    .port-mapping-table td {
+        padding: 6px;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.24);
+        font-size: 13px;
+    }
+    .port-mapping-table th {
+        text-align: left;
+        font-weight: 600;
+        color: var(--text-secondary);
+    }
+    .port-mapping-table td input[type="number"] {
+        width: 100%;
+    }
+    .port-mapping-table td.checkbox-cell {
+        text-align: center;
+        width: 80px;
+    }
+    .checkbox-inline {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--text-secondary);
+    }
+    .link-btn {
+        background: none;
+        border: none;
+        color: var(--primary-color);
+        cursor: pointer;
+        padding: 0;
+        font-size: 12px;
+    }
+    .link-btn:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+    }
+    .port-mapping-summary {
+        margin: 6px 0 0;
+        padding: 0;
+        list-style: none;
+        font-size: 12px;
+        color: var(--text-secondary);
+    }
+    .port-mapping-summary li + li {
+        margin-top: 2px;
+    }
+    .endpoint-edit-row details {
+        margin-top: 12px;
+    }
+    .endpoint-edit-row summary {
+        cursor: pointer;
+        color: var(--primary-color);
+        font-weight: 600;
+        font-size: 13px;
+    }
+    .nested-form {
+        margin-top: 12px;
+    }
+    .nested-form .full-row textarea {
+        min-height: 68px;
+    }
     @media (max-width: 1080px) {
         .cdn-grid {
             grid-template-columns: 1fr;
@@ -234,14 +308,34 @@
                 <label>源站地址</label>
                 <input type="text" name="origin" placeholder="源站 IP 或域名" required />
             </div>
-            <div class="grid-half">
-                <div>
-                    <label>监听端口</label>
-                    <input type="number" name="listen_port" value="443" min="1" max="65535" />
-                </div>
-                <div>
-                    <label>源站端口</label>
-                    <input type="number" name="origin_port" value="443" min="1" max="65535" />
+            <div class="full-row">
+                <label>端口映射</label>
+                <div class="port-mapping-editor" data-port-mapping-form>
+                    <table class="port-mapping-table">
+                        <thead>
+                            <tr>
+                                <th>监听端口</th>
+                                <th>源站端口</th>
+                                <th class="checkbox-cell">HTTP</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody data-port-list>
+                            <tr data-port-row>
+                                <td><input type="number" name="port_listen" value="443" min="1" max="65535" required /></td>
+                                <td><input type="number" name="port_origin" value="443" min="1" max="65535" required /></td>
+                                <td class="checkbox-cell">
+                                    <label class="checkbox-inline">
+                                        <input type="checkbox" name="port_allow_http" value="0" />
+                                        HTTP
+                                    </label>
+                                </td>
+                                <td><button type="button" class="link-btn" data-remove-port disabled>删除</button></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <button type="button" class="secondary-btn" data-add-port>新增映射</button>
+                    <p class="input-hint">第一行作为主端口；勾选 HTTP 表示该端口使用明文转发。</p>
                 </div>
             </div>
             <div class="grid-half">
@@ -291,6 +385,8 @@
                 <textarea name="notes" rows="3" placeholder="可选：记录负载均衡、探活配置等"></textarea>
             </div>
             <input type="hidden" name="return_to" value="{{ return_to }}" />
+            <input type="hidden" name="default_listen_port" value="443" />
+            <input type="hidden" name="default_origin_port" value="443" />
             <div class="full-row">
                 <button class="primary-btn" type="submit">创建节点</button>
             </div>
@@ -318,7 +414,16 @@
                     <td>
                         <strong>{{ endpoint.name }}</strong><br />
                         <span style="color: var(--text-secondary); font-size: 12px;">{{ endpoint.domain }}</span><br />
-                        <span style="color: var(--text-secondary); font-size: 12px;">{{ endpoint.host }} : {{ endpoint.listen_port }} → {{ endpoint.origin }}:{{ endpoint.origin_port }}</span>
+                        <span style="color: var(--text-secondary); font-size: 12px;">{{ endpoint.host }}</span>
+                        {% if endpoint.port_mappings %}
+                            <ul class="port-mapping-summary">
+                                {% for mapping in endpoint.port_mappings %}
+                                    <li>{{ mapping.listen_port }} → {{ endpoint.origin }}:{{ mapping.origin_port }}{% if mapping.allow_http %} · HTTP{% else %} · TLS{% endif %}</li>
+                                {% endfor %}
+                            </ul>
+                        {% else %}
+                            <span style="color: var(--text-secondary); font-size: 12px;">{{ endpoint.listen_port }} → {{ endpoint.origin }}:{{ endpoint.origin_port }}</span>
+                        {% endif %}
                     </td>
                     <td>{{ endpoint.provider }}</td>
                     <td>
@@ -406,10 +511,13 @@
                         <div class="endpoint-actions">
                             <form method="post" action="/admin/cdn/endpoints/{{ endpoint.id }}/deploy">
                                 <input type="hidden" name="return_to" value="{{ return_to }}" />
-                                <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary);">
-                                    <input type="checkbox" name="allow_http" value="on" {% if endpoint.deployment_mode == 'http' %}checked{% endif %} />
-                                    同时开放 80 端口
-                                </label>
+                                {% if endpoint.deployment_mode == 'http' %}
+                                    {% set allow_http_enabled = endpoint.port_mappings | selectattr('allow_http') | list %}
+                                    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary);">
+                                        <input type="checkbox" name="allow_http" value="on" {% if allow_http_enabled|length > 0 %}checked{% endif %} />
+                                        本次部署允许 HTTP (80)
+                                    </label>
+                                {% endif %}
                                 {% if endpoint.deployment_mode == 'tcp' %}
                                 <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary);">
                                     <input type="checkbox" name="use_proxy_protocol" value="on" {% if endpoint.proxy_protocol_enabled %}checked{% endif %} />
@@ -469,6 +577,114 @@
                                 <button class="danger-btn" type="submit">删除节点</button>
                             </form>
                         </div>
+                    </td>
+                </tr>
+                <tr class="endpoint-edit-row">
+                    <td colspan="6">
+                        <details>
+                            <summary>编辑节点配置</summary>
+                            <form class="form-grid nested-form" method="post" action="/admin/cdn/endpoints/{{ endpoint.id }}/edit">
+                                <div class="grid-half">
+                                    <div>
+                                        <label>节点名称</label>
+                                        <input type="text" name="name" value="{{ endpoint.name }}" required minlength="3" />
+                                    </div>
+                                    <div>
+                                        <label>绑定域名</label>
+                                        <input type="text" name="domain" value="{{ endpoint.domain }}" required />
+                                    </div>
+                                </div>
+                                <div class="grid-half">
+                                    <div>
+                                        <label>节点地址</label>
+                                        <input type="text" name="host" value="{{ endpoint.host }}" required />
+                                    </div>
+                                    <div>
+                                        <label>源站地址</label>
+                                        <input type="text" name="origin" value="{{ endpoint.origin }}" required />
+                                    </div>
+                                </div>
+                                <div class="grid-half">
+                                    <div>
+                                        <label>服务商</label>
+                                        <input type="text" name="provider" value="{{ endpoint.provider }}" required />
+                                    </div>
+                                    <div>
+                                        <label>部署模式</label>
+                                        <select name="deployment_mode">
+                                            <option value="http" {% if endpoint.deployment_mode == 'http' %}selected{% endif %}>HTTP / HTTPS</option>
+                                            <option value="tcp" {% if endpoint.deployment_mode == 'tcp' %}selected{% endif %}>TCP 转发</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="grid-half">
+                                    <div>
+                                        <label>共享密钥</label>
+                                        <input type="text" name="edge_token" value="{{ endpoint.edge_token or '' }}" placeholder="留空保持不变 / 清空移除" />
+                                    </div>
+                                    <div style="display:flex;align-items:flex-end;gap:8px;">
+                                        <label class="checkbox-inline" style="margin-bottom:0;">
+                                            <input type="checkbox" name="proxy_protocol" value="on" {% if endpoint.proxy_protocol_enabled %}checked{% endif %} />
+                                            PROXY protocol
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="full-row">
+                                    <label>端口映射</label>
+                                    <div class="port-mapping-editor" data-port-mapping-form>
+                                        <table class="port-mapping-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>监听端口</th>
+                                                    <th>源站端口</th>
+                                                    <th class="checkbox-cell">HTTP</th>
+                                                    <th></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody data-port-list>
+                                                {% if endpoint.port_mappings %}
+                                                    {% for mapping in endpoint.port_mappings %}
+                                                        <tr data-port-row>
+                                                            <td><input type="number" name="port_listen" value="{{ mapping.listen_port }}" min="1" max="65535" required /></td>
+                                                            <td><input type="number" name="port_origin" value="{{ mapping.origin_port }}" min="1" max="65535" required /></td>
+                                                            <td class="checkbox-cell">
+                                                                <label class="checkbox-inline">
+                                                                    <input type="checkbox" name="port_allow_http" value="{{ loop.index0 }}" {% if mapping.allow_http %}checked{% endif %} />
+                                                                    HTTP
+                                                                </label>
+                                                            </td>
+                                                            <td><button type="button" class="link-btn" data-remove-port {% if endpoint.port_mappings|length <= 1 %}disabled{% endif %}>删除</button></td>
+                                                        </tr>
+                                                    {% endfor %}
+                                                {% else %}
+                                                        <tr data-port-row>
+                                                            <td><input type="number" name="port_listen" value="{{ endpoint.listen_port }}" min="1" max="65535" required /></td>
+                                                            <td><input type="number" name="port_origin" value="{{ endpoint.origin_port }}" min="1" max="65535" required /></td>
+                                                            <td class="checkbox-cell">
+                                                                <label class="checkbox-inline">
+                                                                    <input type="checkbox" name="port_allow_http" value="0" {% if endpoint.deployment_mode == 'http' %}checked{% endif %} />
+                                                                    HTTP
+                                                                </label>
+                                                            </td>
+                                                            <td><button type="button" class="link-btn" data-remove-port disabled>删除</button></td>
+                                                        </tr>
+                                                {% endif %}
+                                            </tbody>
+                                        </table>
+                                        <button type="button" class="secondary-btn" data-add-port>新增映射</button>
+                                        <p class="input-hint">调整端口映射后需重新部署才能生效。</p>
+                                    </div>
+                                </div>
+                                <div class="full-row">
+                                    <label>备注信息</label>
+                                    <textarea name="notes" rows="2">{{ endpoint.notes or '' }}</textarea>
+                                </div>
+                                <input type="hidden" name="return_to" value="{{ return_to }}" />
+                                <div class="full-row">
+                                    <button class="primary-btn" type="submit">保存修改</button>
+                                </div>
+                            </form>
+                        </details>
                     </td>
                 </tr>
                 {% endfor %}
@@ -540,4 +756,93 @@
     <div class="empty-state">暂无历史任务记录，提交刷新或预取任务后将在此展示。</div>
     {% endif %}
 </section>
+<template id="port-row-template">
+    <tr data-port-row>
+        <td><input type="number" name="port_listen" min="1" max="65535" required /></td>
+        <td><input type="number" name="port_origin" min="1" max="65535" required /></td>
+        <td class="checkbox-cell">
+            <label class="checkbox-inline">
+                <input type="checkbox" name="port_allow_http" value="0" />
+                HTTP
+            </label>
+        </td>
+        <td><button type="button" class="link-btn" data-remove-port>删除</button></td>
+    </tr>
+</template>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const template = document.getElementById("port-row-template");
+    if (!template) {
+        return;
+    }
+
+    const initPortEditor = (container) => {
+        const tableBody = container.querySelector("[data-port-list]");
+        if (!tableBody) {
+            return;
+        }
+
+        const ensureSingleRow = () => {
+            if (!tableBody.querySelector("[data-port-row]")) {
+                addRow();
+            }
+        };
+
+        const addRow = (listen = "", origin = "", allowHttp = false) => {
+            const fragment = template.content.cloneNode(true);
+            const row = fragment.querySelector("[data-port-row]");
+            const listenInput = row.querySelector('input[name="port_listen"]');
+            const originInput = row.querySelector('input[name="port_origin"]');
+            const allowCheckbox = row.querySelector('input[name="port_allow_http"]');
+            listenInput.value = listen;
+            originInput.value = origin;
+            allowCheckbox.checked = allowHttp;
+            tableBody.appendChild(row);
+        };
+
+        const reindex = () => {
+            const rows = Array.from(tableBody.querySelectorAll("[data-port-row]"));
+            rows.forEach((row, index) => {
+                const allowCheckbox = row.querySelector('input[name="port_allow_http"]');
+                if (allowCheckbox) {
+                    allowCheckbox.value = String(index);
+                }
+                const removeBtn = row.querySelector("[data-remove-port]");
+                if (removeBtn) {
+                    removeBtn.disabled = rows.length <= 1;
+                }
+            });
+        };
+
+        ensureSingleRow();
+        reindex();
+
+        const addBtn = container.querySelector("[data-add-port]");
+        if (addBtn) {
+            addBtn.addEventListener("click", () => {
+                addRow();
+                reindex();
+            });
+        }
+
+        tableBody.addEventListener("click", (event) => {
+            const trigger = event.target.closest("[data-remove-port]");
+            if (!trigger) {
+                return;
+            }
+            const rows = tableBody.querySelectorAll("[data-port-row]");
+            if (rows.length <= 1) {
+                return;
+            }
+            trigger.closest("[data-port-row]").remove();
+            reindex();
+        });
+    };
+
+    document.querySelectorAll("[data-port-mapping-form]").forEach((container) => {
+        initPortEditor(container);
+    });
+});
+
+</script>
 {% endblock %}

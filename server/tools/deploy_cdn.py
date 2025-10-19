@@ -27,9 +27,11 @@ if str(ROOT) not in sys.path:
 
 from app.services.cdn.deployer import (  # type: ignore  # noqa: E402
     CDNDeployer,
+    DEFAULT_HEALTH_CHECK_PORT,
     DeploymentConfig,
     DeploymentError,
     DeploymentTarget,
+    PortMapping,
     generate_nginx_config,
 )
 
@@ -59,6 +61,20 @@ class HostConfig:
 
 
 @dataclass
+class PortMappingConfig:
+    listen_port: int
+    origin_port: int
+    allow_http: Optional[bool] = None
+
+    def to_port_mapping(self) -> PortMapping:
+        return PortMapping(
+            listen_port=self.listen_port,
+            origin_port=self.origin_port,
+            allow_http=self.allow_http,
+        )
+
+
+@dataclass
 class DeployConfig:
     origin_host: str
     origin_port: int = 443
@@ -71,26 +87,40 @@ class DeployConfig:
     hosts: list[HostConfig] = field(default_factory=list)
     extra_packages: list[str] = field(default_factory=lambda: ["nginx"])
     firewall_ports: list[int] = field(default_factory=lambda: [80, 443])
+    port_mappings: list[PortMappingConfig] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict) -> "DeployConfig":
         hosts = [HostConfig(**item) for item in data.get("hosts", [])]
+        port_mappings = [PortMappingConfig(**item) for item in data.get("port_mappings", [])]
+
+        edge_token_value = data.get("edge_token")
+        if isinstance(edge_token_value, str):
+            edge_token_value = edge_token_value.strip() or None
+
         return cls(
             origin_host=data["origin_host"],
             origin_port=data.get("origin_port", 443),
             listen_port=data.get("listen_port", data.get("origin_port", 443)),
             mode=data.get("mode", "http"),
-            edge_token=data.get("edge_token"),
+            edge_token=edge_token_value,
             ssl_certificate=data.get("ssl_certificate"),
             ssl_certificate_key=data.get("ssl_certificate_key"),
             allow_http=data.get("allow_http", False),
             hosts=hosts,
             extra_packages=data.get("extra_packages", ["nginx"]),
             firewall_ports=data.get("firewall_ports", [80, 443]),
+            port_mappings=port_mappings,
         )
 
     def to_deployment_config(self) -> DeploymentConfig:
-        return DeploymentConfig(
+        user_firewall_ports = {int(port) for port in self.firewall_ports}
+        user_firewall_ports.add(int(self.listen_port))
+        for mapping in self.port_mappings:
+            user_firewall_ports.add(int(mapping.listen_port))
+        user_firewall_ports.add(DEFAULT_HEALTH_CHECK_PORT)
+
+        deployment_config = DeploymentConfig(
             origin_host=self.origin_host,
             origin_port=self.origin_port,
             listen_port=self.listen_port,
@@ -100,8 +130,10 @@ class DeployConfig:
             ssl_certificate=self.ssl_certificate,
             ssl_certificate_key=self.ssl_certificate_key,
             extra_packages=self.extra_packages,
-            firewall_ports=self.firewall_ports,
+            firewall_ports=sorted(user_firewall_ports),
+            port_mappings=[mapping.to_port_mapping() for mapping in self.port_mappings],
         )
+        return deployment_config
 
 
 def load_config(config_path: pathlib.Path) -> DeployConfig:

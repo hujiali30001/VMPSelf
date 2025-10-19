@@ -18,6 +18,7 @@ from app.core.settings import get_settings
 from app.db import (
     CDNDeployment,
     CDNEndpoint,
+    CDNEndpointPort,
     CDNEndpointStatus,
     CDNHealthCheck,
     CDNHealthStatus,
@@ -30,12 +31,37 @@ from app.services.cdn.deployer import (
     DeploymentConfig,
     DeploymentError,
     DeploymentTarget,
+    PortMapping,
     generate_nginx_config,
 )
 from app.services.cdn.health import CDNHealthChecker, HealthCheckResult
 
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_optional_bool(value: Any) -> Optional[bool]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in {"", "null", "none"}:
+        return None
+    return text in {"1", "true", "yes", "on"}
+
+
+def _serialize_port_mappings(mappings: Iterable[PortMapping]) -> list[dict[str, Any]]:
+    return [
+        {
+            "listen_port": mapping.listen_port,
+            "origin_port": mapping.origin_port,
+            "allow_http": mapping.allow_http,
+        }
+        for mapping in mappings
+    ]
 
 
 @dataclass
@@ -60,6 +86,113 @@ class CDNService:
         self.deployer = deployer or CDNDeployer()
         self.health_checker = health_checker or CDNHealthChecker()
 
+    @staticmethod
+    def _build_port_mappings_payload(
+        deployment_mode: str,
+        listen_port: int,
+        origin_port: int,
+        payloads: Optional[Iterable[dict[str, Any] | PortMapping]],
+        *,
+        allow_http_flag: bool,
+    ) -> tuple[list[PortMapping], bool]:
+        if not payloads:
+            return ([], allow_http_flag)
+
+        result: list[PortMapping] = []
+        effective_allow_http = allow_http_flag
+
+        for item in payloads:
+            if item is None:
+                continue
+            if isinstance(item, PortMapping):
+                allow_http_value = item.allow_http
+                if allow_http_value:
+                    effective_allow_http = True
+                result.append(item)
+                continue
+
+            listen_value = item.get("listen_port")
+            origin_value = item.get("origin_port")
+            if listen_value in (None, "", "-") or origin_value in (None, "", "-"):
+                continue
+
+            allow_http_value = _parse_optional_bool(item.get("allow_http"))
+            if allow_http_value:
+                effective_allow_http = True
+
+            result.append(
+                PortMapping(
+                    listen_port=listen_value,
+                    origin_port=origin_value if origin_value is not None else origin_port,
+                    allow_http=allow_http_value,
+                )
+            )
+
+        if deployment_mode != "http":
+            effective_allow_http = False
+
+        return (result, effective_allow_http)
+
+    @staticmethod
+    def _apply_port_mappings(endpoint: CDNEndpoint, mode: str, mappings: list[PortMapping]) -> None:
+        sorted_mappings = sorted(mappings, key=lambda item: (int(item.listen_port), int(item.origin_port)))
+        endpoint.port_mappings.clear()
+        for mapping in sorted_mappings:
+            endpoint.port_mappings.append(
+                CDNEndpointPort(
+                    listen_port=int(mapping.listen_port),
+                    origin_port=int(mapping.origin_port),
+                    allow_http=mapping.allow_http if mode == "http" else None,
+                )
+            )
+
+        if sorted_mappings:
+            endpoint.listen_port = int(sorted_mappings[0].listen_port)
+            endpoint.origin_port = int(sorted_mappings[0].origin_port)
+
+    def _build_deployment_config_from_endpoint(
+        self,
+        endpoint: CDNEndpoint,
+        *,
+        allow_http_override: Optional[bool] = None,
+    ) -> DeploymentConfig:
+        if endpoint.deployment_mode == "http":
+            if allow_http_override is None:
+                allow_http_value = any(p.allow_http for p in endpoint.port_mappings)
+            else:
+                allow_http_value = allow_http_override
+        else:
+            allow_http_value = False
+
+        config = DeploymentConfig(
+            origin_host=endpoint.origin,
+            origin_port=endpoint.origin_port,
+            listen_port=endpoint.listen_port,
+            edge_token=endpoint.edge_token,
+            mode=endpoint.deployment_mode,
+            allow_http=allow_http_value,
+            proxy_protocol=endpoint.proxy_protocol_enabled if endpoint.deployment_mode == "tcp" else False,
+        )
+
+        if endpoint.port_mappings:
+            config.port_mappings = [
+                PortMapping(
+                    listen_port=port.listen_port,
+                    origin_port=port.origin_port,
+                    allow_http=port.allow_http,
+                )
+                for port in sorted(endpoint.port_mappings, key=lambda item: (item.listen_port, item.id or 0))
+            ]
+
+        if config.mode == "http" and config.allow_http and not any(mp.allow_http for mp in config.port_mappings):
+            fallback_listen = 80 if config.listen_port != 80 else config.listen_port
+            config.port_mappings.append(
+                PortMapping(listen_port=fallback_listen, origin_port=config.origin_port, allow_http=True)
+            )
+
+        config.normalize()
+        return config
+
     # Endpoints -----------------------------------------------------------------
     def list_endpoints(self) -> List[CDNEndpoint]:
         stmt = (
@@ -68,6 +201,7 @@ class CDNService:
                 selectinload(CDNEndpoint.tasks),
                 selectinload(CDNEndpoint.deployments),
                 selectinload(CDNEndpoint.health_checks),
+                selectinload(CDNEndpoint.port_mappings),
             )
             .order_by(CDNEndpoint.created_at.desc())
         )
@@ -94,6 +228,8 @@ class CDNService:
         deployment_mode: str = "http",
         proxy_protocol_enabled: bool = False,
         edge_token: Optional[str] = None,
+        allow_http: bool = False,
+        port_mappings: Optional[Iterable[dict[str, Any] | PortMapping]] = None,
         notes: Optional[str] = None,
     ) -> CDNEndpoint:
         name = (name or "").strip()
@@ -136,9 +272,42 @@ class CDNService:
             raise ValueError("domain_exists")
 
         settings = get_settings()
-        resolved_token = (edge_token or settings.cdn_token or secrets.token_urlsafe(24)).strip()
+        raw_edge_token = edge_token.strip() if isinstance(edge_token, str) else None
+        default_edge_token = settings.cdn_token.strip() if getattr(settings, "cdn_token", None) else None
+        resolved_token = raw_edge_token or default_edge_token or secrets.token_urlsafe(24)
+        if isinstance(resolved_token, str):
+            resolved_token = resolved_token.strip()
 
         proxy_protocol_enabled = bool(proxy_protocol_enabled) if deployment_mode == "tcp" else False
+
+        mapping_entries, effective_allow_http = self._build_port_mappings_payload(
+            deployment_mode,
+            listen_port,
+            origin_port,
+            port_mappings,
+            allow_http_flag=bool(allow_http),
+        )
+
+        deploy_config = DeploymentConfig(
+            origin_host=origin,
+            origin_port=origin_port,
+            listen_port=listen_port,
+            edge_token=resolved_token or None,
+            mode=deployment_mode,
+            allow_http=effective_allow_http,
+            proxy_protocol=proxy_protocol_enabled if deployment_mode == "tcp" else False,
+        )
+
+        if mapping_entries:
+            deploy_config.port_mappings = mapping_entries
+
+        try:
+            deploy_config.normalize()
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+
+        primary_listen_port = deploy_config.listen_port
+        primary_origin_port = deploy_config.origin_port
 
         endpoint = CDNEndpoint(
             name=name,
@@ -152,8 +321,8 @@ class CDNService:
             ssh_password_encrypted=encrypt_secret(ssh_password),
             ssh_private_key_encrypted=encrypt_secret(ssh_private_key),
             sudo_password_encrypted=encrypt_secret(sudo_password),
-            listen_port=listen_port,
-            origin_port=origin_port,
+            listen_port=primary_listen_port,
+            origin_port=primary_origin_port,
             deployment_mode=deployment_mode,
             edge_token=resolved_token or None,
             proxy_protocol_enabled=proxy_protocol_enabled,
@@ -161,10 +330,127 @@ class CDNService:
         endpoint.status = CDNEndpointStatus.PAUSED.value
         endpoint.last_deploy_status = CDNTaskStatus.PENDING.value
 
+        self._apply_port_mappings(endpoint, deployment_mode, deploy_config.port_mappings)
+
+        endpoint.listen_port = deploy_config.listen_port
+        endpoint.origin_port = deploy_config.origin_port
+
         self.db.add(endpoint)
         self.db.commit()
         self.db.refresh(endpoint)
 
+        return endpoint
+
+    def update_endpoint(
+        self,
+        endpoint_id: int,
+        *,
+        name: str,
+        domain: str,
+        provider: str,
+        origin: str,
+        host: str,
+        listen_port: int,
+        origin_port: int,
+        deployment_mode: str,
+        proxy_protocol_enabled: bool = False,
+        edge_token: Optional[str] = None,
+        notes: Optional[str] = None,
+        port_mappings: Optional[Iterable[dict[str, Any] | PortMapping]] = None,
+    ) -> CDNEndpoint:
+        endpoint = self.db.get(CDNEndpoint, endpoint_id)
+        if not endpoint:
+            raise ValueError("endpoint_not_found")
+
+        name = (name or "").strip()
+        domain = (domain or "").strip().lower()
+        provider = (provider or "").strip()
+        origin = (origin or "").strip()
+        host = (host or "").strip()
+        deployment_mode = (deployment_mode or "http").strip().lower()
+        notes = (notes or "").strip() or None
+
+        if len(name) < 3:
+            raise ValueError("name_too_short")
+        if not domain or "." not in domain:
+            raise ValueError("domain_invalid")
+        if not provider:
+            raise ValueError("provider_required")
+        if not origin:
+            raise ValueError("origin_required")
+        if not host:
+            raise ValueError("host_required")
+        if deployment_mode not in {"http", "tcp"}:
+            raise ValueError("deployment_mode_invalid")
+
+        try:
+            ssh_port = int(endpoint.ssh_port or 22)
+            listen_port = int(listen_port)
+            origin_port = int(origin_port)
+        except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
+            raise ValueError("port_invalid") from exc
+
+        for port in (ssh_port, listen_port, origin_port):
+            if port <= 0 or port > 65535:
+                raise ValueError("port_invalid")
+
+        existing = self.db.scalar(select(CDNEndpoint).where(CDNEndpoint.domain == domain))
+        if existing and existing.id != endpoint_id:
+            raise ValueError("domain_exists")
+
+        mapping_entries, effective_allow_http = self._build_port_mappings_payload(
+            deployment_mode,
+            listen_port,
+            origin_port,
+            port_mappings,
+            allow_http_flag=False,
+        )
+
+        if edge_token is None:
+            resolved_edge_token = endpoint.edge_token
+        else:
+            trimmed_token = edge_token.strip()
+            resolved_edge_token = trimmed_token or None
+
+        deploy_config = DeploymentConfig(
+            origin_host=origin,
+            origin_port=origin_port,
+            listen_port=listen_port,
+            edge_token=resolved_edge_token,
+            mode=deployment_mode,
+            allow_http=effective_allow_http,
+            proxy_protocol=proxy_protocol_enabled if deployment_mode == "tcp" else False,
+        )
+
+        if mapping_entries:
+            deploy_config.port_mappings = mapping_entries
+
+        try:
+            deploy_config.normalize()
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+
+        endpoint.name = name
+        endpoint.domain = domain
+        endpoint.provider = provider
+        endpoint.origin = origin
+        endpoint.host = host
+        endpoint.deployment_mode = deploy_config.mode
+        if edge_token is not None:
+            endpoint.edge_token = resolved_edge_token
+        endpoint.proxy_protocol_enabled = deploy_config.proxy_protocol if deploy_config.mode == "tcp" else False
+        endpoint.notes = notes
+
+        self._apply_port_mappings(endpoint, deploy_config.mode, deploy_config.port_mappings)
+
+        endpoint.listen_port = deploy_config.listen_port
+        endpoint.origin_port = deploy_config.origin_port
+        endpoint.updated_at = datetime.now(timezone.utc)
+
+        self.db.flush()
+        self._sync_origin_whitelist()
+        self.db.commit()
+        self.db.refresh(endpoint)
         return endpoint
 
     def set_endpoint_status(self, endpoint_id: int, status: CDNEndpointStatus) -> CDNEndpoint:
@@ -325,6 +611,8 @@ class CDNService:
             "ssl_certificate": deploy_config.ssl_certificate,
             "ssl_certificate_key": deploy_config.ssl_certificate_key,
         }
+        if deploy_config.port_mappings:
+            snapshot["port_mappings"] = _serialize_port_mappings(deploy_config.port_mappings)
         if whitelist:
             snapshot["recommended_origin_ip_whitelist"] = list(whitelist)
         return snapshot
@@ -377,6 +665,18 @@ class CDNService:
         if firewall_ports:
             config.firewall_ports = list(firewall_ports)
 
+        mapping_payloads = data.get("port_mappings")
+        if mapping_payloads:
+            config.port_mappings = [
+                PortMapping(
+                    listen_port=item.get("listen_port", listen_port),
+                    origin_port=item.get("origin_port", origin_port),
+                    allow_http=_parse_optional_bool(item.get("allow_http")),
+                )
+                for item in mapping_payloads
+                if item is not None
+            ]
+
         if data.get("ssl_certificate"):
             config.ssl_certificate = data.get("ssl_certificate")
         if data.get("ssl_certificate_key"):
@@ -424,7 +724,7 @@ class CDNService:
         self,
         endpoint_id: int,
         *,
-        allow_http: bool = False,
+        allow_http: Optional[bool] = None,
         use_proxy_protocol: Optional[bool] = None,
     ) -> CDNTask:
         endpoint = self.db.get(CDNEndpoint, endpoint_id)
@@ -448,14 +748,13 @@ class CDNService:
             sudo_password=credentials.sudo_password or credentials.ssh_password,
         )
 
-        deploy_config = DeploymentConfig(
-            origin_host=endpoint.origin,
-            origin_port=endpoint.origin_port,
-            listen_port=endpoint.listen_port,
-            edge_token=endpoint.edge_token,
-            mode=endpoint.deployment_mode,
-            allow_http=allow_http if endpoint.deployment_mode == "http" else False,
-            proxy_protocol=endpoint.proxy_protocol_enabled if endpoint.deployment_mode == "tcp" else False,
+        allow_http_override: Optional[bool] = None
+        if endpoint.deployment_mode == "http":
+            allow_http_override = allow_http
+
+        deploy_config = self._build_deployment_config_from_endpoint(
+            endpoint,
+            allow_http_override=allow_http_override,
         )
         config_text = generate_nginx_config(deploy_config)
 
@@ -470,7 +769,7 @@ class CDNService:
 
         settings = get_settings()
         started_at = datetime.now(timezone.utc)
-        firewall_ports_snapshot = sorted({*deploy_config.firewall_ports, deploy_config.listen_port})
+        firewall_ports_snapshot = sorted(set(deploy_config.firewall_ports))
         whitelist = list(settings.cdn_ip_whitelist) if settings.cdn_ip_whitelist else None
         config_snapshot = self._create_config_snapshot(
             endpoint,
@@ -638,7 +937,7 @@ class CDNService:
 
         settings = get_settings()
         started_at = datetime.now(timezone.utc)
-        firewall_ports_snapshot = sorted({*deploy_config.firewall_ports, deploy_config.listen_port})
+        firewall_ports_snapshot = sorted(set(deploy_config.firewall_ports))
         whitelist = list(settings.cdn_ip_whitelist) if settings.cdn_ip_whitelist else None
         config_snapshot = self._create_config_snapshot(
             endpoint,
@@ -744,8 +1043,9 @@ class CDNService:
 
         endpoint.status = CDNEndpointStatus.ACTIVE.value
         endpoint.origin = deploy_config.origin_host
-        endpoint.origin_port = deploy_config.origin_port
-        endpoint.listen_port = deploy_config.listen_port
+        self._apply_port_mappings(endpoint, deploy_config.mode, deploy_config.port_mappings)
+        endpoint.listen_port = int(deploy_config.listen_port)
+        endpoint.origin_port = int(deploy_config.origin_port)
         endpoint.deployment_mode = deploy_config.mode
         endpoint.edge_token = deploy_config.edge_token
         endpoint.proxy_protocol_enabled = deploy_config.proxy_protocol if deploy_config.mode == "tcp" else False

@@ -143,6 +143,9 @@ def test_deploy_endpoint_success_updates_status_and_creates_task():
         assert refreshed.last_deployed_at is not None
         assert refreshed.updated_at is not None
         assert refreshed.listen_port == 443
+        assert refreshed.port_mappings
+        stored_mappings = [(port.listen_port, port.origin_port, port.allow_http) for port in refreshed.port_mappings]
+        assert stored_mappings == [(443, 8443, False)]
         assert refreshed.health_status == CDNHealthStatus.HEALTHY.value
         assert refreshed.health_latency_ms == 42
         assert refreshed.health_error is None
@@ -154,6 +157,11 @@ def test_deploy_endpoint_success_updates_status_and_creates_task():
         assert latest_deployment.summary == "模拟部署成功"
         assert "fake deploy step" in (latest_deployment.log or "")
         assert latest_deployment.allow_http is True
+        assert latest_deployment.config_snapshot.get("port_mappings")
+        snapshot_mappings = latest_deployment.config_snapshot.get("port_mappings")
+        assert isinstance(snapshot_mappings, list)
+        assert any(entry["listen_port"] == 80 for entry in snapshot_mappings)
+        assert any(entry["listen_port"] == 443 for entry in snapshot_mappings)
         assert latest_deployment.config_snapshot.get("recommended_origin_ip_whitelist") == ["203.0.113.10"]
         assert latest_deployment.config_snapshot.get("firewall_ports") == [80, 443, 8000]
         assert latest_deployment.config_text is not None
@@ -184,6 +192,8 @@ def test_deploy_endpoint_success_updates_status_and_creates_task():
         assert config.proxy_protocol is False
         assert config.listen_port == 443
         assert config.origin_port == 8443
+        assert len(config.port_mappings) == 2
+        assert {mapping.listen_port for mapping in config.port_mappings} == {80, 443}
         assert config_text is not None
         assert latest_deployment.config_text == config_text
 
@@ -644,4 +654,46 @@ def test_monitor_config_persist_env_writes_values(monkeypatch, tmp_path):
     assert "FOO=BAR" in lines
     assert "VMP_CDN_HEALTH_MONITOR_ENABLED=true" in lines
     assert "VMP_CDN_HEALTH_MONITOR_INTERVAL=75" in lines
+
+
+def test_update_endpoint_updates_port_mappings():
+    fake = _FakeDeployer()
+    fake_health = _FakeHealthChecker()
+    with SessionLocal() as session:
+        service = CDNService(session, deployer=fake, health_checker=fake_health)
+        endpoint_id = _create_endpoint(service)
+
+        updated = service.update_endpoint(
+            endpoint_id,
+            name="Edge-1A",
+            domain="cdn.example.com",
+            provider="ExampleCDN",
+            origin="origin.internal",
+            host="203.0.113.11",
+            listen_port=443,
+            origin_port=8443,
+            deployment_mode="http",
+            proxy_protocol_enabled=False,
+            edge_token="edge-token",
+            notes="Updated",
+            port_mappings=[
+                {"listen_port": "443", "origin_port": "8443", "allow_http": False},
+                {"listen_port": "8080", "origin_port": "8080", "allow_http": True},
+            ],
+        )
+
+        assert updated.host == "203.0.113.11"
+        assert updated.notes == "Updated"
+        assert updated.listen_port == 443
+        assert updated.origin_port == 8443
+        assert len(updated.port_mappings) == 2
+        assert [(p.listen_port, p.origin_port, p.allow_http) for p in updated.port_mappings] == [
+            (443, 8443, False),
+            (8080, 8080, True),
+        ]
+        service.deploy_endpoint(endpoint_id, allow_http=True)
+        assert fake.calls
+        _, deploy_config, _ = fake.calls[-1]
+        assert {mapping.listen_port for mapping in deploy_config.port_mappings} == {443, 8080}
+        assert any(mapping.allow_http for mapping in deploy_config.port_mappings)
 

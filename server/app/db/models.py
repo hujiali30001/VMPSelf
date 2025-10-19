@@ -239,6 +239,11 @@ class CDNEndpoint(Base):
         cascade="all, delete-orphan",
         order_by="CDNHealthCheck.checked_at.desc()",
     )
+    port_mappings: Mapped[list["CDNEndpointPort"]] = relationship(
+        back_populates="endpoint",
+        cascade="all, delete-orphan",
+        order_by="CDNEndpointPort.listen_port.asc()",
+    )
 
 
 class CDNTask(Base):
@@ -318,6 +323,19 @@ class CDNHealthCheck(Base):
     checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
 
     endpoint: Mapped[CDNEndpoint] = relationship(back_populates="health_checks")
+
+
+class CDNEndpointPort(Base):
+    __tablename__ = "cdn_endpoint_ports"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    endpoint_id: Mapped[int] = mapped_column(ForeignKey("cdn_endpoints.id", ondelete="CASCADE"), nullable=False, index=True)
+    listen_port: Mapped[int] = mapped_column(Integer, nullable=False)
+    origin_port: Mapped[int] = mapped_column(Integer, nullable=False)
+    allow_http: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    endpoint: Mapped[CDNEndpoint] = relationship(back_populates="port_mappings")
 
 
 class SoftwareSlotStatus(str, Enum):

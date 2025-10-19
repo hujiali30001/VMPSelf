@@ -35,6 +35,35 @@ from app.services.cdn import (
 router = APIRouter(prefix="/cdn")
 
 
+def _parse_port_mappings(form: dict[str, object]) -> list[dict[str, object]]:
+    def _get_list(key: str) -> list[str]:
+        value = form.getlist(key) if hasattr(form, "getlist") else form.get(key, [])
+        if isinstance(value, list):
+            return [str(item) for item in value]
+        if value is None:
+            return []
+        return [str(value)]
+
+    listens = _get_list("port_listen")
+    origins = _get_list("port_origin")
+    allow_http_flags = set(_get_list("port_allow_http"))
+
+    mappings: list[dict[str, object]] = []
+    for index, (listen, origin) in enumerate(zip(listens, origins)):
+        listen_value = (listen or "").strip()
+        origin_value = (origin or "").strip()
+        if not listen_value or not origin_value:
+            continue
+        mappings.append(
+            {
+                "listen_port": listen_value,
+                "origin_port": origin_value,
+                "allow_http": str(index) in allow_http_flags,
+            }
+        )
+    return mappings
+
+
 @router.get("/")
 def cdn_page(
     request: Request,
@@ -168,29 +197,48 @@ def cdn_page(
 
 
 @router.post("/endpoints")
-def create_cdn_endpoint_action(
+async def create_cdn_endpoint_action(
     request: Request,
-    name: str = Form(...),
-    domain: str = Form(...),
-    provider: str = Form(...),
-    origin: str = Form(...),
-    host: str = Form(...),
-    ssh_username: str = Form(...),
-    ssh_password: Optional[str] = Form(None),
-    ssh_private_key: Optional[str] = Form(None),
-    sudo_password: Optional[str] = Form(None),
-    ssh_port: int = Form(22),
-    listen_port: int = Form(443),
-    origin_port: int = Form(443),
-    deployment_mode: str = Form("http"),
-    proxy_protocol: Optional[str] = Form(None),
-    edge_token: Optional[str] = Form(None),
-    notes: Optional[str] = Form(None),
-    return_to: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     _: AdminPrincipal = Depends(require_permission("cdn", "manage")),
 ):
     service = CDNService(db)
+    form = await request.form()
+
+    name = (form.get("name") or "").strip()
+    domain = (form.get("domain") or "").strip()
+    provider = (form.get("provider") or "").strip()
+    origin = (form.get("origin") or "").strip()
+    host = (form.get("host") or "").strip()
+    ssh_username = (form.get("ssh_username") or "").strip()
+    ssh_password = (form.get("ssh_password") or None) or None
+    ssh_private_key = (form.get("ssh_private_key") or None) or None
+    sudo_password = (form.get("sudo_password") or None) or None
+    ssh_port = form.get("ssh_port", 22)
+    deployment_mode = (form.get("deployment_mode") or "http").strip().lower()
+    proxy_protocol = form.get("proxy_protocol")
+    edge_token = form.get("edge_token")
+    if edge_token is not None:
+        edge_token = edge_token.strip()
+    notes = ((form.get("notes") or "").strip() or None)
+    return_to = form.get("return_to")
+
+    port_mappings = _parse_port_mappings(form)
+    if not port_mappings:
+        fallback_listen = form.get("default_listen_port", "443")
+        fallback_origin = form.get("default_origin_port", "443")
+        port_mappings = [
+            {
+                "listen_port": fallback_listen,
+                "origin_port": fallback_origin,
+                "allow_http": False,
+            }
+        ]
+
+    primary_mapping = port_mappings[0]
+    listen_port = primary_mapping["listen_port"]
+    origin_port = primary_mapping["origin_port"]
+
     try:
         proxy_protocol_enabled = False
         if proxy_protocol:
@@ -212,6 +260,7 @@ def create_cdn_endpoint_action(
             deployment_mode=deployment_mode,
             proxy_protocol_enabled=proxy_protocol_enabled,
             edge_token=edge_token,
+            port_mappings=port_mappings,
             notes=notes,
         )
     except ValueError as exc:
@@ -226,6 +275,7 @@ def create_cdn_endpoint_action(
             "ssh_username_required": "请填写 SSH 登录用户名",
             "port_invalid": "端口号无效，请检查输入",
             "deployment_mode_invalid": "部署模式仅支持 HTTP 或 TCP",
+            "port_mapping_missing": "至少需要配置一个有效的端口映射",
         }
         message = error_map.get(str(exc), f"创建失败: {exc}")
     else:
@@ -246,9 +296,19 @@ def deploy_cdn_endpoint_action(
     _: AdminPrincipal = Depends(require_permission("cdn", "manage")),
 ):
     service = CDNService(db)
+    endpoint = service.get_endpoint(endpoint_id)
+    if not endpoint:
+        target = _append_message(_sanitize_return_path(return_to, fallback="/admin/cdn"), "未找到指定的 CDN 节点")
+        return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+
     allow_http_flag = False
     if allow_http:
         allow_http_flag = allow_http.lower() in {"1", "true", "on", "yes"}
+
+    stored_allow_http = any(port.allow_http for port in endpoint.port_mappings) if endpoint.port_mappings else False
+    allow_http_override: Optional[bool] = None
+    if endpoint.deployment_mode == "http":
+        allow_http_override = allow_http_flag if allow_http_flag != stored_allow_http else None
 
     proxy_protocol_flag: Optional[bool] = None
     if use_proxy_protocol is not None:
@@ -257,7 +317,7 @@ def deploy_cdn_endpoint_action(
     try:
         service.deploy_endpoint(
             endpoint_id,
-            allow_http=allow_http_flag,
+            allow_http=allow_http_override,
             use_proxy_protocol=proxy_protocol_flag,
         )
     except ValueError as exc:
@@ -271,6 +331,77 @@ def deploy_cdn_endpoint_action(
         message = f"部署执行失败: {exc}"
     else:
         message = "节点已部署并更新配置"
+
+    target = _append_message(_sanitize_return_path(return_to, fallback="/admin/cdn"), message)
+    return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+
+
+@router.post("/endpoints/{endpoint_id}/edit")
+async def update_cdn_endpoint_action(
+    request: Request,
+    endpoint_id: int,
+    db: Session = Depends(get_db),
+    _: AdminPrincipal = Depends(require_permission("cdn", "manage")),
+):
+    service = CDNService(db)
+    form = await request.form()
+    return_to = form.get("return_to")
+
+    port_mappings = _parse_port_mappings(form)
+    if not port_mappings:
+        message = "请至少保留一条有效的端口映射"
+        target = _append_message(_sanitize_return_path(return_to, fallback="/admin/cdn"), message)
+        return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+
+    primary_mapping = port_mappings[0]
+    listen_port = primary_mapping["listen_port"]
+    origin_port = primary_mapping["origin_port"]
+
+    name = (form.get("name") or "").strip()
+    domain = (form.get("domain") or "").strip()
+    provider = (form.get("provider") or "").strip()
+    origin = (form.get("origin") or "").strip()
+    host = (form.get("host") or "").strip()
+    deployment_mode = (form.get("deployment_mode") or "http").strip().lower()
+    proxy_protocol = form.get("proxy_protocol")
+    edge_token = form.get("edge_token")
+    if edge_token is not None:
+        edge_token = edge_token.strip()
+    notes = form.get("notes")
+
+    try:
+        proxy_protocol_enabled = bool(proxy_protocol and proxy_protocol.lower() in {"1", "true", "on", "yes"})
+        service.update_endpoint(
+            endpoint_id,
+            name=name,
+            domain=domain,
+            provider=provider,
+            origin=origin,
+            host=host,
+            listen_port=listen_port,
+            origin_port=origin_port,
+            deployment_mode=deployment_mode,
+            proxy_protocol_enabled=proxy_protocol_enabled,
+            edge_token=edge_token,
+            notes=(notes.strip() if notes else None),
+            port_mappings=port_mappings,
+        )
+    except ValueError as exc:
+        db.rollback()
+        error_map = {
+            "endpoint_not_found": "未找到指定的节点",
+            "name_too_short": "名称至少需要 3 个字符",
+            "domain_invalid": "域名格式不正确",
+            "provider_required": "请填写服务商",
+            "origin_required": "源站地址不能为空",
+            "host_required": "请填写节点地址",
+            "deployment_mode_invalid": "部署模式仅支持 HTTP 或 TCP",
+            "port_invalid": "端口号无效，请检查输入",
+            "domain_exists": "域名已存在，请勿重复",
+        }
+        message = error_map.get(str(exc), f"更新失败: {exc}")
+    else:
+        message = "节点信息已更新"
 
     target = _append_message(_sanitize_return_path(return_to, fallback="/admin/cdn"), message)
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)

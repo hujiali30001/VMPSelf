@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import posixpath
 import re
-from typing import Iterable, Optional
+from typing import Iterable, Optional, List
 
 import paramiko
 
@@ -35,6 +35,13 @@ class DeploymentTarget:
 
 
 @dataclass
+class PortMapping:
+    listen_port: int
+    origin_port: int
+    allow_http: Optional[bool] = None
+
+
+@dataclass
 class DeploymentConfig:
     origin_host: str
     origin_port: int = 443
@@ -47,6 +54,7 @@ class DeploymentConfig:
     ssl_certificate_key: Optional[str] = None
     extra_packages: list[str] = field(default_factory=lambda: ["nginx"])
     firewall_ports: list[int] = field(default_factory=lambda: [80, 443, DEFAULT_HEALTH_CHECK_PORT])
+    port_mappings: List[PortMapping] = field(default_factory=list)
 
     def normalize(self) -> None:
         if self.mode not in {"http", "tcp"}:
@@ -57,6 +65,49 @@ class DeploymentConfig:
             raise ValueError("origin_required")
         if self.proxy_protocol and self.mode != "tcp":
             self.proxy_protocol = False
+
+        normalized_mappings: list[PortMapping] = []
+
+        if self.port_mappings:
+            mappings = list(self.port_mappings)
+        else:
+            if self.mode == "http" and self.listen_port == 80 and self.allow_http:
+                default_allow_http = True
+            else:
+                default_allow_http = False if self.mode == "http" else None
+            mappings = [PortMapping(self.listen_port, self.origin_port, allow_http=default_allow_http)]
+            if self.mode == "http" and self.allow_http and self.listen_port != 80:
+                mappings.append(PortMapping(listen_port=80, origin_port=self.origin_port, allow_http=True))
+
+        for mapping in mappings:
+            try:
+                listen = int(mapping.listen_port)
+                origin = int(mapping.origin_port)
+            except (TypeError, ValueError):
+                raise ValueError("port_invalid") from None
+            if listen <= 0 or origin <= 0:
+                raise ValueError("port_invalid")
+            allow_http = mapping.allow_http
+            if self.mode != "http":
+                allow_http = False
+            elif allow_http is None:
+                allow_http = self.allow_http
+            normalized_mappings.append(PortMapping(listen_port=listen, origin_port=origin, allow_http=allow_http))
+
+        self.port_mappings = normalized_mappings
+        if self.port_mappings:
+            self.listen_port = self.port_mappings[0].listen_port
+            self.origin_port = self.port_mappings[0].origin_port
+            if self.mode == "http":
+                self.allow_http = any(mapping.allow_http for mapping in self.port_mappings)
+            else:
+                self.allow_http = False
+
+        firewall_ports = set(self.firewall_ports)
+        firewall_ports.add(DEFAULT_HEALTH_CHECK_PORT)
+        for mapping in self.port_mappings:
+            firewall_ports.add(mapping.listen_port)
+        self.firewall_ports = sorted(firewall_ports)
 
 
 @dataclass
@@ -73,41 +124,29 @@ class DeploymentResult:
 
 def generate_nginx_config(config: DeploymentConfig) -> str:
     config.normalize()
+    mappings = config.port_mappings or [PortMapping(listen_port=config.listen_port, origin_port=config.origin_port, allow_http=config.allow_http if config.mode == "http" else None)]
 
     if config.mode == "tcp":
-        listen_line = f"        listen {config.listen_port};"
-
-        stream_block = [
-            "stream {",
-            "    upstream vmp_origin {",
-            f"        server {config.origin_host}:{config.origin_port};",
-            "    }",
-            "",
-            "    server {",
-            listen_line,
-            "        proxy_connect_timeout 5s;",
-            "        proxy_timeout 300s;",
-            "        proxy_pass vmp_origin;",
-        ]
-        stream_block.extend(
-            [
-                "    }",
-                "}",
-            ]
-        )
-        return "\n".join(stream_block) + "\n"
-
-    listen_directives: list[str] = []
-    tls_enabled = _is_tls_enabled(config)
-
-    if config.allow_http and (not tls_enabled or config.listen_port != 80):
-        listen_directives.append("    listen 80;")
-
-    if tls_enabled:
-        listen_directives.append(f"    listen {config.listen_port} ssl;")
-    else:
-        if not (config.allow_http and config.listen_port == 80):
-            listen_directives.append(f"    listen {config.listen_port};")
+        lines: list[str] = ["stream {"]
+        for index, mapping in enumerate(mappings):
+            upstream = f"vmp_origin_{index}"
+            lines.extend(
+                [
+                    f"    upstream {upstream} {{",
+                    f"        server {config.origin_host}:{mapping.origin_port};",
+                    "    }",
+                    "",
+                    "    server {",
+                    f"        listen {mapping.listen_port};",
+                    "        proxy_connect_timeout 5s;",
+                    "        proxy_timeout 300s;",
+                    f"        proxy_pass {upstream};",
+                    "    }",
+                    "",
+                ]
+            )
+        lines.append("}")
+        return "\n".join(lines).rstrip() + "\n"
 
     header_lines = [
         "        proxy_set_header Host {host};".format(host=config.origin_host),
@@ -122,43 +161,56 @@ def generate_nginx_config(config: DeploymentConfig) -> str:
         "",
     ]
 
-    config_block = [
-        *cache_directives,
-        "server {",
-        *listen_directives,
-    ]
+    blocks: list[str] = [*cache_directives]
+    tls_enabled = _is_tls_enabled(config)
 
-    if tls_enabled:
-        ssl_cert = config.ssl_certificate or DEFAULT_SSL_CERT
-        ssl_key = config.ssl_certificate_key or DEFAULT_SSL_KEY
-        config_block.extend(
+    for mapping in mappings:
+        mapping_allow_http = bool(mapping.allow_http)
+        use_tls = tls_enabled and not mapping_allow_http
+        block_lines = ["server {"]
+        if mapping_allow_http:
+            block_lines.append(f"    listen {mapping.listen_port};")
+        else:
+            if use_tls:
+                block_lines.append(f"    listen {mapping.listen_port} ssl;")
+            else:
+                block_lines.append(f"    listen {mapping.listen_port};")
+
+        if use_tls:
+            ssl_cert = config.ssl_certificate or DEFAULT_SSL_CERT
+            ssl_key = config.ssl_certificate_key or DEFAULT_SSL_KEY
+            block_lines.extend(
+                [
+                    "    http2 on;",
+                    f"    ssl_certificate {ssl_cert};",
+                    f"    ssl_certificate_key {ssl_key};",
+                    "    ssl_protocols TLSv1.2 TLSv1.3;",
+                    "    ssl_ciphers HIGH:!aNULL:!MD5;",
+                ]
+            )
+
+        block_lines.extend(
             [
-                "    http2 on;",
-                f"    ssl_certificate {ssl_cert};",
-                f"    ssl_certificate_key {ssl_key};",
-                "    ssl_protocols TLSv1.2 TLSv1.3;",
-                "    ssl_ciphers HIGH:!aNULL:!MD5;",
+                "    server_name _;",
+                "",
+                "    proxy_buffering on;",
+                "",
+                "    location / {",
+                f"        proxy_pass https://{config.origin_host}:{mapping.origin_port};",
+                *header_lines,
+                "        proxy_cache vmp_cache;",
+                "        proxy_cache_valid 200 302 10m;",
+                "        proxy_cache_valid 404 1m;",
+                "        add_header X-Cache-Status $upstream_cache_status always;",
+                "    }",
+                "}",
+                "",
             ]
         )
 
-    config_block.extend(
-        [
-            "    server_name _;",
-            "",
-            "    proxy_buffering on;",
-            "",
-            "    location / {",
-            f"        proxy_pass https://{config.origin_host}:{config.origin_port};",
-            *header_lines,
-            "        proxy_cache vmp_cache;",
-            "        proxy_cache_valid 200 302 10m;",
-            "        proxy_cache_valid 404 1m;",
-            "        add_header X-Cache-Status $upstream_cache_status always;",
-            "    }",
-            "}",
-        ]
-    )
-    return "\n".join(config_block) + "\n"
+        blocks.extend(block_lines)
+
+    return "\n".join(blocks).rstrip() + "\n"
 
 
 def _is_tls_enabled(config: DeploymentConfig) -> bool:
@@ -656,6 +708,7 @@ class CDNDeployer:
 __all__ = [
     "CDNDeployer",
     "DeploymentConfig",
+    "PortMapping",
     "DeploymentError",
     "DeploymentResult",
     "DeploymentTarget",

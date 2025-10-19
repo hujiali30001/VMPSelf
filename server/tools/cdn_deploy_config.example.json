@@ -7,6 +7,10 @@
   "ssl_certificate": "/etc/pki/tls/certs/edge.crt",
   "ssl_certificate_key": "/etc/pki/tls/private/edge.key",
   "allow_http": false,
+  "port_mappings": [
+    { "listen_port": 443, "origin_port": 443 },
+    { "listen_port": 80, "origin_port": 8080, "allow_http": true }
+  ],
   "extra_packages": ["nginx"],
   "firewall_ports": [80, 443],
   "hosts": [
