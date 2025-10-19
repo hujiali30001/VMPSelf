@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     cdn_ip_header: str = Field("X-Forwarded-For", env="VMP_CDN_IP_HEADER")
     cdn_ip_whitelist: list[str] = Field(default_factory=list)
     cdn_exempt_paths: list[str] = Field(default_factory=lambda: ["/api/v1/ping"])
+    cdn_ip_manual_whitelist: list[str] = Field(default_factory=list)
+    cdn_ip_blacklist: list[str] = Field(default_factory=list)
+    core_ip_header: Optional[str] = Field(None, env="VMP_CORE_IP_HEADER")
+    core_ip_whitelist: list[str] = Field(default_factory=list)
+    core_ip_blacklist: list[str] = Field(default_factory=list)
+    core_exempt_paths: list[str] = Field(default_factory=lambda: ["/api/v1/ping"])
     cdn_credentials_key: Optional[str] = Field(None, env="VMP_CDN_CREDENTIALS_KEY")
     admin_username: str = Field("admin", env="VMP_ADMIN_USER")
     admin_password: str = Field("change-me", env="VMP_ADMIN_PASS")
@@ -38,7 +44,21 @@ class Settings(BaseSettings):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
 
-    @validator("cdn_exempt_paths", pre=True)
+    @validator(
+        "cdn_ip_manual_whitelist",
+        "cdn_ip_blacklist",
+        "core_ip_whitelist",
+        "core_ip_blacklist",
+        pre=True,
+    )
+    def _parse_ip_lists(cls, value):  # type: ignore[no-self-argument]
+        if isinstance(value, str):
+            if not value.strip():
+                return []
+            return [item.strip() for item in value.split(",") if item.strip()]
+        return value
+
+    @validator("cdn_exempt_paths", "core_exempt_paths", pre=True)
     def _parse_exempt_paths(cls, value):  # type: ignore[no-self-argument]
         if isinstance(value, str):
             if not value.strip():

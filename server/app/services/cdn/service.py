@@ -556,13 +556,16 @@ class CDNService:
         settings = get_settings()
         settings.cdn_ip_whitelist = whitelist
 
+        manual_entries = list(getattr(settings, "cdn_ip_manual_whitelist", []) or [])
+        persist_entries = sorted(set(whitelist) | {entry for entry in manual_entries if entry})
+
         try:
-            self._persist_whitelist_to_file(whitelist)
+            self._persist_whitelist_to_file(persist_entries)
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning("Failed to persist CDN whitelist file", exc_info=exc)
 
         try:
-            self._persist_whitelist_to_env(whitelist)
+            self._persist_whitelist_to_env(persist_entries)
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning("Failed to update .env whitelist", exc_info=exc)
 

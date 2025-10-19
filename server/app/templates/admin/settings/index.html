@@ -122,11 +122,49 @@
     .audit-pagination button {
         padding: 8px 14px;
     }
+    .access-grid {
+        display: grid;
+        gap: 24px;
+        grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    }
+    .access-card {
+        border-radius: 18px;
+        border: 1px solid rgba(15, 23, 42, 0.12);
+        background: var(--bg-panel);
+        padding: 20px;
+        box-shadow: var(--shadow-soft);
+    }
+    .access-card h3 {
+        margin: 0 0 12px;
+        font-size: 16px;
+    }
+    .access-meta {
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin-bottom: 12px;
+        line-height: 1.6;
+    }
+    .access-list {
+        margin: 0 0 14px;
+        padding-left: 18px;
+        font-size: 13px;
+    }
+    .access-list li {
+        margin-bottom: 4px;
+    }
+    .form-note {
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin-top: 6px;
+    }
     @media (max-width: 1080px) {
         .settings-grid {
             grid-template-columns: 1fr;
         }
         .audit-filter-grid {
+            grid-template-columns: 1fr;
+        }
+        .access-grid {
             grid-template-columns: 1fr;
         }
     }
@@ -260,6 +298,94 @@
     {% else %}
     <div class="empty-state">暂无数据库管理员，右上方可创建新的后台账号。</div>
     {% endif %}
+</section>
+
+<section class="panel">
+    <h2>访问控制</h2>
+    <p class="intro-text">在此配置 CDN 边缘与主服务的 IP 访问名单。支持填写单个 IP（如 203.0.113.10）以及 CIDR 网段（如 203.0.113.0/24）。</p>
+    <div class="access-grid">
+        <div class="access-card">
+            <h3>CDN 边缘访问白名单</h3>
+            <div class="access-meta">
+                <div>实时解析的自动白名单：
+                    {% if access_cdn_auto_whitelist %}
+                        <ul class="access-list">
+                            {% for ip in access_cdn_auto_whitelist %}
+                                <li>{{ ip }}</li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <div class="form-note">暂无自动记录。添加 CDN 节点时会自动补充。</div>
+                    {% endif %}
+                </div>
+            </div>
+            <form method="post" action="/admin/settings/access/cdn/whitelist" class="form-grid">
+                <div class="full-row">
+                    <label>手动追加 IP / 网段</label>
+                    <textarea name="entries" rows="6" placeholder="每行一个 IP 或 CIDR，支持逗号分隔">{% if access_cdn_manual_whitelist %}{{ access_cdn_manual_whitelist | join('\n') }}{% endif %}</textarea>
+                    <p class="form-note">这些记录会与自动解析结果合并，共同生效。</p>
+                </div>
+                <input type="hidden" name="return_to" value="{{ return_to }}" />
+                <div class="full-row">
+                    <button type="submit" class="primary-btn">保存白名单</button>
+                </div>
+            </form>
+        </div>
+        <div class="access-card">
+            <h3>CDN 边缘访问黑名单</h3>
+            <div class="access-meta">
+                <div>当前共享密钥请求头：<strong>{{ access_cdn_ip_header or 'X-Forwarded-For' }}</strong></div>
+            </div>
+            <form method="post" action="/admin/settings/access/cdn/blacklist" class="form-grid">
+                <div class="full-row">
+                    <label>禁止访问的 IP / 网段</label>
+                    <textarea name="entries" rows="6" placeholder="支持单个 IP 与 CIDR">{% if access_cdn_blacklist %}{{ access_cdn_blacklist | join('\n') }}{% endif %}</textarea>
+                    <p class="form-note">命中黑名单的请求会直接拒绝，即便已通过共享密钥验证。</p>
+                </div>
+                <input type="hidden" name="return_to" value="{{ return_to }}" />
+                <div class="full-row">
+                    <button type="submit" class="secondary-btn">保存黑名单</button>
+                </div>
+            </form>
+        </div>
+        <div class="access-card">
+            <h3>主服务访问白名单</h3>
+            <div class="access-meta">
+                <div>来源 IP 读取顺序：
+                    {% if access_core_ip_header %}
+                        优先使用请求头 <strong>{{ access_core_ip_header }}</strong>
+                    {% else %}
+                        使用客户端连接 IP
+                    {% endif %}
+                </div>
+            </div>
+            <form method="post" action="/admin/settings/access/core/whitelist" class="form-grid">
+                <div class="full-row">
+                    <label>允许访问的 IP / 网段</label>
+                    <textarea name="entries" rows="6" placeholder="留空则不启用白名单">{% if access_core_whitelist %}{{ access_core_whitelist | join('\n') }}{% endif %}</textarea>
+                    <p class="form-note">当配置白名单后，未匹配的请求将被拒绝。</p>
+                </div>
+                <input type="hidden" name="return_to" value="{{ return_to }}" />
+                <div class="full-row">
+                    <button type="submit" class="primary-btn">保存白名单</button>
+                </div>
+            </form>
+        </div>
+        <div class="access-card">
+            <h3>主服务访问黑名单</h3>
+            <form method="post" action="/admin/settings/access/core/blacklist" class="form-grid">
+                <div class="full-row">
+                    <label>禁止访问的 IP / 网段</label>
+                    <textarea name="entries" rows="6" placeholder="留空表示不使用黑名单">{% if access_core_blacklist %}{{ access_core_blacklist | join('\n') }}{% endif %}</textarea>
+                    <p class="form-note">与白名单一起使用时，黑名单优先级更高。</p>
+                </div>
+                <input type="hidden" name="return_to" value="{{ return_to }}" />
+                <div class="full-row">
+                    <button type="submit" class="secondary-btn">保存黑名单</button>
+                </div>
+            </form>
+        </div>
+    </div>
 </section>
 
 <section class="panel audit-panel">

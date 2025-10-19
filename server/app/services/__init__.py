@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.services.access_control import AccessControlService
 from app.services.accounts import AdminUserService, RoleService
 from app.services.audit import AuditService
 from app.services.cdn import CDNService
@@ -15,4 +16,5 @@ __all__ = [
     "AdminUserService",
     "AuditService",
     "RoleService",
+    "AccessControlService",
 ]

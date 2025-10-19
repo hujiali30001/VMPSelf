@@ -28,6 +28,7 @@ from app.api.admin_portal.common import (
 )
 from app.api.deps import get_db
 from app.db import models
+from app.services.access_control import AccessControlService
 from app.services.accounts import AdminUserService, RoleService
 
 router = APIRouter(prefix="/settings")
@@ -58,6 +59,7 @@ def settings_page(
     admins = admin_service.list_admins()
     role_service = RoleService(db)
     roles = role_service.list_roles(include_inactive=False)
+    access_service = AccessControlService(db)
 
     module_filter = _sanitize_optional_str(module)
     action_filter = _sanitize_optional_str(action)
@@ -186,6 +188,11 @@ def settings_page(
         "offset": offset,
     }
 
+    cdn_manual_whitelist = access_service.list_values("cdn", "whitelist")
+    cdn_blacklist = access_service.list_values("cdn", "blacklist")
+    core_whitelist = access_service.list_values("core", "whitelist")
+    core_blacklist = access_service.list_values("core", "blacklist")
+
     context = _base_context(
         request,
         message=message,
@@ -207,6 +214,13 @@ def settings_page(
         audit_target_type_options=target_type_options,
         audit_start_value=start_value,
         audit_end_value=end_value,
+        access_cdn_auto_whitelist=settings.cdn_ip_whitelist,
+        access_cdn_manual_whitelist=cdn_manual_whitelist,
+        access_cdn_blacklist=cdn_blacklist,
+        access_core_whitelist=core_whitelist,
+        access_core_blacklist=core_blacklist,
+        access_cdn_ip_header=settings.cdn_ip_header,
+        access_core_ip_header=settings.core_ip_header,
     )
     return templates.TemplateResponse(request, "admin/settings/index.html", context)
 
@@ -395,6 +409,78 @@ def reset_admin_password_action(
                 message = f"重置失败: {exc}"
         else:
             message = "密码已重置"
+
+    target = _append_message(_sanitize_return_path(return_to, fallback="/admin/settings"), message)
+    return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+
+
+def _parse_access_entries(raw_entries: str) -> list[str]:
+    tokens: list[str] = []
+    normalized = (raw_entries or "").replace("\r", "\n")
+    for line in normalized.split("\n"):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        fragments = stripped.replace(",", " ").split()
+        if not fragments:
+            continue
+        for fragment in fragments:
+            value = fragment.strip()
+            if value:
+                tokens.append(value)
+    return tokens
+
+
+@router.post("/access/{scope}/{rule_type}")
+def update_access_rules_action(
+    request: Request,
+    scope: str,
+    rule_type: str,
+    entries: str = Form(""),
+    return_to: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    principal: AdminPrincipal = Depends(require_permission("settings", "manage")),
+):
+    scope_key = (scope or "").strip().lower()
+    rule_type_key = (rule_type or "").strip().lower()
+    scope_labels = {
+        "cdn": "CDN 边缘",
+        "core": "主服务",
+    }
+    type_labels = {
+        "whitelist": "白名单",
+        "blacklist": "黑名单",
+    }
+
+    if scope_key not in scope_labels or rule_type_key not in type_labels:
+        message = "不支持的访问控制类型"
+        target = _append_message(_sanitize_return_path(return_to, fallback="/admin/settings"), message)
+        return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+
+    access_service = AccessControlService(db)
+    values = _parse_access_entries(entries)
+
+    try:
+        access_service.bulk_replace(scope=scope_key, rule_type=rule_type_key, values=values)
+    except ValueError as exc:
+        db.rollback()
+        error = str(exc)
+        if error == "value_invalid":
+            message = "存在无效的 IP 或网段，请确认格式。"
+        elif error == "value_required":
+            message = "请输入至少一个有效的 IP 或网段。"
+        elif error == "scope_invalid":
+            message = "不支持的访问控制作用域。"
+        elif error == "rule_type_invalid":
+            message = "不支持的访问控制类型。"
+        else:
+            message = f"更新失败: {exc}"
+    else:
+        label = f"{scope_labels[scope_key]}{type_labels[rule_type_key]}"
+        if values:
+            message = f"{label} 已更新，共 {len(values)} 条记录。"
+        else:
+            message = f"{label} 已清空。"
 
     target = _append_message(_sanitize_return_path(return_to, fallback="/admin/settings"), message)
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)

@@ -23,6 +23,7 @@
 - `/admin/licenses`：模块化卡密管理页，支持筛选、快捷跳转详情与批量操作。
 - `/admin/users`：用户总览与详情页，内置审计日志、激活设备和手动解绑功能。
 - `/admin/card-types`：卡密类型与时长模板的集中配置入口，与其他页面共享统一布局。
+- `/admin/settings`：「访问控制」卡片可在 Web 界面维护 CDN 与主服务的 IP 白名单/黑名单，同时支持 CIDR 网段。
 
 > 历史版本中位于 `server/app/templates/admin/*.html` 的独立模板已移除旧 UI，仅保留别名指向上述新页面，便于旧路径兼容。
 

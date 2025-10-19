@@ -439,3 +439,30 @@ class AdminUser(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     role: Mapped[Role] = relationship(back_populates="admins")
+
+
+class AccessScope(str, Enum):
+    CDN = "cdn"
+    CORE = "core"
+
+
+class AccessRuleType(str, Enum):
+    WHITELIST = "whitelist"
+    BLACKLIST = "blacklist"
+
+
+class AccessRule(Base):
+    __tablename__ = "access_rules"
+
+    __table_args__ = (
+        UniqueConstraint("scope", "rule_type", "value", name="uq_access_rules_scope_type_value"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    scope: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    rule_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    value: Mapped[str] = mapped_column(String(128), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(String(255))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)

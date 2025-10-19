@@ -1,5 +1,8 @@
 from app.db.base import Base
 from app.db.models import (
+    AccessRule,
+    AccessRuleType,
+    AccessScope,
     Activation,
     AdminUser,
     AuditLog,
@@ -28,6 +31,9 @@ from app.db.models import (
 
 __all__ = [
     "Base",
+    "AccessRule",
+    "AccessRuleType",
+    "AccessScope",
     "License",
     "LicenseStatus",
     "LicenseCardType",

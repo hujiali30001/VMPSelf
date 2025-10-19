@@ -89,6 +89,27 @@ function ConvertTo-NullableBoolean {
     }
 }
 
+function Get-AccessListInfo {
+    param([string]$Value)
+
+    $entries = @()
+    if (-not [string]::IsNullOrWhiteSpace($Value)) {
+        foreach ($match in [System.Text.RegularExpressions.Regex]::Matches($Value, "[^,\s]+")) {
+            $token = $match.Value.Trim()
+            if ($token) {
+                $entries += $token
+            }
+        }
+    }
+
+    $text = if ($entries.Count -gt 0) { ($entries -join ",") } else { "" }
+    return [PSCustomObject]@{
+        Entries = $entries
+        Value   = $text
+        Count   = $entries.Count
+    }
+}
+
 function Get-EnvMap {
     param([string]$FilePath)
     $map = @{}
@@ -308,7 +329,6 @@ Enter-DeletionSafeLocation -TargetPath $InstallRoot
 
 $ToolsDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ServerDir = if ($ToolsDir) { Split-Path -Parent $ToolsDir } else { $null }
-$RepoDir = if ($ServerDir) { Split-Path -Parent $ServerDir } else { $null }
 
 $InstallRootNormalized = [System.IO.Path]::GetFullPath($InstallRoot)
 $ServerDirNormalized = if ($ServerDir) { [System.IO.Path]::GetFullPath($ServerDir) } else { $null }
@@ -533,6 +553,49 @@ if ($PSBoundParameters.ContainsKey("MonitorIntervalSeconds")) {
 $FinalMonitorInterval = [Math]::Min([Math]::Max([int]$FinalMonitorInterval, 30), 3600)
 $FinalEnv["VMP_CDN_HEALTH_MONITOR_INTERVAL"] = $FinalMonitorInterval
 
+$FinalEnv["VMP_CDN_IP_HEADER"] = if ($ExistingEnv.ContainsKey("VMP_CDN_IP_HEADER") -and -not [string]::IsNullOrWhiteSpace($ExistingEnv["VMP_CDN_IP_HEADER"])) {
+    $ExistingEnv["VMP_CDN_IP_HEADER"].Trim()
+} else {
+    "X-Forwarded-For"
+}
+
+$cdnWhitelistRaw = if ($ExistingEnv.ContainsKey("VMP_CDN_IP_WHITELIST")) { $ExistingEnv["VMP_CDN_IP_WHITELIST"] } else { "" }
+if ($cdnWhitelistRaw -match "203\.0\.113\.10" -and $cdnWhitelistRaw -match "203\.0\.113\.11") {
+    $cdnWhitelistRaw = ""
+}
+$cdnWhitelistInfo = Get-AccessListInfo -Value $cdnWhitelistRaw
+$FinalEnv["VMP_CDN_IP_WHITELIST"] = $cdnWhitelistInfo.Value
+
+$cdnManualRaw = if ($ExistingEnv.ContainsKey("VMP_CDN_IP_MANUAL_WHITELIST")) { $ExistingEnv["VMP_CDN_IP_MANUAL_WHITELIST"] } else { "" }
+$cdnManualInfo = Get-AccessListInfo -Value $cdnManualRaw
+$FinalEnv["VMP_CDN_IP_MANUAL_WHITELIST"] = $cdnManualInfo.Value
+
+$cdnBlacklistRaw = if ($ExistingEnv.ContainsKey("VMP_CDN_IP_BLACKLIST")) { $ExistingEnv["VMP_CDN_IP_BLACKLIST"] } else { "" }
+$cdnBlacklistInfo = Get-AccessListInfo -Value $cdnBlacklistRaw
+$FinalEnv["VMP_CDN_IP_BLACKLIST"] = $cdnBlacklistInfo.Value
+
+$FinalEnv["VMP_CORE_IP_HEADER"] = if ($ExistingEnv.ContainsKey("VMP_CORE_IP_HEADER") -and $ExistingEnv["VMP_CORE_IP_HEADER"]) {
+    $ExistingEnv["VMP_CORE_IP_HEADER"].Trim()
+} else {
+    ""
+}
+
+$coreWhitelistRaw = if ($ExistingEnv.ContainsKey("VMP_CORE_IP_WHITELIST")) { $ExistingEnv["VMP_CORE_IP_WHITELIST"] } else { "" }
+$coreWhitelistInfo = Get-AccessListInfo -Value $coreWhitelistRaw
+$FinalEnv["VMP_CORE_IP_WHITELIST"] = $coreWhitelistInfo.Value
+
+$coreBlacklistRaw = if ($ExistingEnv.ContainsKey("VMP_CORE_IP_BLACKLIST")) { $ExistingEnv["VMP_CORE_IP_BLACKLIST"] } else { "" }
+$coreBlacklistInfo = Get-AccessListInfo -Value $coreBlacklistRaw
+$FinalEnv["VMP_CORE_IP_BLACKLIST"] = $coreBlacklistInfo.Value
+
+$accessSummary = [PSCustomObject]@{
+    CdnAuto      = $cdnWhitelistInfo
+    CdnManual    = $cdnManualInfo
+    CdnBlacklist = $cdnBlacklistInfo
+    CoreWhitelist = $coreWhitelistInfo
+    CoreBlacklist = $coreBlacklistInfo
+}
+
 Update-EnvFile -FilePath $EnvFile -Updates $FinalEnv
 
 Write-Step "Updated .env"
@@ -571,6 +634,16 @@ switch ($monitorIntervalSource) {
     "existing" { Write-Host ("    VMP_CDN_HEALTH_MONITOR_INTERVAL = {0}s (existing value preserved)" -f $FinalMonitorInterval) }
     default { Write-Host ("    VMP_CDN_HEALTH_MONITOR_INTERVAL = {0}s" -f $FinalMonitorInterval) }
 }
+
+$cdnHeaderDisplay = if ([string]::IsNullOrWhiteSpace($FinalEnv["VMP_CDN_IP_HEADER"])) { "<connection-ip>" } else { $FinalEnv["VMP_CDN_IP_HEADER"] }
+$coreHeaderDisplay = if ([string]::IsNullOrWhiteSpace($FinalEnv["VMP_CORE_IP_HEADER"])) { "<connection-ip>" } else { $FinalEnv["VMP_CORE_IP_HEADER"] }
+Write-Host ("    VMP_CDN_IP_HEADER = {0}" -f $cdnHeaderDisplay)
+Write-Host ("    VMP_CORE_IP_HEADER = {0}" -f $coreHeaderDisplay)
+Write-Host ("    CDN 自动白名单条目：{0}" -f $accessSummary.CdnAuto.Count)
+Write-Host ("    CDN 手动白名单条目：{0}" -f $accessSummary.CdnManual.Count)
+Write-Host ("    CDN 黑名单条目：{0}" -f $accessSummary.CdnBlacklist.Count)
+Write-Host ("    主服务白名单条目：{0}" -f $accessSummary.CoreWhitelist.Count)
+Write-Host ("    主服务黑名单条目：{0}" -f $accessSummary.CoreBlacklist.Count)
 
 Write-Step "Initializing SQLite database (includes Alembic migrations)"
 $ManagePy = Join-Path $ServerDir "manage.py"
@@ -752,6 +825,10 @@ if ($CdnConfigExample -and (Test-Path -LiteralPath $CdnConfigExample)) {
     Write-Host "  · 多端口映射：在后台端口映射表中增删行，CLI 同步时请参考 repo/tools/cdn_deploy_config.example.json" -ForegroundColor Yellow
 }
 Write-Host "  · edge_token 将在部署与回滚流程中自动去除前后空白，便于直接粘贴脚本输出的共享密钥" -ForegroundColor Yellow
+Write-Host (" Access control panel: {0}/admin/settings" -f $DisplayUrl) -ForegroundColor Green
+$accessStatsMessage = "  · 访问控制当前统计：CDN 自动 $($accessSummary.CdnAuto.Count) / 手动 $($accessSummary.CdnManual.Count) / 黑名单 $($accessSummary.CdnBlacklist.Count)，主服务白名单 $($accessSummary.CoreWhitelist.Count) / 黑名单 $($accessSummary.CoreBlacklist.Count)"
+Write-Host $accessStatsMessage -ForegroundColor Yellow
+Write-Host '  · 通过后台“系统设置 → 访问控制”卡片维护名单，保存后将即时写回 .env 并在下次部署时继续保留。' -ForegroundColor Yellow
 Write-Host (" Users portal: {0}/admin/users" -f $DisplayUrl) -ForegroundColor Green
 Write-Host (" HTTP Basic user: {0}" -f $FinalAdminUser)
 if ($GeneratedAdminPassword) {
