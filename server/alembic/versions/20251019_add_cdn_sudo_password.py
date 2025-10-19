@@ -11,6 +11,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 # revision identifiers, used by Alembic.
 revision: str = "20251019_add_cdn_sudo_password"
@@ -22,6 +23,11 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     bind = op.get_bind()
     sqlite = bind.dialect.name == "sqlite"
+    inspector = inspect(bind)
+
+    existing_columns = {col["name"] for col in inspector.get_columns("cdn_endpoints")}
+    if "sudo_password_encrypted" in existing_columns:
+        return
 
     if sqlite:
         with op.batch_alter_table("cdn_endpoints") as batch_op:

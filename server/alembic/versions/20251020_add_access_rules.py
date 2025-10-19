@@ -24,6 +24,9 @@ TABLE_NAME = "access_rules"
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
     columns = [
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("scope", sa.String(length=32), nullable=False),
@@ -45,18 +48,35 @@ def upgrade() -> None:
         ),
     ]
 
-    op.create_table(TABLE_NAME, *columns)
-    op.create_index("ix_access_rules_scope", TABLE_NAME, ["scope"])
-    op.create_index("ix_access_rules_rule_type", TABLE_NAME, ["rule_type"])
-    op.create_unique_constraint(
-        "uq_access_rules_scope_type_value",
-        TABLE_NAME,
-        ["scope", "rule_type", "value"],
-    )
+    table_exists = inspector.has_table(TABLE_NAME)
+
+    if not table_exists:
+        op.create_table(
+            TABLE_NAME,
+            *columns,
+            sa.UniqueConstraint(
+                "scope", "rule_type", "value", name="uq_access_rules_scope_type_value"
+            ),
+        )
+
+    existing_indexes = {index["name"] for index in inspector.get_indexes(TABLE_NAME)} if table_exists else set()
+
+    if "ix_access_rules_scope" not in existing_indexes:
+        op.create_index("ix_access_rules_scope", TABLE_NAME, ["scope"])
+
+    if "ix_access_rules_rule_type" not in existing_indexes:
+        op.create_index("ix_access_rules_rule_type", TABLE_NAME, ["rule_type"])
 
 
 def downgrade() -> None:
-    op.drop_constraint("uq_access_rules_scope_type_value", TABLE_NAME, type_="unique")
-    op.drop_index("ix_access_rules_rule_type", table_name=TABLE_NAME)
-    op.drop_index("ix_access_rules_scope", table_name=TABLE_NAME)
-    op.drop_table(TABLE_NAME)
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
+    existing_indexes = {index["name"] for index in inspector.get_indexes(TABLE_NAME)}
+    if "ix_access_rules_rule_type" in existing_indexes:
+        op.drop_index("ix_access_rules_rule_type", table_name=TABLE_NAME)
+    if "ix_access_rules_scope" in existing_indexes:
+        op.drop_index("ix_access_rules_scope", table_name=TABLE_NAME)
+
+    if inspector.has_table(TABLE_NAME):
+        op.drop_table(TABLE_NAME)

@@ -13,6 +13,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 # revision identifiers, used by Alembic.
 revision: str = "20251019_add_proxy_protocol_flag"
@@ -25,6 +26,11 @@ def upgrade() -> None:
     bind = op.get_bind()
     dialect = bind.dialect.name
     sqlite = dialect == "sqlite"
+    inspector = inspect(bind)
+    existing_columns = {col["name"] for col in inspector.get_columns("cdn_endpoints")}
+
+    if "proxy_protocol_enabled" in existing_columns:
+        return
 
     if sqlite:
         with op.batch_alter_table("cdn_endpoints") as batch_op:

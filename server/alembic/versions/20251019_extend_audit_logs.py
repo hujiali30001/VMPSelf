@@ -11,6 +11,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 # revision identifiers, used by Alembic.
 revision: str = "20251019_extend_audit_logs"
@@ -22,6 +23,11 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     bind = op.get_bind()
     dialect = bind.dialect.name
+    inspector = inspect(bind)
+    audit_columns = {col["name"] for col in inspector.get_columns("audit_logs")}
+
+    if "module" in audit_columns:
+        return
 
     if dialect == "sqlite":
         with op.batch_alter_table("audit_logs") as batch_op:
