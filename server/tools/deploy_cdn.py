@@ -44,6 +44,7 @@ class HostConfig:
     port: int = 22
     password: Optional[str] = None
     private_key: Optional[str] = None
+    sudo_password: Optional[str] = None
 
     def to_deployment_target(self) -> DeploymentTarget:
         return DeploymentTarget(
@@ -53,6 +54,7 @@ class HostConfig:
             port=self.port,
             password=self.password,
             private_key=self.private_key,
+            sudo_password=self.sudo_password or self.password,
         )
 
 

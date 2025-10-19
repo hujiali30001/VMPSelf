@@ -27,6 +27,7 @@ class DeploymentTarget:
     port: int = 22
     password: Optional[str] = None
     private_key: Optional[str] = None
+    sudo_password: Optional[str] = None
 
 
 @dataclass
@@ -156,8 +157,21 @@ def _connect(target: DeploymentTarget) -> paramiko.SSHClient:
     return ssh
 
 
-def _run_command(ssh: paramiko.SSHClient, command: str) -> str:
-    stdin, stdout, stderr = ssh.exec_command(command)
+def _run_command(
+    ssh: paramiko.SSHClient,
+    command: str,
+    *,
+    sudo_password: Optional[str] = None,
+) -> str:
+    sanitized = command.strip()
+    requires_sudo = sanitized.startswith("sudo ")
+    executed_command = command
+    if requires_sudo:
+        executed_command = command.replace("sudo ", "sudo -S -p '' ", 1)
+    stdin, stdout, stderr = ssh.exec_command(executed_command, get_pty=requires_sudo)
+    if requires_sudo and sudo_password:
+        stdin.write(f"{sudo_password}\n")
+        stdin.flush()
     exit_status = stdout.channel.recv_exit_status()
     stdout_output = stdout.read().decode("utf-8", errors="ignore").strip()
     stderr_output = stderr.read().decode("utf-8", errors="ignore").strip()
@@ -172,35 +186,59 @@ def _append_log(log: list[str], message: str) -> None:
     log.append(f"[{timestamp}] {message}")
 
 
-def _install_packages(ssh: paramiko.SSHClient, packages: Iterable[str]) -> None:
+def _install_packages(
+    ssh: paramiko.SSHClient,
+    packages: Iterable[str],
+    *,
+    sudo_password: Optional[str] = None,
+) -> None:
     pkg_list = " ".join(packages)
     stdin, stdout, _ = ssh.exec_command("command -v dnf || command -v yum")
     manager = stdout.read().decode().strip()
     if not manager:
         raise DeploymentError("Unable to locate dnf or yum on target host")
-    _run_command(ssh, f"sudo {manager} -y install {pkg_list}")
+    _run_command(ssh, f"sudo {manager} -y install {pkg_list}", sudo_password=sudo_password)
 
 
-def _configure_firewall(ssh: paramiko.SSHClient, ports: Iterable[int]) -> None:
+def _configure_firewall(
+    ssh: paramiko.SSHClient,
+    ports: Iterable[int],
+    *,
+    sudo_password: Optional[str] = None,
+) -> None:
     stdin, stdout, _ = ssh.exec_command("command -v firewall-cmd")
     if stdout.read().strip():
         for port in ports:
-            _run_command(ssh, f"sudo firewall-cmd --permanent --add-port={port}/tcp")
-        _run_command(ssh, "sudo firewall-cmd --reload")
+            _run_command(
+                ssh,
+                f"sudo firewall-cmd --permanent --add-port={port}/tcp",
+                sudo_password=sudo_password,
+            )
+        _run_command(ssh, "sudo firewall-cmd --reload", sudo_password=sudo_password)
 
 
-def _upload_config(ssh: paramiko.SSHClient, config_text: str, remote_path: str) -> None:
+def _upload_config(
+    ssh: paramiko.SSHClient,
+    config_text: str,
+    remote_path: str,
+    *,
+    sudo_password: Optional[str] = None,
+) -> None:
     with ssh.open_sftp() as sftp:
         tmp_path = "/tmp/vmp_edge.conf"
         with sftp.file(tmp_path, "w") as remote_file:
             remote_file.write(config_text)
-        _run_command(ssh, f"sudo mv {tmp_path} {remote_path}")
-        _run_command(ssh, f"sudo chown root:root {remote_path}")
+        _run_command(ssh, f"sudo mv {tmp_path} {remote_path}", sudo_password=sudo_password)
+        _run_command(ssh, f"sudo chown root:root {remote_path}", sudo_password=sudo_password)
 
 
-def _enable_services(ssh: paramiko.SSHClient) -> None:
-    _run_command(ssh, "sudo systemctl enable nginx")
-    _run_command(ssh, "sudo systemctl restart nginx")
+def _enable_services(
+    ssh: paramiko.SSHClient,
+    *,
+    sudo_password: Optional[str] = None,
+) -> None:
+    _run_command(ssh, "sudo systemctl enable nginx", sudo_password=sudo_password)
+    _run_command(ssh, "sudo systemctl restart nginx", sudo_password=sudo_password)
 
 
 class CDNDeployer:
@@ -224,20 +262,25 @@ class CDNDeployer:
         _append_log(log_lines, "SSH 连接已建立")
         try:
             _append_log(log_lines, f"安装依赖软件包: {', '.join(config.extra_packages)}")
-            _install_packages(ssh, config.extra_packages)
+            _install_packages(ssh, config.extra_packages, sudo_password=target.sudo_password)
             _append_log(log_lines, "依赖安装完成")
 
             firewall_ports = sorted({*config.firewall_ports, config.listen_port})
             _append_log(log_lines, f"配置防火墙端口: {firewall_ports}")
-            _configure_firewall(ssh, firewall_ports)
+            _configure_firewall(ssh, firewall_ports, sudo_password=target.sudo_password)
             _append_log(log_lines, "防火墙规则已更新")
 
             _append_log(log_lines, f"上传 Nginx 配置到 {self.remote_config_path}")
-            _upload_config(ssh, config_text, self.remote_config_path)
+            _upload_config(
+                ssh,
+                config_text,
+                self.remote_config_path,
+                sudo_password=target.sudo_password,
+            )
             _append_log(log_lines, "配置上传完成")
 
             _append_log(log_lines, "启用并重启 Nginx 服务")
-            _enable_services(ssh)
+            _enable_services(ssh, sudo_password=target.sudo_password)
             _append_log(log_lines, "Nginx 服务已重启")
 
             summary = "部署成功，Nginx 配置已刷新"
