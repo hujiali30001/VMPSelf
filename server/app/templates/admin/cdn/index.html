@@ -20,6 +20,59 @@
         display: grid;
         gap: 24px;
     }
+    .panel--compact {
+        padding: 20px 22px;
+    }
+    .monitor-panel__header {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    .monitor-panel__subtitle {
+        margin: 0;
+        font-size: 12px;
+        color: var(--text-secondary);
+    }
+    .monitor-form {
+        margin-top: 16px;
+        display: grid;
+        gap: 16px;
+    }
+    .monitor-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 16px;
+        align-items: start;
+    }
+    .monitor-toggle {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        width: 100%;
+        padding: 12px 14px;
+        border-radius: 12px;
+        border: 1px solid rgba(148, 163, 184, 0.32);
+        background: rgba(148, 163, 184, 0.12);
+    }
+    .monitor-toggle input {
+        margin: 0;
+    }
+    .monitor-meta-label {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 6px;
+    }
+    .monitor-stats {
+        display: grid;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--text-secondary);
+    }
+    .monitor-actions {
+        display: flex;
+        justify-content: flex-end;
+    }
     .panel-stack {
         display: grid;
         gap: 24px;
@@ -41,14 +94,23 @@
     }
     .form-section {
         display: grid;
-        gap: 16px;
-        padding: 18px;
-        border-radius: 16px;
-        background: rgba(37, 99, 235, 0.04);
+        gap: 14px;
+        padding: 14px 16px;
+        border-radius: 14px;
+        background: rgba(37, 99, 235, 0.03);
         border: 1px solid rgba(37, 99, 235, 0.08);
     }
     .form-section + .form-section {
-        margin-top: 12px;
+        margin-top: 0;
+    }
+    .form-section-grid {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        align-items: start;
+    }
+    .form-section--span2 {
+        grid-column: 1 / -1;
     }
     .form-grid--balanced {
         grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -61,6 +123,9 @@
         justify-content: flex-end;
         gap: 12px;
         margin-top: 16px;
+    }
+    .form-actions--compact {
+        justify-content: flex-start;
     }
     .checkbox-row {
         display: inline-flex;
@@ -255,6 +320,9 @@
         .panel-aside {
             position: static;
         }
+        .form-section-grid {
+            grid-template-columns: 1fr;
+        }
     }
 </style>
 {% endblock %}
@@ -303,41 +371,44 @@
     </div>
 </section>
 
-<section class="panel" style="margin-bottom: 24px;">
-    <h2>自动健康巡检</h2>
-    <form class="form-grid" method="post" action="/admin/cdn/monitor">
-        <div class="full-row" style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary);">
-            <input type="checkbox" id="monitor-enabled" name="enabled" value="on" {% if monitor_config.enabled %}checked{% endif %} />
-            <label for="monitor-enabled">启用后台定时巡检并自动记录告警</label>
-        </div>
-        <div class="grid-half">
+<section class="panel panel--compact monitor-panel" style="margin-bottom: 24px;">
+    <div class="monitor-panel__header">
+        <h2>自动健康巡检</h2>
+        <p class="monitor-panel__subtitle">启用后会定时探测节点健康并记录告警，状态汇总显示在下方节点表中。</p>
+    </div>
+    <form class="monitor-form" method="post" action="/admin/cdn/monitor">
+        <div class="monitor-grid">
+            <label class="checkbox-row monitor-toggle" for="monitor-enabled">
+                <input type="checkbox" id="monitor-enabled" name="enabled" value="on" {% if monitor_config.enabled %}checked{% endif %} />
+                启用后台定时巡检并自动记录告警
+            </label>
             <div>
                 <label for="monitor-interval">巡检间隔（秒）</label>
                 <input type="number" id="monitor-interval" name="interval_seconds" value="{{ monitor_config.interval_seconds }}" min="30" max="3600" step="30" required />
                 <p class="input-hint">建议设置在 60~300 秒，根据节点规模酌情调整。</p>
             </div>
             <div>
-                <label>运行状态</label>
-                <div class="health-info">
-                    {% if monitor_runtime.running %}
-                        <span class="badge badge-healthy">运行中</span>
-                    {% else %}
-                        <span class="badge badge-muted">未运行</span>
-                    {% endif %}
-                    {% if monitor_runtime.effective_enabled %}
-                        · 计划周期 {{ monitor_runtime.interval_seconds }} 秒
+                <div class="monitor-meta-label">运行状态</div>
+                <div class="monitor-stats">
+                    <div>
+                        {% if monitor_runtime.running %}
+                            <span class="badge badge-healthy">运行中</span>
+                        {% else %}
+                            <span class="badge badge-muted">未运行</span>
+                        {% endif %}
+                        {% if monitor_runtime.effective_enabled %}
+                            · 计划周期 {{ monitor_runtime.interval_seconds }} 秒
+                        {% endif %}
+                    </div>
+                    <div>当前环境：{{ monitor_runtime.environment }}</div>
+                    {% if monitor_config.enabled and not monitor_runtime.effective_enabled %}
+                        <div class="health-error">已开启但当前环境不允许自动巡检（测试环境或正在运行 Pytest）。</div>
                     {% endif %}
                 </div>
-                <div class="health-info">
-                    当前环境：{{ monitor_runtime.environment }}
-                </div>
-                {% if monitor_config.enabled and not monitor_runtime.effective_enabled %}
-                    <div class="health-error">已开启但当前环境不允许自动巡检（测试环境或正在运行 Pytest）。</div>
-                {% endif %}
             </div>
         </div>
         <input type="hidden" name="return_to" value="{{ return_to }}" />
-        <div class="full-row">
+        <div class="monitor-actions">
             <button class="primary-btn" type="submit">保存巡检配置</button>
         </div>
     </form>
@@ -350,133 +421,135 @@
             <p class="section-subtitle">填写基础信息、端口映射与连接凭据，即可立即部署。</p>
         </div>
         <form method="post" action="/admin/cdn/endpoints">
-            <div class="form-section">
-                <div>
-                    <h3 class="section-heading">基础信息</h3>
-                    <p class="section-subtitle">用于标识节点并指向源站。</p>
-                </div>
-                <div class="form-grid form-grid--balanced">
+            <div class="form-section-grid">
+                <div class="form-section">
                     <div>
-                        <label>节点名称</label>
-                        <input type="text" name="name" placeholder="例如 公网加速" required minlength="3" />
+                        <h3 class="section-heading">基础信息</h3>
+                        <p class="section-subtitle">用于标识节点并指向源站。</p>
                     </div>
-                    <div>
-                        <label>绑定域名</label>
-                        <input type="text" name="domain" placeholder="如 api.example.com" required />
-                    </div>
-                    <div>
-                        <label>节点地址 (IP / 域名)</label>
-                        <input type="text" name="host" placeholder="203.0.113.10" required />
-                    </div>
-                    <div>
-                        <label>源站地址</label>
-                        <input type="text" name="origin" placeholder="源站 IP 或域名" required />
-                    </div>
-                    <div>
-                        <label>服务商</label>
-                        <input type="text" name="provider" placeholder="例如 阿里云 CDN" required />
-                    </div>
-                </div>
-            </div>
-            <div class="form-section">
-                <div>
-                    <h3 class="section-heading">监听与部署</h3>
-                    <p class="section-subtitle">维护端口映射、代理模式与可选共享密钥。</p>
-                </div>
-                <div class="form-grid form-grid--balanced">
-                    <div class="form-grid__item--full">
-                        <label>端口映射</label>
-                        <div class="port-mapping-editor" data-port-mapping-form>
-                            <table class="port-mapping-table">
-                                <thead>
-                                    <tr>
-                                        <th>监听端口</th>
-                                        <th>源站端口</th>
-                                        <th class="checkbox-cell">HTTP</th>
-                                        <th></th>
-                                    </tr>
-                                </thead>
-                                <tbody data-port-list>
-                                    <tr data-port-row>
-                                        <td><input type="number" name="port_listen" value="443" min="1" max="65535" required /></td>
-                                        <td><input type="number" name="port_origin" value="443" min="1" max="65535" required /></td>
-                                        <td class="checkbox-cell">
-                                            <label class="checkbox-inline">
-                                                <input type="checkbox" name="port_allow_http" value="0" />
-                                                HTTP
-                                            </label>
-                                        </td>
-                                        <td><button type="button" class="link-btn" data-remove-port disabled>删除</button></td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                            <button type="button" class="secondary-btn" data-add-port>新增映射</button>
-                            <p class="input-hint">第一行作为主端口；勾选 HTTP 表示该端口使用明文转发。</p>
+                    <div class="form-grid form-grid--balanced">
+                        <div>
+                            <label>节点名称</label>
+                            <input type="text" name="name" placeholder="例如 公网加速" required minlength="3" />
+                        </div>
+                        <div>
+                            <label>绑定域名</label>
+                            <input type="text" name="domain" placeholder="如 api.example.com" required />
+                        </div>
+                        <div>
+                            <label>节点地址 (IP / 域名)</label>
+                            <input type="text" name="host" placeholder="203.0.113.10" required />
+                        </div>
+                        <div>
+                            <label>源站地址</label>
+                            <input type="text" name="origin" placeholder="源站 IP 或域名" required />
+                        </div>
+                        <div>
+                            <label>服务商</label>
+                            <input type="text" name="provider" placeholder="例如 阿里云 CDN" required />
                         </div>
                     </div>
+                </div>
+                <div class="form-section form-section--span2">
                     <div>
-                        <label>部署模式</label>
-                        <select name="deployment_mode">
-                            <option value="http">HTTP / HTTPS 反向代理</option>
-                            <option value="tcp">TCP 四层转发</option>
-                        </select>
+                        <h3 class="section-heading">监听与部署</h3>
+                        <p class="section-subtitle">维护端口映射、代理模式与可选共享密钥。</p>
                     </div>
-                    <div>
-                        <label>共享密钥 (可选)</label>
-                        <input type="text" name="edge_token" placeholder="留空则使用默认" />
-                    </div>
-                    <div class="form-grid__item--full">
-                        <label class="checkbox-row" for="create-proxy-protocol">
-                            <input type="checkbox" id="create-proxy-protocol" name="proxy_protocol" value="on" />
-                            启用 PROXY protocol（仅 TCP 模式生效，用于保留原始客户端 IP）
-                        </label>
+                    <div class="form-grid form-grid--balanced">
+                        <div class="form-grid__item--full">
+                            <label>端口映射</label>
+                            <div class="port-mapping-editor" data-port-mapping-form>
+                                <table class="port-mapping-table">
+                                    <thead>
+                                        <tr>
+                                            <th>监听端口</th>
+                                            <th>源站端口</th>
+                                            <th class="checkbox-cell">HTTP</th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody data-port-list>
+                                        <tr data-port-row>
+                                            <td><input type="number" name="port_listen" value="443" min="1" max="65535" required /></td>
+                                            <td><input type="number" name="port_origin" value="443" min="1" max="65535" required /></td>
+                                            <td class="checkbox-cell">
+                                                <label class="checkbox-inline">
+                                                    <input type="checkbox" name="port_allow_http" value="0" />
+                                                    HTTP
+                                                </label>
+                                            </td>
+                                            <td><button type="button" class="link-btn" data-remove-port disabled>删除</button></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                                <button type="button" class="secondary-btn" data-add-port>新增映射</button>
+                                <p class="input-hint">第一行作为主端口；勾选 HTTP 表示该端口使用明文转发。</p>
+                            </div>
+                        </div>
+                        <div>
+                            <label>部署模式</label>
+                            <select name="deployment_mode">
+                                <option value="http">HTTP / HTTPS 反向代理</option>
+                                <option value="tcp">TCP 四层转发</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>共享密钥 (可选)</label>
+                            <input type="text" name="edge_token" placeholder="留空则使用默认" />
+                        </div>
+                        <div class="form-grid__item--full">
+                            <label class="checkbox-row" for="create-proxy-protocol">
+                                <input type="checkbox" id="create-proxy-protocol" name="proxy_protocol" value="on" />
+                                启用 PROXY protocol（仅 TCP 模式生效，用于保留原始客户端 IP）
+                            </label>
+                        </div>
                     </div>
                 </div>
-            </div>
-            <div class="form-section">
-                <div>
-                    <h3 class="section-heading">连接凭据</h3>
-                    <p class="section-subtitle">用于登录节点并执行部署脚本。</p>
-                </div>
-                <div class="form-grid form-grid--balanced">
+                <div class="form-section">
                     <div>
-                        <label>SSH 用户名</label>
-                        <input type="text" name="ssh_username" value="root" required />
+                        <h3 class="section-heading">连接凭据</h3>
+                        <p class="section-subtitle">用于登录节点并执行部署脚本。</p>
                     </div>
-                    <div>
-                        <label>SSH 端口</label>
-                        <input type="number" name="ssh_port" value="22" min="1" max="65535" />
-                    </div>
-                    <div>
-                        <label>SSH 密码 (可选)</label>
-                        <input type="password" name="ssh_password" autocomplete="new-password" />
-                    </div>
-                    <div class="form-grid__item--full">
-                        <label>SSH 私钥 (可选)</label>
-                        <textarea name="ssh_private_key" rows="3" placeholder="-----BEGIN PRIVATE KEY-----"></textarea>
-                    </div>
-                    <div class="form-grid__item--full">
-                        <label>sudo 密码 (可选)</label>
-                        <input type="password" name="sudo_password" autocomplete="new-password" />
-                        <p class="input-hint">留空则沿用 SSH 密码或依赖免密 sudo。</p>
+                    <div class="form-grid form-grid--balanced">
+                        <div>
+                            <label>SSH 用户名</label>
+                            <input type="text" name="ssh_username" value="root" required />
+                        </div>
+                        <div>
+                            <label>SSH 端口</label>
+                            <input type="number" name="ssh_port" value="22" min="1" max="65535" />
+                        </div>
+                        <div>
+                            <label>SSH 密码 (可选)</label>
+                            <input type="password" name="ssh_password" autocomplete="new-password" />
+                        </div>
+                        <div class="form-grid__item--full">
+                            <label>SSH 私钥 (可选)</label>
+                            <textarea name="ssh_private_key" rows="3" placeholder="-----BEGIN PRIVATE KEY-----"></textarea>
+                        </div>
+                        <div class="form-grid__item--full">
+                            <label>sudo 密码 (可选)</label>
+                            <input type="password" name="sudo_password" autocomplete="new-password" />
+                            <p class="input-hint">留空则沿用 SSH 密码或依赖免密 sudo。</p>
+                        </div>
                     </div>
                 </div>
-            </div>
-            <div class="form-section">
-                <div>
-                    <h3 class="section-heading">备注信息</h3>
-                    <p class="section-subtitle">记录负载均衡、探活策略等补充说明。</p>
-                </div>
-                <div class="form-grid form-grid--balanced">
-                    <div class="form-grid__item--full">
-                        <textarea name="notes" rows="3" placeholder="可选：记录负载均衡、探活配置等"></textarea>
+                <div class="form-section">
+                    <div>
+                        <h3 class="section-heading">备注信息</h3>
+                        <p class="section-subtitle">记录负载均衡、探活策略等补充说明。</p>
+                    </div>
+                    <div class="form-grid form-grid--balanced">
+                        <div class="form-grid__item--full">
+                            <textarea name="notes" rows="3" placeholder="可选：记录负载均衡、探活配置等"></textarea>
+                        </div>
                     </div>
                 </div>
             </div>
             <input type="hidden" name="return_to" value="{{ return_to }}" />
             <input type="hidden" name="default_listen_port" value="443" />
             <input type="hidden" name="default_origin_port" value="443" />
-            <div class="form-actions">
+            <div class="form-actions form-actions--compact">
                 <button class="primary-btn" type="submit">创建节点</button>
             </div>
         </form>
