@@ -9,6 +9,7 @@ from app.services.cdn.deployer import (
     _configure_centos_vault_repo,
     _ensure_ssl_assets,
     _install_packages,
+    _enable_services,
 )
 
 
@@ -187,3 +188,39 @@ def test_ensure_ssl_assets_custom_path_missing_raises(monkeypatch):
         )
 
     assert "/custom/cert.pem" in str(excinfo.value)
+
+
+def test_enable_services_runs_nginx_test(monkeypatch):
+    commands: List[str] = []
+
+    def fake_run_command(_ssh, command: str, *, sudo_password: Optional[str] = None):
+        commands.append(command)
+        return ""
+
+    monkeypatch.setattr("app.services.cdn.deployer._run_command", fake_run_command)
+
+    _enable_services(object(), sudo_password=None)
+
+    assert commands[0] == "sudo systemctl enable nginx"
+    assert "sudo nginx -t" in commands[1]
+    assert "sudo systemctl restart nginx" in commands[2]
+
+
+def test_enable_services_reports_status_on_failure(monkeypatch):
+    commands: List[str] = []
+
+    def fake_run_command(_ssh, command: str, *, sudo_password: Optional[str] = None):
+        commands.append(command)
+        if "systemctl restart" in command:
+            raise DeploymentError("Command failed (1): sudo systemctl restart nginx\nerror detail")
+        if "status nginx" in command:
+            return "Loaded: failed"
+        return ""
+
+    monkeypatch.setattr("app.services.cdn.deployer._run_command", fake_run_command)
+
+    with pytest.raises(DeploymentError) as excinfo:
+        _enable_services(object(), sudo_password=None)
+
+    assert "Loaded: failed" in str(excinfo.value)
+    assert any("status nginx" in cmd for cmd in commands)

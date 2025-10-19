@@ -391,7 +391,21 @@ def _enable_services(
     sudo_password: Optional[str] = None,
 ) -> None:
     _run_command(ssh, "sudo systemctl enable nginx", sudo_password=sudo_password)
-    _run_command(ssh, "sudo systemctl restart nginx", sudo_password=sudo_password)
+    _run_command(ssh, "sudo nginx -t", sudo_password=sudo_password)
+    try:
+        _run_command(ssh, "sudo systemctl restart nginx", sudo_password=sudo_password)
+    except DeploymentError as exc:
+        try:
+            status_output = _run_command(
+                ssh,
+                "sudo systemctl status nginx --no-pager",
+                sudo_password=sudo_password,
+            )
+        except DeploymentError as status_exc:
+            status_output = str(status_exc)
+        raise DeploymentError(
+            f"Failed to restart nginx after config update. Original error: {exc}. Status output:\n{status_output}"
+        ) from exc
 
 
 class CDNDeployer:
