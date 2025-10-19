@@ -233,9 +233,8 @@ def test_prepare_nginx_runtime_creates_directories(monkeypatch):
     expected = [
         "sudo mkdir -p /var/cache/nginx/vmp",
         "sudo chown -R nginx:nginx /var/cache/nginx",
-        "sudo mkdir -p /var/run/nginx",
-        "sudo chown root:root /var/run/nginx",
-        "sudo chmod 755 /var/run/nginx",
+        "sudo install -d -m 755 -o root -g root /var/run/nginx",
+        "sudo install -m 644 -o nginx -g nginx /dev/null /var/run/nginx.pid",
         "sudo restorecon -RF /var/run/nginx",
     ]
     assert commands == expected
