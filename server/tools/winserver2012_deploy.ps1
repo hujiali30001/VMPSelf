@@ -644,6 +644,7 @@ Write-Host ("    CDN 手动白名单条目：{0}" -f $accessSummary.CdnManual.Co
 Write-Host ("    CDN 黑名单条目：{0}" -f $accessSummary.CdnBlacklist.Count)
 Write-Host ("    主服务白名单条目：{0}" -f $accessSummary.CoreWhitelist.Count)
 Write-Host ("    主服务黑名单条目：{0}" -f $accessSummary.CoreBlacklist.Count)
+Write-Host "    自动拉黑已启用：异常访问的 IP 会自动追加到对应黑名单，并同步到后台『访问控制』页面。" -ForegroundColor Yellow
 
 Write-Step "Initializing SQLite database (includes Alembic migrations)"
 $ManagePy = Join-Path $ServerDir "manage.py"
