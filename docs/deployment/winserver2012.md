@@ -11,6 +11,7 @@
 > - 新增“仪表盘巡检”章节，帮助你在上线前核查各模块卡片与关键指标。
 > - 自动健康巡检现可在后台 UI 中即时调整，并支持通过部署脚本参数设定默认开关与周期。
 > - CDN 部署记录新增阶段时间线与一键回滚功能；从旧版本升级时请重新执行 `python manage.py init-db`（或运行部署脚本）以完成数据库迁移，否则访问 `/admin/cdn` 会返回 500。
+> - CDN 节点现支持同一主机配置多组监听/源站端口映射，HTTP/HTTPS 共存与部署回滚均已适配 CLI、后台界面与部署脚本。
 
 ---
 
@@ -113,11 +114,36 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
 - 访问 `http://192.168.132.132:8000/admin/users`，查看全新的用户列表：支持关键字搜索、快速跳转到用户详情（含审计日志与激活设备），可直接解绑或删除账号。
 - 访问 `http://192.168.132.132:8000/admin/card-types`，管理卡密类型与时长模板；界面与其他后台页面采用统一布局，便于后续扩展。
 - 访问 `http://192.168.132.132:8000/admin/cdn`，可新增加速节点、创建刷新或预取任务，并查看最近执行记录与各状态统计。
+	- 创建或编辑节点时，可在“端口映射”表格中添加多行监听/源站端口组合；勾选 HTTP 表示该监听端口走明文回源，其余端口将自动使用 HTTPS 并复用统一证书。
+	- 若保留表格为空，系统会依据主监听端口自动补齐一组默认映射；删除某行只需清空对应输入框即可。
 - 若通过 CDN 节点以 TCP 模式接入此 Windows 服务，请保持 CDN 配置中的 PROXY Protocol 选项关闭；Uvicorn 尚未原生解析 PROXY 协议头，否则会在浏览器中看到 `Invalid HTTP request received` 错误。
 - 在 “CDN 管理” 页面中的「自动健康巡检」卡片里，可随时启用/禁用巡检、调整巡检间隔并实时写回 `.env`；运维人员可根据节点数量调整频率。
 - 在仪表盘「功能模块一览」区域核对卡片状态：卡密管理、用户中心、卡密类型、CDN 管理应显示“前往页面”；软件位与系统设置仍标记为“规划中”属正常现象。
 - 验证完毕后在终端按 `Ctrl+C` 停止 Uvicorn。
 - 可选：保持虚拟环境激活状态执行 `python -m pytest tests/test_admin_api_crud.py tests/test_admin_service.py`，快速确认后台接口的关键用例与仪表盘 HTML。
+
+### CDN 多端口映射与配置示例
+
+- 后台创建/编辑节点时的「端口映射」表格支持手动新增多行监听端口，保存后部署会为每个监听端口生成对应的回源与证书策略；若某行勾选 HTTP，则该监听口会透传 HTTP，其余端口默认使用 HTTPS。
+- 若希望通过 CLI 或自动化同步配置，可参考 `tools/cdn_deploy_config.example.json` 新增 `port_mappings` 数组：
+
+```json
+{
+	"origin_host": "origin.internal",
+	"listen_port": 443,
+	"mode": "http",
+	"edge_token": "your-shared-secret",
+	"port_mappings": [
+		{ "listen_port": 443, "origin_port": 8443 },
+		{ "listen_port": 8443, "origin_port": 8443 },
+		{ "listen_port": 80,  "origin_port": 8080, "allow_http": true }
+	]
+}
+```
+
+	- 未显式设置 `allow_http` 的项会继承顶层 `allow_http` 标志；在 HTTP 模式下将其设为 `true` 可保留明文监听。
+	- CLI 会自动把 `port_mappings` 中的监听端口加入防火墙放行列表，并在生成配置前裁剪 `edge_token` 的前后空白字符。
+	- 当数组留空时，部署流程仍会回退到单端口策略，与旧版本兼容。
 
 ---
 

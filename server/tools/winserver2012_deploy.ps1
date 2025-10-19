@@ -745,6 +745,13 @@ Write-Host (" Admin dashboard: {0}/admin/" -f $DisplayUrl) -ForegroundColor Gree
 Write-Host (" Admin portal (licenses): {0}/admin/licenses" -f $DisplayUrl) -ForegroundColor Green
 Write-Host (" CDN management: {0}/admin/cdn" -f $DisplayUrl) -ForegroundColor Green
 Write-Host "  · 查看最新部署阶段日志与一键回滚工具" -ForegroundColor Yellow
+$CdnConfigExample = if ($ServerDir) { Join-Path $ServerDir "tools\cdn_deploy_config.example.json" } else { $null }
+if ($CdnConfigExample -and (Test-Path -LiteralPath $CdnConfigExample)) {
+    Write-Host ("  · 多端口映射：编辑 {0} 的 port_mappings 数组或在后台端口映射表中增删行" -f $CdnConfigExample) -ForegroundColor Yellow
+} else {
+    Write-Host "  · 多端口映射：在后台端口映射表中增删行，CLI 同步时请参考 repo/tools/cdn_deploy_config.example.json" -ForegroundColor Yellow
+}
+Write-Host "  · edge_token 将在部署与回滚流程中自动去除前后空白，便于直接粘贴脚本输出的共享密钥" -ForegroundColor Yellow
 Write-Host (" Users portal: {0}/admin/users" -f $DisplayUrl) -ForegroundColor Green
 Write-Host (" HTTP Basic user: {0}" -f $FinalAdminUser)
 if ($GeneratedAdminPassword) {
