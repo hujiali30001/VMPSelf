@@ -334,9 +334,18 @@ def _prepare_nginx_runtime(
         "sudo chown -R nginx:nginx /var/cache/nginx",
         "sudo install -d -m 755 -o root -g root /var/run/nginx",
         "sudo install -m 644 -o nginx -g nginx /dev/null /var/run/nginx.pid",
+        "sudo mkdir -p /etc/nginx/stream.d",
     ]
     for command in commands:
         _run_command(ssh, command, sudo_password=sudo_password)
+
+    include_command = (
+        "if ! sudo grep -q 'stream.d/' /etc/nginx/nginx.conf; then "
+        'sudo sed -i "s|^http {|include /etc/nginx/stream.d/\\*.conf;\\n\\nhttp {|" /etc/nginx/nginx.conf; '
+        "fi"
+    )
+    _run_command(ssh, include_command, sudo_password=sudo_password)
+
     try:
         _run_command(ssh, "sudo restorecon -RF /var/run/nginx", sudo_password=sudo_password)
     except DeploymentError:
