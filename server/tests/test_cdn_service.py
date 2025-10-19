@@ -444,3 +444,33 @@ def test_should_enable_monitor_disables_when_pytest_running(monkeypatch):
     monkeypatch.setenv("PYTEST_CURRENT_TEST", "tests/test_cdn_service.py::dummy")
     assert should_enable_monitor(enabled=True, environment="production") is False
 
+
+def test_monitor_config_persist_env_returns_false_when_missing(monkeypatch, tmp_path):
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    with SessionLocal() as session:
+        service = CDNMonitorConfigService(session)
+        result = service._persist_env(enabled=True, interval_seconds=120)
+
+    assert result is False
+    assert not (tmp_path / ".env").exists()
+
+
+def test_monitor_config_persist_env_writes_values(monkeypatch, tmp_path):
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    env_path = tmp_path / ".env"
+    env_path.write_text("FOO=BAR\nVMP_CDN_HEALTH_MONITOR_ENABLED=false\n", encoding="utf-8")
+
+    with SessionLocal() as session:
+        service = CDNMonitorConfigService(session)
+        result = service._persist_env(enabled=True, interval_seconds=75)
+
+    assert result is True
+    lines = env_path.read_text(encoding="utf-8").strip().splitlines()
+    assert "FOO=BAR" in lines
+    assert "VMP_CDN_HEALTH_MONITOR_ENABLED=true" in lines
+    assert "VMP_CDN_HEALTH_MONITOR_INTERVAL=75" in lines
+
