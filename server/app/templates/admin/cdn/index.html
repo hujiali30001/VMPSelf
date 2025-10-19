@@ -9,16 +9,12 @@
 <style>
     .cdn-grid {
         display: grid;
-        grid-template-columns: minmax(340px, 380px) minmax(0, 1fr);
         gap: 32px;
-        align-items: start;
     }
     .panel-aside {
-        position: sticky;
-        top: calc(var(--content-padding-y) + 20px);
-        align-self: start;
         display: grid;
         gap: 24px;
+        width: 100%;
     }
     .panel--compact {
         padding: 20px 22px;
@@ -73,10 +69,6 @@
         display: flex;
         justify-content: flex-end;
     }
-    .panel-stack {
-        display: grid;
-        gap: 24px;
-    }
     .section-heading {
         display: flex;
         justify-content: space-between;
@@ -103,17 +95,17 @@
     .form-section + .form-section {
         margin-top: 0;
     }
-    .form-section-grid {
+    .form-columns {
         display: grid;
         gap: 16px;
         grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
         align-items: start;
     }
-    .form-section--span2 {
+    .form-section--wide {
         grid-column: 1 / -1;
     }
     .form-grid--balanced {
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     }
     .form-grid__item--full {
         grid-column: 1 / -1;
@@ -314,13 +306,7 @@
         min-height: 68px;
     }
     @media (max-width: 1080px) {
-        .cdn-grid {
-            grid-template-columns: 1fr;
-        }
-        .panel-aside {
-            position: static;
-        }
-        .form-section-grid {
+        .form-columns {
             grid-template-columns: 1fr;
         }
     }
@@ -420,8 +406,8 @@
             <h2>新增加速节点</h2>
             <p class="section-subtitle">填写基础信息、端口映射与连接凭据，即可立即部署。</p>
         </div>
-        <form method="post" action="/admin/cdn/endpoints">
-            <div class="form-section-grid">
+        <form method="post" action="/admin/cdn/endpoints" class="create-endpoint-form">
+            <div class="form-columns">
                 <div class="form-section">
                     <div>
                         <h3 class="section-heading">基础信息</h3>
@@ -447,61 +433,6 @@
                         <div>
                             <label>服务商</label>
                             <input type="text" name="provider" placeholder="例如 阿里云 CDN" required />
-                        </div>
-                    </div>
-                </div>
-                <div class="form-section form-section--span2">
-                    <div>
-                        <h3 class="section-heading">监听与部署</h3>
-                        <p class="section-subtitle">维护端口映射、代理模式与可选共享密钥。</p>
-                    </div>
-                    <div class="form-grid form-grid--balanced">
-                        <div class="form-grid__item--full">
-                            <label>端口映射</label>
-                            <div class="port-mapping-editor" data-port-mapping-form>
-                                <table class="port-mapping-table">
-                                    <thead>
-                                        <tr>
-                                            <th>监听端口</th>
-                                            <th>源站端口</th>
-                                            <th class="checkbox-cell">HTTP</th>
-                                            <th></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody data-port-list>
-                                        <tr data-port-row>
-                                            <td><input type="number" name="port_listen" value="443" min="1" max="65535" required /></td>
-                                            <td><input type="number" name="port_origin" value="443" min="1" max="65535" required /></td>
-                                            <td class="checkbox-cell">
-                                                <label class="checkbox-inline">
-                                                    <input type="checkbox" name="port_allow_http" value="0" />
-                                                    HTTP
-                                                </label>
-                                            </td>
-                                            <td><button type="button" class="link-btn" data-remove-port disabled>删除</button></td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                                <button type="button" class="secondary-btn" data-add-port>新增映射</button>
-                                <p class="input-hint">第一行作为主端口；勾选 HTTP 表示该端口使用明文转发。</p>
-                            </div>
-                        </div>
-                        <div>
-                            <label>部署模式</label>
-                            <select name="deployment_mode">
-                                <option value="http">HTTP / HTTPS 反向代理</option>
-                                <option value="tcp">TCP 四层转发</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label>共享密钥 (可选)</label>
-                            <input type="text" name="edge_token" placeholder="留空则使用默认" />
-                        </div>
-                        <div class="form-grid__item--full">
-                            <label class="checkbox-row" for="create-proxy-protocol">
-                                <input type="checkbox" id="create-proxy-protocol" name="proxy_protocol" value="on" />
-                                启用 PROXY protocol（仅 TCP 模式生效，用于保留原始客户端 IP）
-                            </label>
                         </div>
                     </div>
                 </div>
@@ -534,17 +465,68 @@
                         </div>
                     </div>
                 </div>
-                <div class="form-section">
-                    <div>
-                        <h3 class="section-heading">备注信息</h3>
-                        <p class="section-subtitle">记录负载均衡、探活策略等补充说明。</p>
-                    </div>
-                    <div class="form-grid form-grid--balanced">
-                        <div class="form-grid__item--full">
-                            <textarea name="notes" rows="3" placeholder="可选：记录负载均衡、探活配置等"></textarea>
+            </div>
+            <div class="form-section form-section--wide">
+                <div>
+                    <h3 class="section-heading">监听与部署</h3>
+                    <p class="section-subtitle">维护端口映射、代理模式与可选共享密钥。</p>
+                </div>
+                <div class="form-grid form-grid--balanced">
+                    <div class="form-grid__item--full">
+                        <label>端口映射</label>
+                        <div class="port-mapping-editor" data-port-mapping-form>
+                            <table class="port-mapping-table">
+                                <thead>
+                                    <tr>
+                                        <th>监听端口</th>
+                                        <th>源站端口</th>
+                                        <th class="checkbox-cell">HTTP</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody data-port-list>
+                                    <tr data-port-row>
+                                        <td><input type="number" name="port_listen" value="443" min="1" max="65535" required /></td>
+                                        <td><input type="number" name="port_origin" value="443" min="1" max="65535" required /></td>
+                                        <td class="checkbox-cell">
+                                            <label class="checkbox-inline">
+                                                <input type="checkbox" name="port_allow_http" value="0" />
+                                                HTTP
+                                            </label>
+                                        </td>
+                                        <td><button type="button" class="link-btn" data-remove-port disabled>删除</button></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                            <button type="button" class="secondary-btn" data-add-port>新增映射</button>
+                            <p class="input-hint">第一行作为主端口；勾选 HTTP 表示该端口使用明文转发。</p>
                         </div>
                     </div>
+                    <div>
+                        <label>部署模式</label>
+                        <select name="deployment_mode">
+                            <option value="http">HTTP / HTTPS 反向代理</option>
+                            <option value="tcp">TCP 四层转发</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>共享密钥 (可选)</label>
+                        <input type="text" name="edge_token" placeholder="留空则使用默认" />
+                    </div>
+                    <div class="form-grid__item--full">
+                        <label class="checkbox-row" for="create-proxy-protocol">
+                            <input type="checkbox" id="create-proxy-protocol" name="proxy_protocol" value="on" />
+                            启用 PROXY protocol（仅 TCP 模式生效，用于保留原始客户端 IP）
+                        </label>
+                    </div>
                 </div>
+            </div>
+            <div class="form-section form-section--wide">
+                <div>
+                    <h3 class="section-heading">备注信息</h3>
+                    <p class="section-subtitle">记录负载均衡、探活策略等补充说明。</p>
+                </div>
+                <textarea name="notes" rows="3" placeholder="可选：记录负载均衡、探活配置等"></textarea>
             </div>
             <input type="hidden" name="return_to" value="{{ return_to }}" />
             <input type="hidden" name="default_listen_port" value="443" />
@@ -554,10 +536,8 @@
             </div>
         </form>
     </section>
-
-    <div class="panel-stack">
-        <section class="panel">
-            <h2>节点列表</h2>
+    <section class="panel">
+        <h2>节点列表</h2>
         {% if endpoints %}
         <table>
             <thead>
@@ -856,8 +836,7 @@
         {% else %}
         <div class="empty-state">暂无 CDN 节点，先在左侧创建一个新的节点。</div>
         {% endif %}
-        </section>
-    </div>
+    </section>
 </div>
 
 <section class="panel">
