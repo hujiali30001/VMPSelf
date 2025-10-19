@@ -16,7 +16,7 @@
 	notepad .env
 	```
 	建议至少配置 `VMP_ENV=development`、`VMP_ADMIN_USER`、`VMP_ADMIN_PASS`、`VMP_HMAC_SECRET`。
-	如需提前控制自动健康巡检，可补充 `VMP_CDN_HEALTH_MONITOR_ENABLED=true|false` 与 `VMP_CDN_HEALTH_MONITOR_INTERVAL=<秒数>`（默认 300 秒，亦可在后台「CDN 管理 → 自动健康巡检」面板随时调整并同步 `.env`）。
+	如需提前控制自动健康巡检，可补充 `VMP_CDN_HEALTH_MONITOR_ENABLED=true|false` 与 `VMP_CDN_HEALTH_MONITOR_INTERVAL=<秒数>`（默认 300 秒，亦可在后台「CDN 管理 → 自动健康巡检」面板随时调整并同步 `.env`）；若主服务监听端口调整过，请同时设置 `VMP_CDN_HEALTH_CHECK_PORT=<端口>` 以让巡检与 CDN 部署脚本保持一致。
 4. 初始化数据库并准备示例卡密：
 	```powershell
 	python manage.py init-db
@@ -264,6 +264,7 @@ CI 测试覆盖核心授权流程（激活/心跳/撤销）、离线许可与 CD
 | `VMP_CDN_CREDENTIALS_KEY` | 用于加密存储 CDN 节点 SSH 凭据的主密钥，默认回退到 `VMP_HMAC_SECRET`。 |
 | `VMP_CDN_HEALTH_MONITOR_ENABLED` | 是否启用后台自动健康巡检与告警（默认 `true`，测试环境会自动跳过）。 |
 | `VMP_CDN_HEALTH_MONITOR_INTERVAL` | 健康巡检间隔秒数，默认 `300`，建议 60～300 秒之间。 |
+| `VMP_CDN_HEALTH_CHECK_PORT` | 自动巡检与部署脚本默认探测/开放的端口，留空时沿用主服务监听端口（历史默认 `8000`）。 |
 | `VMP_ADMIN_USER` | 管理后台 HTTP Basic 用户名。 |
 | `VMP_ADMIN_PASS` | 管理后台 HTTP Basic 密码，建议使用高强度随机值。 |
 

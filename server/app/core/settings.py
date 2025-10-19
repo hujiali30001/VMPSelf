@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     admin_password: str = Field("change-me", env="VMP_ADMIN_PASS")
     cdn_health_monitor_enabled: bool = Field(True, env="VMP_CDN_HEALTH_MONITOR_ENABLED")
     cdn_health_monitor_interval_seconds: int = Field(300, env="VMP_CDN_HEALTH_MONITOR_INTERVAL")
+    cdn_health_check_port: int = Field(8000, env="VMP_CDN_HEALTH_CHECK_PORT")
 
     class Config:
         env_file = ".env"

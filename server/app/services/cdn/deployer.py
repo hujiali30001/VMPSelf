@@ -8,11 +8,14 @@ from typing import Iterable, Optional, List
 
 import paramiko
 
+from app.core.settings import get_settings
+
 EDGE_CONFIG_REMOTE_PATH = "/etc/nginx/conf.d/vmp_edge.conf"
 STREAM_CONFIG_REMOTE_PATH = "/etc/nginx/stream.d/vmp_edge.conf"
 DEFAULT_SSL_CERT = "/etc/pki/tls/certs/edge.crt"
 DEFAULT_SSL_KEY = "/etc/pki/tls/private/edge.key"
-DEFAULT_HEALTH_CHECK_PORT = 8000
+
+DEFAULT_HEALTH_CHECK_PORT = get_settings().cdn_health_check_port
 
 
 class DeploymentError(RuntimeError):

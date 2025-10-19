@@ -13,6 +13,7 @@
     [string]$MonitorEnabled,
     [ValidateRange(30, 3600)]
     [int]$MonitorIntervalSeconds = 300,
+    [int]$CdnHealthCheckPort,
     [ValidateSet("Prompt", "Fresh", "Upgrade", "Uninstall")]
     [string]$DeploymentMode = "Prompt"
 )
@@ -553,6 +554,31 @@ if ($PSBoundParameters.ContainsKey("MonitorIntervalSeconds")) {
 $FinalMonitorInterval = [Math]::Min([Math]::Max([int]$FinalMonitorInterval, 30), 3600)
 $FinalEnv["VMP_CDN_HEALTH_MONITOR_INTERVAL"] = $FinalMonitorInterval
 
+$finalHealthCheckPort = $null
+$healthPortSource = "default"
+if ($PSBoundParameters.ContainsKey("CdnHealthCheckPort")) {
+    $finalHealthCheckPort = [int]$CdnHealthCheckPort
+    $healthPortSource = "parameter"
+} elseif ($ExistingEnv.ContainsKey("VMP_CDN_HEALTH_CHECK_PORT")) {
+    $existingHealthPortRaw = $ExistingEnv["VMP_CDN_HEALTH_CHECK_PORT"]
+    if (-not [string]::IsNullOrWhiteSpace($existingHealthPortRaw)) {
+        $parsedHealthPort = 0
+        if ([int]::TryParse($existingHealthPortRaw, [ref]$parsedHealthPort)) {
+            $finalHealthCheckPort = $parsedHealthPort
+            $healthPortSource = "existing"
+        }
+    }
+}
+
+if (-not $finalHealthCheckPort) {
+    $finalHealthCheckPort = [int]$Port
+    if ($healthPortSource -eq "default") {
+        $healthPortSource = "fallback-port"
+    }
+}
+
+$FinalEnv["VMP_CDN_HEALTH_CHECK_PORT"] = $finalHealthCheckPort
+
 $FinalEnv["VMP_CDN_IP_HEADER"] = if ($ExistingEnv.ContainsKey("VMP_CDN_IP_HEADER") -and -not [string]::IsNullOrWhiteSpace($ExistingEnv["VMP_CDN_IP_HEADER"])) {
     $ExistingEnv["VMP_CDN_IP_HEADER"].Trim()
 } else {
@@ -633,6 +659,13 @@ switch ($monitorIntervalSource) {
     "parameter" { Write-Host ("    VMP_CDN_HEALTH_MONITOR_INTERVAL set from parameter ({0}s)" -f $FinalMonitorInterval) -ForegroundColor Yellow }
     "existing" { Write-Host ("    VMP_CDN_HEALTH_MONITOR_INTERVAL = {0}s (existing value preserved)" -f $FinalMonitorInterval) }
     default { Write-Host ("    VMP_CDN_HEALTH_MONITOR_INTERVAL = {0}s" -f $FinalMonitorInterval) }
+}
+
+switch ($healthPortSource) {
+    "parameter" { Write-Host ("    VMP_CDN_HEALTH_CHECK_PORT set from parameter ({0})" -f $finalHealthCheckPort) -ForegroundColor Yellow }
+    "existing" { Write-Host ("    VMP_CDN_HEALTH_CHECK_PORT = {0} (existing value preserved)" -f $finalHealthCheckPort) }
+    "fallback-port" { Write-Host ("    VMP_CDN_HEALTH_CHECK_PORT = {0} (defaulted to service port)" -f $finalHealthCheckPort) }
+    default { Write-Host ("    VMP_CDN_HEALTH_CHECK_PORT = {0}" -f $finalHealthCheckPort) }
 }
 
 $cdnHeaderDisplay = if ([string]::IsNullOrWhiteSpace($FinalEnv["VMP_CDN_IP_HEADER"])) { "<connection-ip>" } else { $FinalEnv["VMP_CDN_IP_HEADER"] }

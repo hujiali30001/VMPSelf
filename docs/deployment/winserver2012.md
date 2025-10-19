@@ -10,6 +10,7 @@
 > - 一键部署脚本支持交互式部署模式选择，可在全新部署、升级或卸载之间切换，并进行数据保留控制。
 > - 新增“仪表盘巡检”章节，帮助你在上线前核查各模块卡片与关键指标。
 > - 自动健康巡检现可在后台 UI 中即时调整，并支持通过部署脚本参数设定默认开关与周期。
+> - 健康探测端口可通过 `.env` 或部署脚本参数统一指定，确保巡检、防火墙与 CDN 节点使用同一端口（默认 8000）。
 > - CDN 部署记录新增阶段时间线与一键回滚功能；从旧版本升级时请重新执行 `python manage.py init-db`（或运行部署脚本）以完成数据库迁移，否则访问 `/admin/cdn` 会返回 500。
 > - CDN 节点现支持同一主机配置多组监听/源站端口映射，HTTP/HTTPS 共存与部署回滚均已适配 CLI、后台界面与部署脚本。
 > - 新增「访问控制」面板：后台可直接维护 CDN 与主服务的 IP 白名单/黑名单，支持 CIDR 网段并即时同步到中间件。
@@ -26,7 +27,7 @@
 | 运行时 | 安装 64 位 Python 3.10+，安装时勾选 “Add Python to PATH”。示例路径 `C:\Python313\python.exe`。 |
 | PowerShell | 以管理员身份启动 PowerShell，会话内执行 `Set-ExecutionPolicy RemoteSigned -Scope Process` 允许脚本运行。 |
 | Git（可选） | 若要直接 `git clone` 仓库，请安装 Git for Windows。没有 Git 时可上传压缩包。 |
-| 防火墙 | 预留 TCP 8000（或自定义端口）入站访问。 |
+| 防火墙 | 预留 API 监听端口及健康探测端口（默认均为 TCP 8000，可自定义）。 |
 | 证书/密码 | 准备好管理后台账号、HMAC 密钥等强随机密码。 |
 
 > 若需要把服务长期运行为 Windows 服务，文末提供自动化脚本和 NSSM 相关步骤。
@@ -89,6 +90,7 @@ notepad .env
 - `VMP_ADMIN_PASS=<后台密码>`
 - `VMP_CDN_HEALTH_MONITOR_ENABLED=true`（若测试环境希望关闭巡检，可设为 `false`）
 - `VMP_CDN_HEALTH_MONITOR_INTERVAL=300`（单位秒，可在后台 CDN 页面随时调整并写回 `.env`）
+- `VMP_CDN_HEALTH_CHECK_PORT=8000`（自动巡检与 CDN 部署脚本默认探测/放行的端口；留空时沿用 `-Port`）
 - 若暂不接入 CDN，可保持默认的 `VMP_CDN_*` 配置。
 - **访问控制相关字段**（脚本会自动保留这些值并在部署日志中输出计数）：
 	- `VMP_CDN_IP_HEADER`：默认 `X-Forwarded-For`，若前置代理使用其他头部可在此调整。
@@ -194,9 +196,12 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
 | `-SqlitePath` | （可选）自定义数据库文件位置，默认写入 `InstallRoot/data/license.db`。 |
 | `-MonitorEnabled` | （可选）显式开启或关闭自动健康巡检，接受 `true`/`false`/`1`/`0`/`yes`/`no`，默认为保留 `.env` 或自动开启。 |
 | `-MonitorIntervalSeconds` | （可选）设置巡检周期（30-3600 秒），默认 300。 |
+| `-CdnHealthCheckPort` | （可选）覆盖默认健康探测端口，脚本会同步写入 `.env` 与防火墙规则；未指定时沿用 `-Port` 或 `.env`。 |
 | `-DeploymentMode` | （可选）指定执行模式：`Fresh` 全新部署、`Upgrade` 保留 `data/` 与 `.env` 升级现有服务、`Uninstall` 仅移除服务与文件后退出。默认 `Prompt`，进入交互选择。 |
 
 > 若传入 `-MonitorEnabled`/`-MonitorIntervalSeconds`，脚本会同步更新 `.env` 并在部署完成后立即生效；若不传，则自动沿用既有配置（或默认开启 + 300 秒），日后可在后台 “CDN 管理 → 自动健康巡检” 中继续调整。
+
+> 健康巡检会在部署完成后立即探测 `VMP_CDN_HEALTH_CHECK_PORT` 指定的端口，并为其创建防火墙放行规则。建议与 CDN 边缘节点的监听端口保持一致（例如 API 端口改为 11000 时，将 `-Port 11000 -CdnHealthCheckPort 11000` 一并传入，或在 `.env` 中设定相同值）。
 
 > **访问控制快速核对**：脚本收尾会打印 CDN / 主服务白名单与黑名单的条目数量，确保 CIDR 与手动条目都被写回到 `.env`。若需要初始化白名单，可先在 `.env` 中填入逗号分隔的 IP 或网段，或直接在部署后打开后台「访问控制」卡片进行录入。
 
@@ -205,6 +210,9 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
 ```powershell
 cd C:\Services\VMPSelf
 powershell -ExecutionPolicy Bypass -File server\tools\winserver2012_deploy.ps1 -InstallRoot "C:\Services\VMPSelf\server" -PythonExe "C:\Python313\python.exe" -ServiceName "VMPAuthService" -Port 8000 -ListenHost "0.0.0.0" -AdminUser "ops-admin" -MonitorEnabled false -MonitorIntervalSeconds 120
+
+# 若 API 监听端口改为 11000，可加上健康探测端口参数保持一致：
+powershell -ExecutionPolicy Bypass -File server\tools\winserver2012_deploy.ps1 -InstallRoot "C:\Services\VMPSelf\server" -PythonExe "C:\Python313\python.exe" -ServiceName "VMPAuthService" -Port 11000 -CdnHealthCheckPort 11000 -AdminUser "ops-admin"
 ```
 
 > 提示：脚本会在存在生成/变更操作时打印醒目的英文提示。若不传 `-AdminPassword`，会生成高强度密码并在终端显示；同理，检测到默认占位值时会生成新的 `VMP_HMAC_SECRET`。请在窗口关闭前妥善记录这些值。
@@ -249,7 +257,7 @@ Get-Content -Path "C:\Services\VMPSelf\server\logs\uvicorn.log" -Wait
 
 ## Step 7. 防火墙与安全建议
 
-- 默认脚本已放行 TCP 8000。如需手动添加：
+- 默认脚本会依据 `-Port` 与 `VMP_CDN_HEALTH_CHECK_PORT` 自动放行端口。若需手动添加 8000（或自定义端口），可执行：
 
 	```powershell
 	New-NetFirewallRule -DisplayName "VMP Auth API" -Direction Inbound -Profile Any -Action Allow -Protocol TCP -LocalPort 8000
@@ -267,7 +275,7 @@ Get-Content -Path "C:\Services\VMPSelf\server\logs\uvicorn.log" -Wait
 服务或脚本运行完毕后，可执行以下命令确认接口可用（自动化脚本已在 127.0.0.1 上执行一次同样的检查，若需从运维终端复核可再次运行）：
 
 ```powershell
-Invoke-RestMethod -Uri "http://192.168.132.132:8000/api/v1/ping"
+Invoke-RestMethod -Uri "http://192.168.132.132:8000/api/v1/ping"  # 请将端口替换为实际监听端口/健康探测端口
 ```
 
 返回示例：

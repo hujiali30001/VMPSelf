@@ -586,12 +586,17 @@ class CDNService:
 
     def _perform_health_probe(self, endpoint: CDNEndpoint, protocol: Optional[str]) -> HealthCheckResult:
         resolved = self._resolve_health_protocol(endpoint, protocol)
+        settings = get_settings()
+        fallback_port = settings.cdn_health_check_port
+        target_port = int(endpoint.listen_port or 0)
+        if target_port <= 0:
+            target_port = int(fallback_port)
         if resolved == "tcp":
-            return self.health_checker.check_tcp(endpoint.host, endpoint.listen_port)
+            return self.health_checker.check_tcp(endpoint.host, target_port)
 
         use_https = resolved != "http"
         host = endpoint.domain or endpoint.host
-        return self.health_checker.check_http(host, endpoint.listen_port, use_https=use_https)
+        return self.health_checker.check_http(host, target_port, use_https=use_https)
 
     def _create_config_snapshot(
         self,

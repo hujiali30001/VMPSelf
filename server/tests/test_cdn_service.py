@@ -422,6 +422,29 @@ def test_run_health_check_tcp_enforces_protocol():
             service.run_health_check(endpoint_id, protocol="http")
 
 
+def test_health_check_uses_configured_fallback_port_when_listen_missing():
+    fake = _FakeDeployer()
+    fake_health = _FakeHealthChecker()
+    settings = get_settings()
+    original_port = settings.cdn_health_check_port
+
+    try:
+        settings.cdn_health_check_port = 11000
+        with SessionLocal() as session:
+            service = CDNService(session, deployer=fake, health_checker=fake_health)
+            endpoint_id = _create_endpoint(service, deployment_mode="tcp", listen_port=9000)
+
+            endpoint = service.get_endpoint(endpoint_id)
+            assert endpoint is not None
+            endpoint.listen_port = 0
+            session.commit()
+
+            service.run_health_check(endpoint_id, protocol="tcp")
+            assert fake_health.tcp_calls[-1] == ("203.0.113.10", 11000)
+    finally:
+        settings.cdn_health_check_port = original_port
+
+
 def test_manual_deploy_task_not_allowed():
     fake = _FakeDeployer()
     fake_health = _FakeHealthChecker()
