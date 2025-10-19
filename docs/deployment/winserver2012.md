@@ -150,14 +150,16 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
 
 > 若传入 `-MonitorEnabled`/`-MonitorIntervalSeconds`，脚本会同步更新 `.env` 并在部署完成后立即生效；若不传，则自动沿用既有配置（或默认开启 + 300 秒），日后可在后台 “CDN 管理 → 自动健康巡检” 中继续调整。
 
-执行示例（让脚本生成随机密码与 HMAC，端口 8000）：
+执行示例（让脚本生成随机密码与 HMAC，端口 8000，并将健康巡检调整为禁用+120 秒周期示例）：
 
 ```powershell
 cd C:\Services\VMPSelf
-powershell -ExecutionPolicy Bypass -File server\tools\winserver2012_deploy.ps1 -InstallRoot "C:\Services\VMPSelf\server" -PythonExe "C:\Python313\python.exe" -ServiceName "VMPAuthService" -Port 8000 -ListenHost "0.0.0.0" -AdminUser "ops-admin"
+powershell -ExecutionPolicy Bypass -File server\tools\winserver2012_deploy.ps1 -InstallRoot "C:\Services\VMPSelf\server" -PythonExe "C:\Python313\python.exe" -ServiceName "VMPAuthService" -Port 8000 -ListenHost "0.0.0.0" -AdminUser "ops-admin" -MonitorEnabled:$true -MonitorIntervalSeconds 120
 ```
 
 > 提示：脚本会在存在生成/变更操作时打印醒目的英文提示。若不传 `-AdminPassword`，会生成高强度密码并在终端显示；同理，检测到默认占位值时会生成新的 `VMP_HMAC_SECRET`。请在窗口关闭前妥善记录这些值。
+
+> 运行结束后请留意脚本输出的 `VMP_CDN_HEALTH_MONITOR_ENABLED` 与 `VMP_CDN_HEALTH_MONITOR_INTERVAL` 行，确认设置已按预期写入；同时后台 “CDN 管理 → 自动健康巡检” 面板会即时反映该状态，可在上线前再次校验。
 
 > **目录建议**：请确保在安装目录的上一级（例如 `C:\Services\VMPSelf`）运行脚本，以免 PowerShell 会话仍锁定 `server` 目录导致旧文件无法删除。脚本内部已加入保护逻辑：若检测到安装目录与源码目录相同，会仅清理 `.venv`、`logs`、`data` 等运行时资产并保留源代码。但仍推荐将 `-InstallRoot` 指向独立目录（如 `C:\Services\VMPSelf\production`），以便与源代码分离并减少权限占用带来的干扰。
 
