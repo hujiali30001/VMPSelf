@@ -10,6 +10,7 @@ from app.services.cdn.deployer import (
     DeploymentError,
     DeploymentTarget,
     EDGE_CONFIG_REMOTE_PATH,
+    STREAM_CONFIG_REMOTE_PATH,
     _cleanup_previous_deployment,
     _configure_centos_vault_repo,
     _ensure_ssl_assets,
@@ -213,6 +214,7 @@ def test_cleanup_previous_deployment_runs_commands(monkeypatch):
 
     assert commands[0] == "sudo systemctl stop nginx"
     assert any(f"sudo rm -f {EDGE_CONFIG_REMOTE_PATH}" in cmd for cmd in commands)
+    assert any(f"sudo rm -f {STREAM_CONFIG_REMOTE_PATH}" in cmd for cmd in commands)
     assert any("sudo rm -rf /var/run/nginx.pid" in cmd for cmd in commands)
     assert any("sudo rm -rf /var/run/nginx" in cmd for cmd in commands)
     assert any("执行部署前清理任务" in entry for entry in log)
@@ -354,3 +356,30 @@ def test_deployer_calls_cleanup_before_install(monkeypatch):
     assert order[1] == "install"
     assert "prepare" in order
     assert dummy_ssh.closed
+
+
+def test_deployer_uses_stream_config_for_tcp_mode(monkeypatch):
+    uploaded_paths: List[str] = []
+
+    class DummySSH:
+        def close(self) -> None:
+            return
+
+    monkeypatch.setattr("app.services.cdn.deployer._connect", lambda _target: DummySSH())
+    monkeypatch.setattr("app.services.cdn.deployer._cleanup_previous_deployment", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("app.services.cdn.deployer._install_packages", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("app.services.cdn.deployer._prepare_nginx_runtime", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("app.services.cdn.deployer._configure_firewall", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("app.services.cdn.deployer._enable_services", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "app.services.cdn.deployer._upload_config",
+        lambda _ssh, _text, path, *, sudo_password=None: uploaded_paths.append(path),
+    )
+
+    target = DeploymentTarget(name="edge", host="1.2.3.4", username="root")
+    config = DeploymentConfig(origin_host="origin.local", mode="tcp")
+
+    deployer = CDNDeployer()
+    deployer.deploy(target, config)
+
+    assert uploaded_paths == [STREAM_CONFIG_REMOTE_PATH]

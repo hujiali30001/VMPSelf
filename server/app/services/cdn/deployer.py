@@ -9,6 +9,7 @@ from typing import Iterable, Optional
 import paramiko
 
 EDGE_CONFIG_REMOTE_PATH = "/etc/nginx/conf.d/vmp_edge.conf"
+STREAM_CONFIG_REMOTE_PATH = "/etc/nginx/stream.d/vmp_edge.conf"
 DEFAULT_SSL_CERT = "/etc/pki/tls/certs/edge.crt"
 DEFAULT_SSL_KEY = "/etc/pki/tls/private/edge.key"
 
@@ -312,6 +313,7 @@ def _cleanup_previous_deployment(
 
     _run_ignoring_failure("sudo systemctl stop nginx")
     _run_ignoring_failure(f"sudo rm -f {EDGE_CONFIG_REMOTE_PATH}")
+    _run_ignoring_failure(f"sudo rm -f {STREAM_CONFIG_REMOTE_PATH}")
     _run_ignoring_failure("sudo rm -rf /var/run/nginx.pid")
     _run_ignoring_failure("sudo rm -rf /var/run/nginx")
     _run_ignoring_failure("sudo rm -rf /var/cache/nginx/vmp")
@@ -455,6 +457,9 @@ def _upload_config(
         tmp_path = "/tmp/vmp_edge.conf"
         with sftp.file(tmp_path, "w") as remote_file:
             remote_file.write(config_text)
+    directory = posixpath.dirname(remote_path)
+    if directory:
+        _run_command(ssh, f"sudo mkdir -p {directory}", sudo_password=sudo_password)
         _run_command(ssh, f"sudo mv {tmp_path} {remote_path}", sudo_password=sudo_password)
         _run_command(ssh, f"sudo chown root:root {remote_path}", sudo_password=sudo_password)
 
@@ -544,11 +549,15 @@ class CDNDeployer:
             _configure_firewall(ssh, firewall_ports, sudo_password=target.sudo_password)
             _append_log(log_lines, "防火墙规则已更新")
 
-            _append_log(log_lines, f"上传 Nginx 配置到 {self.remote_config_path}")
+            target_config_path = self.remote_config_path
+            if config.mode == "tcp":
+                target_config_path = STREAM_CONFIG_REMOTE_PATH
+
+            _append_log(log_lines, f"上传 Nginx 配置到 {target_config_path}")
             _upload_config(
                 ssh,
                 config_text,
-                self.remote_config_path,
+                target_config_path,
                 sudo_password=target.sudo_password,
             )
             _append_log(log_lines, "配置上传完成")
@@ -588,5 +597,6 @@ __all__ = [
     "DeploymentResult",
     "DeploymentTarget",
     "EDGE_CONFIG_REMOTE_PATH",
+    "STREAM_CONFIG_REMOTE_PATH",
     "generate_nginx_config",
 ]
