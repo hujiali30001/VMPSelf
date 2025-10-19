@@ -290,6 +290,30 @@ gpgkey=https://nginx.org/keys/nginx_signing.key
     _run_command(ssh, "sudo yum makecache", sudo_password=sudo_password)
 
 
+def _cleanup_previous_deployment(
+    ssh: paramiko.SSHClient,
+    *,
+    sudo_password: Optional[str] = None,
+    log: Optional[list[str]] = None,
+) -> None:
+    def _run_ignoring_failure(command: str) -> None:
+        try:
+            _run_command(ssh, command, sudo_password=sudo_password)
+        except DeploymentError:
+            return
+
+    if log is not None:
+        _append_log(log, "执行部署前清理任务")
+
+    _run_ignoring_failure("sudo systemctl stop nginx")
+    _run_ignoring_failure(f"sudo rm -f {EDGE_CONFIG_REMOTE_PATH}")
+    _run_ignoring_failure("sudo rm -rf /var/cache/nginx/vmp")
+    _run_ignoring_failure("sudo mkdir -p /var/cache/nginx")
+
+    if log is not None:
+        _append_log(log, "预清理完成")
+
+
 def _ensure_ssl_assets(
     ssh: paramiko.SSHClient,
     *,
@@ -451,6 +475,12 @@ class CDNDeployer:
 
         _append_log(log_lines, "SSH 连接已建立")
         try:
+            _cleanup_previous_deployment(
+                ssh,
+                sudo_password=target.sudo_password,
+                log=log_lines,
+            )
+
             _append_log(log_lines, f"安装依赖软件包: {', '.join(config.extra_packages)}")
             _install_packages(
                 ssh,

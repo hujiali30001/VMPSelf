@@ -5,8 +5,12 @@ from typing import Dict, List, Optional, Tuple
 import pytest
 
 from app.services.cdn.deployer import (
+    CDNDeployer,
     DeploymentConfig,
     DeploymentError,
+    DeploymentTarget,
+    EDGE_CONFIG_REMOTE_PATH,
+    _cleanup_previous_deployment,
     _configure_centos_vault_repo,
     _ensure_ssl_assets,
     _install_packages,
@@ -192,6 +196,26 @@ def test_ensure_ssl_assets_custom_path_missing_raises(monkeypatch):
     assert "/custom/cert.pem" in str(excinfo.value)
 
 
+def test_cleanup_previous_deployment_runs_commands(monkeypatch):
+    commands: List[str] = []
+
+    def fake_run_command(_ssh, command: str, *, sudo_password: Optional[str] = None):
+        commands.append(command)
+        if "rm -f" in command:
+            raise DeploymentError("Command failed (1): rm -f\nmissing")
+        return ""
+
+    monkeypatch.setattr("app.services.cdn.deployer._run_command", fake_run_command)
+
+    log: List[str] = []
+    _cleanup_previous_deployment(object(), log=log)
+
+    assert commands[0] == "sudo systemctl stop nginx"
+    assert any(f"sudo rm -f {EDGE_CONFIG_REMOTE_PATH}" in cmd for cmd in commands)
+    assert any("执行部署前清理任务" in entry for entry in log)
+    assert any("预清理完成" in entry for entry in log)
+
+
 def test_is_tls_enabled_false_for_plain_http():
     config = DeploymentConfig(origin_host="edge.local", listen_port=80)
 
@@ -242,3 +266,52 @@ def test_enable_services_reports_status_on_failure(monkeypatch):
 
     assert "Loaded: failed" in str(excinfo.value)
     assert any("status nginx" in cmd for cmd in commands)
+
+
+def test_deployer_calls_cleanup_before_install(monkeypatch):
+    order: List[str] = []
+
+    class DummySSH:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    dummy_ssh = DummySSH()
+
+    monkeypatch.setattr("app.services.cdn.deployer._connect", lambda _target: dummy_ssh)
+    monkeypatch.setattr(
+        "app.services.cdn.deployer._cleanup_previous_deployment",
+        lambda *_args, **_kwargs: order.append("cleanup"),
+    )
+    monkeypatch.setattr(
+        "app.services.cdn.deployer._install_packages",
+        lambda *_args, **_kwargs: order.append("install"),
+    )
+    monkeypatch.setattr(
+        "app.services.cdn.deployer._ensure_ssl_assets",
+        lambda *_args, **_kwargs: order.append("ssl"),
+    )
+    monkeypatch.setattr(
+        "app.services.cdn.deployer._configure_firewall",
+        lambda *_args, **_kwargs: order.append("firewall"),
+    )
+    monkeypatch.setattr(
+        "app.services.cdn.deployer._upload_config",
+        lambda *_args, **_kwargs: order.append("upload"),
+    )
+    monkeypatch.setattr(
+        "app.services.cdn.deployer._enable_services",
+        lambda *_args, **_kwargs: order.append("enable"),
+    )
+
+    target = DeploymentTarget(name="edge", host="1.2.3.4", username="root")
+    config = DeploymentConfig(origin_host="origin.local")
+
+    deployer = CDNDeployer()
+    deployer.deploy(target, config)
+
+    assert order[0] == "cleanup"
+    assert order[1] == "install"
+    assert dummy_ssh.closed
