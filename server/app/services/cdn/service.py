@@ -176,14 +176,26 @@ class CDNService:
         self.db.refresh(endpoint)
         return endpoint
 
+    def delete_endpoint(self, endpoint_id: int) -> None:
+        endpoint = self.db.get(CDNEndpoint, endpoint_id)
+        if not endpoint:
+            raise ValueError("endpoint_not_found")
+
+        self.db.delete(endpoint)
+        self.db.flush()
+        self._sync_origin_whitelist()
+        self.db.commit()
+
     def get_credentials(self, endpoint: CDNEndpoint) -> EndpointCredentials:
+        ssh_password = decrypt_secret(endpoint.ssh_password_encrypted)
+        sudo_password = decrypt_secret(endpoint.sudo_password_encrypted) or ssh_password
         return EndpointCredentials(
             host=endpoint.host,
             ssh_username=endpoint.ssh_username,
             ssh_port=endpoint.ssh_port,
-            ssh_password=decrypt_secret(endpoint.ssh_password_encrypted),
+            ssh_password=ssh_password,
             ssh_private_key=decrypt_secret(endpoint.ssh_private_key_encrypted),
-            sudo_password=decrypt_secret(endpoint.sudo_password_encrypted),
+            sudo_password=sudo_password,
         )
 
     def _resolve_endpoint_ips(self, endpoint: CDNEndpoint) -> list[str]:

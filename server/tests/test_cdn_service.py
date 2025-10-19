@@ -317,6 +317,45 @@ def test_manual_deploy_task_not_allowed():
         assert str(exc.value) == "unsupported_manual_deploy"
 
 
+def test_delete_endpoint_removes_records_and_updates_whitelist():
+    fake = _FakeDeployer()
+    fake_health = _FakeHealthChecker()
+    settings = get_settings()
+    settings.cdn_ip_whitelist = []
+
+    with SessionLocal() as session:
+        service = CDNService(session, deployer=fake, health_checker=fake_health)
+        first_id = _create_endpoint(
+            service,
+            name="Edge-A",
+            domain="edge-a.example.com",
+            host="198.51.100.10",
+        )
+        second_id = _create_endpoint(
+            service,
+            name="Edge-B",
+            domain="edge-b.example.com",
+            host="198.51.100.11",
+        )
+
+        service.create_task(endpoint_id=first_id, task_type=CDNTaskType.PURGE, payload="/static")
+        service.create_task(endpoint_id=second_id, task_type=CDNTaskType.PURGE, payload="/media")
+
+        service.delete_endpoint(first_id)
+
+        assert service.get_endpoint(first_id) is None
+        session.expire_all()
+        remaining = service.get_endpoint(second_id)
+        assert remaining is not None
+        assert remaining.domain == "edge-b.example.com"
+        assert remaining.egress_ips == ["198.51.100.11"]
+
+        remaining_tasks = session.query(models.CDNTask).filter_by(endpoint_id=first_id).count()
+        assert remaining_tasks == 0
+
+    assert get_settings().cdn_ip_whitelist == ["198.51.100.11"]
+
+
 def test_health_monitor_logs_alert(monkeypatch):
     with SessionLocal() as session:
         service = CDNService(session)

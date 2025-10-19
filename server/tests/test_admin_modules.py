@@ -94,6 +94,19 @@ def test_admin_cdn_module_flow():
         assert tasks
         assert any(task.status == CDNTaskStatus.COMPLETED.value for task in tasks)
 
+    delete_resp = client.post(
+        f"/admin/cdn/endpoints/{endpoint_id}/delete",
+        data={"return_to": "/admin/cdn"},
+        auth=BASIC_AUTH,
+        follow_redirects=False,
+    )
+    assert delete_resp.status_code == 303
+
+    with SessionLocal() as session:
+        assert session.get(CDNEndpoint, endpoint_id) is None
+        remaining = session.query(CDNTask).filter_by(endpoint_id=endpoint_id).count()
+        assert remaining == 0
+
     response = client.get("/admin/cdn", auth=BASIC_AUTH)
     assert response.status_code == 200
 

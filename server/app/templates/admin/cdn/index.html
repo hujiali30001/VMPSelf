@@ -464,6 +464,10 @@
                                 <input type="text" name="payload" placeholder="可选：路径或参数" />
                                 <button class="primary-btn" type="submit">提交任务</button>
                             </form>
+                            <form method="post" action="/admin/cdn/endpoints/{{ endpoint.id }}/delete" onsubmit="return confirm('确认删除 {{ endpoint.name | e }} 节点？此操作会移除所有关联任务与记录。');">
+                                <input type="hidden" name="return_to" value="{{ return_to }}" />
+                                <button class="danger-btn" type="submit">删除节点</button>
+                            </form>
                         </div>
                     </td>
                 </tr>

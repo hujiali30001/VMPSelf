@@ -306,6 +306,31 @@ def update_cdn_endpoint_status_action(
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
 
 
+@router.post("/endpoints/{endpoint_id}/delete")
+def delete_cdn_endpoint_action(
+    request: Request,
+    endpoint_id: int,
+    return_to: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    _: AdminPrincipal = Depends(require_permission("cdn", "manage")),
+):
+    service = CDNService(db)
+
+    try:
+        service.delete_endpoint(endpoint_id)
+    except ValueError as exc:
+        db.rollback()
+        if str(exc) == "endpoint_not_found":
+            message = "未找到指定的 CDN 节点"
+        else:
+            message = f"删除失败: {exc}"
+    else:
+        message = "节点已删除"
+
+    target = _append_message(_sanitize_return_path(return_to, fallback="/admin/cdn"), message)
+    return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+
+
 @router.post("/endpoints/{endpoint_id}/tasks")
 def create_cdn_task_action(
     request: Request,
