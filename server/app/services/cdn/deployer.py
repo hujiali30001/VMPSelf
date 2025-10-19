@@ -121,7 +121,13 @@ def generate_nginx_config(config: DeploymentConfig) -> str:
     if config.edge_token:
         header_lines.append(f"        proxy_set_header X-Edge-Token \"{config.edge_token}\";")
 
+    cache_directives = [
+        "proxy_cache_path /var/cache/nginx/vmp levels=1:2 keys_zone=vmp_cache:10m max_size=1g inactive=10m use_temp_path=off;",
+        "",
+    ]
+
     config_block = [
+        *cache_directives,
         "server {",
         *listen_directives,
     ]
@@ -144,7 +150,6 @@ def generate_nginx_config(config: DeploymentConfig) -> str:
             "    server_name _;",
             "",
             "    proxy_buffering on;",
-            "    proxy_cache_path /var/cache/nginx/vmp levels=1:2 keys_zone=vmp_cache:10m max_size=1g inactive=10m use_temp_path=off;",
             "",
             "    location / {",
             f"        proxy_pass https://{config.origin_host}:{config.origin_port};",

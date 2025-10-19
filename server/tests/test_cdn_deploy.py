@@ -11,6 +11,8 @@ def test_generate_nginx_config_includes_token_and_origin():
 
     nginx_config = generate_nginx_config(config.to_deployment_config())
 
+    assert nginx_config.startswith("proxy_cache_path /var/cache/nginx/vmp")
+    assert "    proxy_cache_path" not in nginx_config
     assert "listen 80;" in nginx_config
     assert "listen 443 ssl;" in nginx_config
     assert "http2 on;" in nginx_config
