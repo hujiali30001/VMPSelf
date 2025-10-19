@@ -10,6 +10,9 @@
     [string]$AdminPassword,
     [string]$HmacSecret,
     [string]$SqlitePath,
+    [Nullable[bool]]$MonitorEnabled,
+    [ValidateRange(30, 3600)]
+    [int]$MonitorIntervalSeconds = 300,
     [ValidateSet("Prompt", "Fresh", "Upgrade", "Uninstall")]
     [string]$DeploymentMode = "Prompt"
 )
@@ -440,6 +443,51 @@ if ($AdminPassword) {
 }
 $FinalEnv["VMP_ADMIN_PASS"] = $FinalAdminPass
 
+$monitorEnabledSource = "default"
+$existingMonitorEnabled = $null
+if ($ExistingEnv.ContainsKey("VMP_CDN_HEALTH_MONITOR_ENABLED")) {
+    $rawMonitorEnabled = $ExistingEnv["VMP_CDN_HEALTH_MONITOR_ENABLED"]
+    if (-not [string]::IsNullOrWhiteSpace($rawMonitorEnabled)) {
+        $normalizedMonitorEnabled = $rawMonitorEnabled.Trim().ToLowerInvariant()
+        if ($normalizedMonitorEnabled -in @("1", "true", "yes", "on")) {
+            $existingMonitorEnabled = $true
+        } elseif ($normalizedMonitorEnabled -in @("0", "false", "no", "off")) {
+            $existingMonitorEnabled = $false
+        }
+    }
+}
+
+if ($PSBoundParameters.ContainsKey("MonitorEnabled") -and $null -ne $MonitorEnabled) {
+    $FinalMonitorEnabled = [bool]$MonitorEnabled
+    $monitorEnabledSource = "parameter"
+} elseif ($null -ne $existingMonitorEnabled) {
+    $FinalMonitorEnabled = [bool]$existingMonitorEnabled
+    $monitorEnabledSource = "existing"
+} else {
+    $FinalMonitorEnabled = $true
+}
+$FinalEnv["VMP_CDN_HEALTH_MONITOR_ENABLED"] = if ($FinalMonitorEnabled) { "true" } else { "false" }
+
+$monitorIntervalSource = "default"
+if ($PSBoundParameters.ContainsKey("MonitorIntervalSeconds")) {
+    $FinalMonitorInterval = $MonitorIntervalSeconds
+    $monitorIntervalSource = "parameter"
+} else {
+    $FinalMonitorInterval = $MonitorIntervalSeconds
+    if ($ExistingEnv.ContainsKey("VMP_CDN_HEALTH_MONITOR_INTERVAL")) {
+        $existingIntervalRaw = $ExistingEnv["VMP_CDN_HEALTH_MONITOR_INTERVAL"]
+        if (-not [string]::IsNullOrWhiteSpace($existingIntervalRaw)) {
+            $parsedInterval = 0
+            if ([int]::TryParse($existingIntervalRaw, [ref]$parsedInterval)) {
+                $FinalMonitorInterval = $parsedInterval
+                $monitorIntervalSource = "existing"
+            }
+        }
+    }
+}
+$FinalMonitorInterval = [Math]::Min([Math]::Max([int]$FinalMonitorInterval, 30), 3600)
+$FinalEnv["VMP_CDN_HEALTH_MONITOR_INTERVAL"] = $FinalMonitorInterval
+
 Update-EnvFile -FilePath $EnvFile -Updates $FinalEnv
 
 Write-Step "Updated .env"
@@ -463,6 +511,18 @@ if ($GeneratedAdminPassword) {
     Write-Host "    VMP_ADMIN_PASS set from parameter" -ForegroundColor Yellow
 } else {
     Write-Host "    VMP_ADMIN_PASS unchanged"
+}
+
+switch ($monitorEnabledSource) {
+    "parameter" { Write-Host ("    VMP_CDN_HEALTH_MONITOR_ENABLED set from parameter ({0})" -f $FinalEnv["VMP_CDN_HEALTH_MONITOR_ENABLED"]) -ForegroundColor Yellow }
+    "existing" { Write-Host ("    VMP_CDN_HEALTH_MONITOR_ENABLED = {0} (existing value preserved)" -f $FinalEnv["VMP_CDN_HEALTH_MONITOR_ENABLED"]) }
+    default { Write-Host ("    VMP_CDN_HEALTH_MONITOR_ENABLED = {0}" -f $FinalEnv["VMP_CDN_HEALTH_MONITOR_ENABLED"]) }
+}
+
+switch ($monitorIntervalSource) {
+    "parameter" { Write-Host ("    VMP_CDN_HEALTH_MONITOR_INTERVAL set from parameter ({0}s)" -f $FinalMonitorInterval) -ForegroundColor Yellow }
+    "existing" { Write-Host ("    VMP_CDN_HEALTH_MONITOR_INTERVAL = {0}s (existing value preserved)" -f $FinalMonitorInterval) }
+    default { Write-Host ("    VMP_CDN_HEALTH_MONITOR_INTERVAL = {0}s" -f $FinalMonitorInterval) }
 }
 
 Write-Step "Initializing SQLite database (includes Alembic migrations)"

@@ -16,6 +16,7 @@
 	notepad .env
 	```
 	建议至少配置 `VMP_ENV=development`、`VMP_ADMIN_USER`、`VMP_ADMIN_PASS`、`VMP_HMAC_SECRET`。
+	如需提前控制自动健康巡检，可补充 `VMP_CDN_HEALTH_MONITOR_ENABLED=true|false` 与 `VMP_CDN_HEALTH_MONITOR_INTERVAL=<秒数>`（默认 300 秒，亦可在后台「CDN 管理 → 自动健康巡检」面板随时调整并同步 `.env`）。
 4. 初始化数据库并准备示例卡密：
 	```powershell
 	python manage.py init-db
@@ -166,6 +167,8 @@ powershell -ExecutionPolicy Bypass -File tools\winserver2012_deploy.ps1 -Install
 如需在无人值守或 CI 场景中运行，可通过 `-DeploymentMode Fresh|Upgrade|Uninstall` 显式指定模式，跳过交互提示。
 
 脚本将自动创建虚拟环境、安装依赖、生成/更新 `.env`、注册 NSSM 服务并输出后台访问信息。更多参数说明见《[WinServer 2012 部署指南](../docs/deployment/winserver2012.md)》。
+
+> 通过 `-MonitorEnabled` 与 `-MonitorIntervalSeconds` 参数可以在部署阶段显式控制 CDN 自动健康巡检的开关与周期；脚本会把设定写入 `.env` 并在后台启动完成后实时生效。若未传入，则默认沿用已有配置（或使用开启、300 秒）并可在后台“CDN 管理 → 自动健康巡检”面板中再调整。
 
 > 脚本内部调用 `python manage.py init-db`（已包含 Alembic 升级），因此无需再单独执行 `alembic upgrade head`；若需要独立排查迁移，可手动运行该命令。
 

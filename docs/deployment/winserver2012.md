@@ -9,6 +9,7 @@
 > - 脚本新增本地健康检查与 CDN 管理入口提示，部署完成后可立即验证服务可用性。
 > - 一键部署脚本支持交互式部署模式选择，可在全新部署、升级或卸载之间切换，并进行数据保留控制。
 > - 新增“仪表盘巡检”章节，帮助你在上线前核查各模块卡片与关键指标。
+> - 自动健康巡检现可在后台 UI 中即时调整，并支持通过部署脚本参数设定默认开关与周期。
 
 ---
 
@@ -77,6 +78,8 @@ notepad .env
 - `VMP_HMAC_SECRET=<强随机密钥>`
 - `VMP_ADMIN_USER=<后台用户名>`
 - `VMP_ADMIN_PASS=<后台密码>`
+- `VMP_CDN_HEALTH_MONITOR_ENABLED=true`（若测试环境希望关闭巡检，可设为 `false`）
+- `VMP_CDN_HEALTH_MONITOR_INTERVAL=300`（单位秒，可在后台 CDN 页面随时调整并写回 `.env`）
 - 若暂不接入 CDN，可保持默认的 `VMP_CDN_*` 配置。
 
 可以通过 PowerShell 快速生成随机密钥：
@@ -107,6 +110,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
 - 访问 `http://192.168.132.132:8000/admin/users`，查看全新的用户列表：支持关键字搜索、快速跳转到用户详情（含审计日志与激活设备），可直接解绑或删除账号。
 - 访问 `http://192.168.132.132:8000/admin/card-types`，管理卡密类型与时长模板；界面与其他后台页面采用统一布局，便于后续扩展。
 - 访问 `http://192.168.132.132:8000/admin/cdn`，可新增加速节点、创建刷新或预取任务，并查看最近执行记录与各状态统计。
+- 在 “CDN 管理” 页面中的「自动健康巡检」卡片里，可随时启用/禁用巡检、调整巡检间隔并实时写回 `.env`；运维人员可根据节点数量调整频率。
 - 在仪表盘「功能模块一览」区域核对卡片状态：卡密管理、用户中心、卡密类型、CDN 管理应显示“前往页面”；软件位与系统设置仍标记为“规划中”属正常现象。
 - 验证完毕后在终端按 `Ctrl+C` 停止 Uvicorn。
 - 可选：保持虚拟环境激活状态执行 `python -m pytest tests/test_admin_api_crud.py tests/test_admin_service.py`，快速确认后台接口的关键用例与仪表盘 HTML。
@@ -140,7 +144,11 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
 | `-AdminPassword` | （可选）自定义后台密码，未提供时脚本会自动生成高强度随机值。 |
 | `-HmacSecret` | （可选）自定义授权 HMAC 密钥，未提供时若检测到默认占位值将自动生成。 |
 | `-SqlitePath` | （可选）自定义数据库文件位置，默认写入 `InstallRoot/data/license.db`。 |
+| `-MonitorEnabled` | （可选）显式开启或关闭自动健康巡检（`$true`/`$false`），默认为保留 `.env` 或自动开启。 |
+| `-MonitorIntervalSeconds` | （可选）设置巡检周期（30-3600 秒），默认 300。 |
 | `-DeploymentMode` | （可选）指定执行模式：`Fresh` 全新部署、`Upgrade` 保留 `data/` 与 `.env` 升级现有服务、`Uninstall` 仅移除服务与文件后退出。默认 `Prompt`，进入交互选择。 |
+
+> 若传入 `-MonitorEnabled`/`-MonitorIntervalSeconds`，脚本会同步更新 `.env` 并在部署完成后立即生效；若不传，则自动沿用既有配置（或默认开启 + 300 秒），日后可在后台 “CDN 管理 → 自动健康巡检” 中继续调整。
 
 执行示例（让脚本生成随机密码与 HMAC，端口 8000）：
 
