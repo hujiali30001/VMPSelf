@@ -547,9 +547,15 @@ class CDNDeployer:
     def __init__(self, remote_config_path: str = EDGE_CONFIG_REMOTE_PATH) -> None:
         self.remote_config_path = remote_config_path
 
-    def deploy(self, target: DeploymentTarget, config: DeploymentConfig) -> DeploymentResult:
+    def deploy(
+        self,
+        target: DeploymentTarget,
+        config: DeploymentConfig,
+        *,
+        precomputed_config: Optional[str] = None,
+    ) -> DeploymentResult:
         config.normalize()
-        config_text = generate_nginx_config(config)
+        config_text = precomputed_config or generate_nginx_config(config)
         log_lines: list[str] = []
         started_at = datetime.now(timezone.utc)
         _append_log(log_lines, f"开始部署节点 {target.host}:{target.port} (模式: {config.mode})")
