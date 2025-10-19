@@ -8,6 +8,8 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from app.core.ip_access import evaluate_ip_access
+from app.db import AccessScope
+from app.services.auto_blacklist import auto_blacklist_ip
 
 logger = logging.getLogger("access_control")
 
@@ -75,6 +77,8 @@ class AccessControlMiddleware(BaseHTTPMiddleware):
 
         allowed, reason = evaluate_ip_access(client_ip, whitelist_entries, blacklist_entries)
         if not allowed:
+            if client_ip and reason not in {"blacklist", "ip_missing", "ip_invalid"}:
+                await auto_blacklist_ip(AccessScope.CORE, client_ip, reason=reason or "denied")
             logger.warning(
                 "Access control blocked request",
                 extra={

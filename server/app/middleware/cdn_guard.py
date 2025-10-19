@@ -9,6 +9,8 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from app.core.ip_access import evaluate_ip_access
+from app.db import AccessScope
+from app.services.auto_blacklist import auto_blacklist_ip
 
 logger = logging.getLogger("cdn_guard")
 
@@ -38,6 +40,14 @@ class CDNGuardMiddleware(BaseHTTPMiddleware):
         self._static_blacklist: Set[str] = {ip.strip() for ip in (ip_blacklist or []) if ip.strip()}
         self._dynamic_whitelist = dynamic_whitelist
         self._dynamic_blacklist = dynamic_blacklist
+
+    def _extract_client_ip(self, request: Request) -> Optional[str]:
+        if self.ip_header:
+            forwarded = request.headers.get(self.ip_header, "")
+            if forwarded:
+                return forwarded.split(",")[0].strip()
+        client = request.client
+        return client.host if client else None
 
     def _requires_ip_check(self) -> bool:
         return bool(
@@ -69,6 +79,8 @@ class CDNGuardMiddleware(BaseHTTPMiddleware):
 
         token = request.headers.get(self.header_name)
         if not token or not hmac.compare_digest(token, self.shared_token):
+            client_ip = self._extract_client_ip(request)
+            await auto_blacklist_ip(AccessScope.CDN, client_ip, reason="token_invalid")
             logger.warning("CDNGuard blocked request without valid token", extra={"path": path})
             return JSONResponse(status_code=403, content={"detail": "origin_forbidden"})
 
@@ -86,6 +98,8 @@ class CDNGuardMiddleware(BaseHTTPMiddleware):
             blacklist_entries = self._collect_entries(self._static_blacklist, self._dynamic_blacklist)
             allowed, reason = evaluate_ip_access(client_ip, whitelist_entries, blacklist_entries)
             if not allowed:
+                if client_ip and reason not in {"blacklist", "ip_missing", "ip_invalid"}:
+                    await auto_blacklist_ip(AccessScope.CDN, client_ip, reason=reason or "denied")
                 logger.warning(
                     "CDNGuard blocked request due to access rules",
                     extra={

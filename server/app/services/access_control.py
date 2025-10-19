@@ -257,3 +257,63 @@ class AccessControlService:
                 ).order_by(AccessRule.value.asc())
             ).all()
         )
+
+    def ensure_blacklist_entry(
+        self,
+        *,
+        scope: AccessScope | str,
+        ip: str,
+        reason: Optional[str] = None,
+    ) -> Optional[AccessRule]:
+        scope_obj = self._coerce_scope(scope)
+        normalized_value = self._normalize_value(ip)
+        stmt = select(AccessRule).where(
+            AccessRule.scope == scope_obj.value,
+            AccessRule.rule_type == AccessRuleType.BLACKLIST.value,
+            AccessRule.value == normalized_value,
+        )
+        existing = self.db.scalar(stmt)
+
+        description = f"自动拉黑：{reason}" if reason else "自动拉黑"
+
+        if existing:
+            updated = False
+            if not existing.enabled:
+                existing.enabled = True
+                updated = True
+            if description and not existing.description:
+                existing.description = description
+                updated = True
+            if updated:
+                self.db.commit()
+                self.db.refresh(existing)
+                self.refresh_settings(scope_obj)
+                logger.info(
+                    "Auto-enabled blacklist rule",
+                    extra={
+                        "scope": existing.scope,
+                        "value": existing.value,
+                    },
+                )
+            return existing
+
+        rule = AccessRule(
+            scope=scope_obj.value,
+            rule_type=AccessRuleType.BLACKLIST.value,
+            value=normalized_value,
+            description=description,
+            enabled=True,
+        )
+        self.db.add(rule)
+        self.db.commit()
+        self.db.refresh(rule)
+        self.refresh_settings(scope_obj)
+        logger.info(
+            "Auto-created blacklist rule",
+            extra={
+                "scope": rule.scope,
+                "value": rule.value,
+                "reason": reason,
+            },
+        )
+        return rule

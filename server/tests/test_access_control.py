@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
 from app.core.ip_access import evaluate_ip_access
 from app.core.settings import get_settings
 from app.db import AccessRuleType, AccessScope
 from app.db.session import SessionLocal
+from app.middleware.access_control import AccessControlMiddleware
+from app.middleware.cdn_guard import CDNGuardMiddleware
 from app.services.access_control import AccessControlService
 
 
@@ -53,3 +58,93 @@ def test_bulk_replace_updates_settings(reset_database):
             values=["198.51.100.128/25"],
         )
     assert settings.cdn_ip_blacklist == ["198.51.100.128/25"]
+
+
+def test_access_control_auto_blacklist_on_denied_request(reset_database):
+    settings = get_settings()
+    with SessionLocal() as session:
+        service = AccessControlService(session)
+        service.bulk_replace(
+            scope=AccessScope.CORE,
+            rule_type=AccessRuleType.WHITELIST,
+            values=["10.0.0.1"],
+        )
+
+    app = FastAPI()
+
+    def _core_whitelist() -> list[str]:
+        return list(settings.core_ip_whitelist or [])
+
+    def _core_blacklist() -> list[str]:
+        return list(settings.core_ip_blacklist or [])
+
+    app.add_middleware(
+        AccessControlMiddleware,
+        allow_paths=set(),
+        ip_header="X-Forwarded-For",
+        dynamic_whitelist=_core_whitelist,
+        dynamic_blacklist=_core_blacklist,
+    )
+
+    @app.get("/secure")
+    def secure():
+        return {"ok": True}
+
+    client = TestClient(app)
+    offender_ip = "198.51.100.88"
+    response = client.get("/secure", headers={"X-Forwarded-For": offender_ip})
+    assert response.status_code == 403
+
+    assert offender_ip in settings.core_ip_blacklist
+
+    with SessionLocal() as session:
+        values = AccessControlService(session).list_values(AccessScope.CORE, AccessRuleType.BLACKLIST)
+    assert offender_ip in values
+
+
+def test_cdn_guard_auto_blacklist_on_invalid_token(reset_database):
+    settings = get_settings()
+    with SessionLocal() as session:
+        service = AccessControlService(session)
+        service.bulk_replace(
+            scope=AccessScope.CDN,
+            rule_type=AccessRuleType.WHITELIST,
+            values=["203.0.113.10"],
+        )
+
+    app = FastAPI()
+
+    def _cdn_whitelist() -> list[str]:
+        combined: list[str] = []
+        if settings.cdn_ip_whitelist:
+            combined.extend(settings.cdn_ip_whitelist)
+        if settings.cdn_ip_manual_whitelist:
+            combined.extend(settings.cdn_ip_manual_whitelist)
+        return combined
+
+    def _cdn_blacklist() -> list[str]:
+        return list(settings.cdn_ip_blacklist or [])
+
+    app.add_middleware(
+        CDNGuardMiddleware,
+        header_name="X-Edge-Token",
+        shared_token="edge-secret",
+        allow_paths=set(),
+        ip_header="X-Forwarded-For",
+        dynamic_whitelist=_cdn_whitelist,
+        dynamic_blacklist=_cdn_blacklist,
+    )
+
+    @app.get("/secure")
+    def secure():
+        return {"ok": True}
+
+    client = TestClient(app)
+    response = client.get("/secure", headers={"X-Forwarded-For": "198.51.100.99"})
+    assert response.status_code == 403
+
+    assert "198.51.100.99" in settings.cdn_ip_blacklist
+
+    with SessionLocal() as session:
+        values = AccessControlService(session).list_values(AccessScope.CDN, AccessRuleType.BLACKLIST)
+    assert "198.51.100.99" in values
