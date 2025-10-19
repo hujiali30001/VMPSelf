@@ -46,7 +46,12 @@ git clone https://github.com/hujiali30001/VMPSelf.git
 ```
 
 ### 方法 B：手工上传压缩包
-1. 在本地执行 `git archive --format zip HEAD -o VMPSelf.zip`；
+1. 在本地执行以下命令生成压缩包：
+
+	```powershell
+	git archive --format zip HEAD -o VMPSelf.zip
+	```
+
 2. 通过 RDP 剪贴板、SMB 或云盘上传到服务器；
 3. 在服务器解压到 `C:\Services\VMPSelf`。
 
