@@ -329,10 +329,8 @@ def _prepare_nginx_runtime(
         "sudo mkdir -p /var/cache/nginx/vmp",
         "sudo chown -R nginx:nginx /var/cache/nginx",
         "sudo mkdir -p /var/run/nginx",
-        "sudo touch /var/run/nginx.pid",
-        "sudo chown nginx:nginx /var/run/nginx.pid",
-        "sudo chmod 644 /var/run/nginx.pid",
-        "sudo chown nginx:nginx /var/run/nginx",
+        "sudo chown root:root /var/run/nginx",
+        "sudo chmod 755 /var/run/nginx",
     ]
     for command in commands:
         _run_command(ssh, command, sudo_password=sudo_password)
