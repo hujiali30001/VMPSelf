@@ -465,14 +465,20 @@ def _enable_services(
     try:
         _run_command(ssh, "sudo systemctl restart nginx", sudo_password=sudo_password)
     except DeploymentError as exc:
-        try:
-            status_output = _run_command(
-                ssh,
-                "sudo systemctl status nginx --no-pager",
-                sudo_password=sudo_password,
-            )
-        except DeploymentError as status_exc:
-            status_output = str(status_exc)
+        diagnostics: list[str] = []
+
+        def _collect(command: str) -> None:
+            display = f"$ {command}"
+            try:
+                output = _run_command(ssh, command, sudo_password=sudo_password)
+            except DeploymentError as cmd_exc:
+                output = str(cmd_exc)
+            diagnostics.append("\n".join([display, output]).rstrip())
+
+        _collect("sudo systemctl status nginx --no-pager")
+        _collect("sudo journalctl -u nginx -n 100 --no-pager")
+        _collect("sudo ls -ld /var/run/nginx*")
+        status_output = "\n\n".join(diagnostics)
         raise DeploymentError(
             f"Failed to restart nginx after config update. Original error: {exc}. Status output:\n{status_output}"
         ) from exc

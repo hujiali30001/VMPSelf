@@ -281,6 +281,10 @@ def test_enable_services_reports_status_on_failure(monkeypatch):
             raise DeploymentError("Command failed (1): sudo systemctl restart nginx\nerror detail")
         if "status nginx" in command:
             return "Loaded: failed"
+        if "journalctl" in command:
+            return "-- Logs begin --"
+        if "ls -ld" in command:
+            return "drwxr-xr-x 2 root root 60 Oct 19 03:00 /var/run/nginx"
         return ""
 
     monkeypatch.setattr("app.services.cdn.deployer._run_command", fake_run_command)
@@ -289,7 +293,13 @@ def test_enable_services_reports_status_on_failure(monkeypatch):
         _enable_services(object(), sudo_password=None)
 
     assert "Loaded: failed" in str(excinfo.value)
+    message = str(excinfo.value)
+    assert "$ sudo systemctl status nginx --no-pager" in message
+    assert "$ sudo journalctl -u nginx -n 100 --no-pager" in message
+    assert "$ sudo ls -ld /var/run/nginx*" in message
     assert any("status nginx" in cmd for cmd in commands)
+    assert any("journalctl -u nginx" in cmd for cmd in commands)
+    assert any("ls -ld /var/run/nginx" in cmd for cmd in commands)
 
 
 def test_deployer_calls_cleanup_before_install(monkeypatch):
