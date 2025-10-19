@@ -781,11 +781,15 @@ Invoke-Nssm -Arguments @("set", $ServiceName, "AppEnvironmentExtra", "VMP_ENV=pr
 Write-Step "Configuring firewall rules"
 $FirewallName = "VMP Auth API"
 $existingRule = Get-NetFirewallRule -DisplayName $FirewallName -ErrorAction SilentlyContinue
-if (-not $existingRule) {
-    New-NetFirewallRule -DisplayName $FirewallName -Direction Inbound -Profile Any -Action Allow -Protocol TCP -LocalPort $Port | Out-Null
-} else {
-    Write-Step "Firewall rule already present"
+if ($existingRule) {
+    try {
+        Write-Step "Updating existing firewall rule to match new port"
+        Remove-NetFirewallRule -DisplayName $FirewallName -ErrorAction Stop | Out-Null
+    } catch {
+        Write-Warning ("Failed to remove existing firewall rule '{0}': {1}" -f $FirewallName, $_.Exception.Message)
+    }
 }
+New-NetFirewallRule -DisplayName $FirewallName -Direction Inbound -Profile Any -Action Allow -Protocol TCP -LocalPort $Port | Out-Null
 
 Write-Step "Starting service"
 $startExitCode = Invoke-Nssm -Arguments @("start", $ServiceName) -AllowedExitCodes @(0,1,2,3,4,5,6)
