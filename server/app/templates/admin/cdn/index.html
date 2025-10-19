@@ -170,6 +170,46 @@
     </div>
 </section>
 
+<section class="panel" style="margin-bottom: 24px;">
+    <h2>自动健康巡检</h2>
+    <form class="form-grid" method="post" action="/admin/cdn/monitor">
+        <div class="full-row" style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary);">
+            <input type="checkbox" id="monitor-enabled" name="enabled" value="on" {% if monitor_config.enabled %}checked{% endif %} />
+            <label for="monitor-enabled">启用后台定时巡检并自动记录告警</label>
+        </div>
+        <div class="grid-half">
+            <div>
+                <label for="monitor-interval">巡检间隔（秒）</label>
+                <input type="number" id="monitor-interval" name="interval_seconds" value="{{ monitor_config.interval_seconds }}" min="30" max="3600" step="30" required />
+                <p class="input-hint">建议设置在 60~300 秒，根据节点规模酌情调整。</p>
+            </div>
+            <div>
+                <label>运行状态</label>
+                <div class="health-info">
+                    {% if monitor_runtime.running %}
+                        <span class="badge badge-healthy">运行中</span>
+                    {% else %}
+                        <span class="badge badge-muted">未运行</span>
+                    {% endif %}
+                    {% if monitor_runtime.effective_enabled %}
+                        · 计划周期 {{ monitor_runtime.interval_seconds }} 秒
+                    {% endif %}
+                </div>
+                <div class="health-info">
+                    当前环境：{{ monitor_runtime.environment }}
+                </div>
+                {% if monitor_config.enabled and not monitor_runtime.effective_enabled %}
+                    <div class="health-error">已开启但当前环境不允许自动巡检（测试环境或正在运行 Pytest）。</div>
+                {% endif %}
+            </div>
+        </div>
+        <input type="hidden" name="return_to" value="{{ return_to }}" />
+        <div class="full-row">
+            <button class="primary-btn" type="submit">保存巡检配置</button>
+        </div>
+    </form>
+</section>
+
 <div class="cdn-grid">
     <section class="panel">
         <h2>新增加速节点</h2>

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from typing import Callable, Optional
@@ -43,6 +44,19 @@ class CDNHealthMonitor:
         self._stop_event.set()
         self._thread.join(timeout=self._interval)
         self._thread = None
+
+    def is_running(self) -> bool:
+        return bool(self._thread and self._thread.is_alive())
+
+    def update_interval(self, interval_seconds: int) -> None:
+        sanitized = max(30, interval_seconds)
+        if sanitized != self._interval:
+            logger.info("Updating CDN health monitor interval: %s -> %s", self._interval, sanitized)
+        self._interval = sanitized
+
+    @property
+    def interval_seconds(self) -> int:
+        return self._interval
 
     def _run(self) -> None:
         # Run immediately, then wait for interval.
@@ -127,3 +141,13 @@ class CDNHealthMonitor:
         )
         session.commit()
         logger.info("CDN endpoint %s recovered", endpoint_name)
+
+
+def should_enable_monitor(*, enabled: bool, environment: str) -> bool:
+    if not enabled:
+        return False
+    if environment.strip().lower() == "test":
+        return False
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return False
+    return True

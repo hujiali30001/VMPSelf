@@ -6,14 +6,17 @@ import pytest
 
 from app.db import CDNEndpointStatus, CDNHealthStatus, CDNTaskStatus, CDNTaskType, models
 from app.db.session import SessionLocal
+from app.core.settings import get_settings
 from app.services.cdn import (
     CDNHealthMonitor,
+    CDNMonitorConfigService,
     CDNService,
     DeploymentConfig,
     DeploymentError,
     DeploymentResult,
     DeploymentTarget,
     HealthCheckResult,
+    should_enable_monitor,
 )
 
 
@@ -288,82 +291,156 @@ def test_manual_deploy_task_not_allowed():
             service.create_task(endpoint_id=endpoint_id, task_type=CDNTaskType.DEPLOY)
         assert str(exc.value) == "unsupported_manual_deploy"
 
-    def test_health_monitor_logs_alert(monkeypatch):
+
+def test_health_monitor_logs_alert(monkeypatch):
+    with SessionLocal() as session:
+        service = CDNService(session)
+        endpoint_id = _create_endpoint(service)
+        endpoint = service.get_endpoint(endpoint_id)
+        assert endpoint is not None
+        endpoint.status = CDNEndpointStatus.ACTIVE.value
+        endpoint.health_status = CDNHealthStatus.HEALTHY.value
+        session.commit()
+
+    def fake_probe(self, endpoint, protocol):
+        return HealthCheckResult(
+            status=CDNHealthStatus.UNHEALTHY,
+            protocol="https",
+            latency_ms=180,
+            status_code=502,
+            message="自动巡检失败",
+            checked_at=datetime.now(timezone.utc),
+        )
+
+    monkeypatch.setattr(CDNService, "_perform_health_probe", fake_probe)
+
+    monitor = CDNHealthMonitor(SessionLocal, interval_seconds=60)
+    monitor._execute_cycle()
+
+    with SessionLocal() as session:
+        endpoint = session.get(models.CDNEndpoint, endpoint_id)
+        assert endpoint is not None
+        assert endpoint.health_status == CDNHealthStatus.UNHEALTHY.value
+        logs = (
+            session.query(models.AuditLog)
+            .filter(models.AuditLog.action == "health_alert")
+            .order_by(models.AuditLog.created_at.asc())
+            .all()
+        )
+        assert logs, "expected health alert audit log"
+        assert logs[0].target_id == str(endpoint_id)
+        payload = logs[0].payload or {}
+        assert payload.get("status") == CDNHealthStatus.UNHEALTHY.value
+        assert payload.get("latency_ms") == 180
+
+
+def test_health_monitor_logs_recovery(monkeypatch):
+    with SessionLocal() as session:
+        service = CDNService(session)
+        endpoint_id = _create_endpoint(service)
+        endpoint = service.get_endpoint(endpoint_id)
+        assert endpoint is not None
+        endpoint.status = CDNEndpointStatus.ACTIVE.value
+        endpoint.health_status = CDNHealthStatus.UNHEALTHY.value
+        session.commit()
+
+    def fake_probe(self, endpoint, protocol):
+        return HealthCheckResult(
+            status=CDNHealthStatus.HEALTHY,
+            protocol="https",
+            latency_ms=55,
+            status_code=200,
+            message="OK",
+            checked_at=datetime.now(timezone.utc),
+        )
+
+    monkeypatch.setattr(CDNService, "_perform_health_probe", fake_probe)
+
+    monitor = CDNHealthMonitor(SessionLocal, interval_seconds=60)
+    monitor._execute_cycle()
+
+    with SessionLocal() as session:
+        endpoint = session.get(models.CDNEndpoint, endpoint_id)
+        assert endpoint is not None
+        assert endpoint.health_status == CDNHealthStatus.HEALTHY.value
+        logs = (
+            session.query(models.AuditLog)
+            .filter(models.AuditLog.action == "health_recovered")
+            .order_by(models.AuditLog.created_at.asc())
+            .all()
+        )
+        assert logs, "expected health recovery audit log"
+        assert logs[0].target_id == str(endpoint_id)
+
+
+def test_monitor_config_update_clamps_interval_and_logs(monkeypatch):
+    get_settings.cache_clear()
+    try:
         with SessionLocal() as session:
-            service = CDNService(session)
-            endpoint_id = _create_endpoint(service)
-            endpoint = service.get_endpoint(endpoint_id)
-            assert endpoint is not None
-            endpoint.status = CDNEndpointStatus.ACTIVE.value
-            endpoint.health_status = CDNHealthStatus.HEALTHY.value
-            session.commit()
+            service = CDNMonitorConfigService(session)
 
-        def fake_probe(self, endpoint, protocol):
-            return HealthCheckResult(
-                status=CDNHealthStatus.UNHEALTHY,
-                protocol="https",
-                latency_ms=180,
-                status_code=502,
-                message="自动巡检失败",
-                checked_at=datetime.now(timezone.utc),
-            )
+            persist_args: dict[str, object] = {}
 
-        monkeypatch.setattr(CDNService, "_perform_health_probe", fake_probe)
+            def fake_persist(self, *, enabled: bool, interval_seconds: int) -> bool:
+                persist_args["enabled"] = enabled
+                persist_args["interval_seconds"] = interval_seconds
+                return True
 
-        monitor = CDNHealthMonitor(SessionLocal, interval_seconds=60)
-        monitor._execute_cycle()
+            monkeypatch.setattr(CDNMonitorConfigService, "_persist_env", fake_persist)
 
-        with SessionLocal() as session:
-            endpoint = session.get(models.CDNEndpoint, endpoint_id)
-            assert endpoint is not None
-            assert endpoint.health_status == CDNHealthStatus.UNHEALTHY.value
+            result = service.update_config(enabled=True, interval_seconds=10)
+            assert result.enabled is True
+            assert result.interval_seconds == 30
+            assert persist_args == {"enabled": True, "interval_seconds": 30}
+
+            settings = get_settings()
+            assert settings.cdn_health_monitor_enabled is True
+            assert settings.cdn_health_monitor_interval_seconds == 30
+
             logs = (
                 session.query(models.AuditLog)
-                .filter(models.AuditLog.action == "health_alert")
+                .filter(models.AuditLog.action == "health_monitor_config")
                 .order_by(models.AuditLog.created_at.asc())
                 .all()
             )
-            assert logs, "expected health alert audit log"
-            assert logs[0].target_id == str(endpoint_id)
+            assert logs, "expected health monitor config audit log"
             payload = logs[0].payload or {}
-            assert payload.get("status") == CDNHealthStatus.UNHEALTHY.value
-            assert payload.get("latency_ms") == 180
+            assert payload.get("enabled") is True
+            assert payload.get("interval_seconds") == 30
+    finally:
+        get_settings.cache_clear()
 
 
-    def test_health_monitor_logs_recovery(monkeypatch):
+def test_monitor_config_update_caps_upper_bound(monkeypatch):
+    get_settings.cache_clear()
+    try:
         with SessionLocal() as session:
-            service = CDNService(session)
-            endpoint_id = _create_endpoint(service)
-            endpoint = service.get_endpoint(endpoint_id)
-            assert endpoint is not None
-            endpoint.status = CDNEndpointStatus.ACTIVE.value
-            endpoint.health_status = CDNHealthStatus.UNHEALTHY.value
-            session.commit()
+            service = CDNMonitorConfigService(session)
 
-        def fake_probe(self, endpoint, protocol):
-            return HealthCheckResult(
-                status=CDNHealthStatus.HEALTHY,
-                protocol="https",
-                latency_ms=55,
-                status_code=200,
-                message="OK",
-                checked_at=datetime.now(timezone.utc),
-            )
+            monkeypatch.setattr(CDNMonitorConfigService, "_persist_env", lambda self, **_: True)
 
-        monkeypatch.setattr(CDNService, "_perform_health_probe", fake_probe)
+            result = service.update_config(enabled=False, interval_seconds=5000)
+            assert result.enabled is False
+            assert result.interval_seconds == 3600
 
-        monitor = CDNHealthMonitor(SessionLocal, interval_seconds=60)
-        monitor._execute_cycle()
+            config = service.get_config()
+            assert config.enabled is False
+            assert config.interval_seconds == 3600
+    finally:
+        get_settings.cache_clear()
 
-        with SessionLocal() as session:
-            endpoint = session.get(models.CDNEndpoint, endpoint_id)
-            assert endpoint is not None
-            assert endpoint.health_status == CDNHealthStatus.HEALTHY.value
-            logs = (
-                session.query(models.AuditLog)
-                .filter(models.AuditLog.action == "health_recovered")
-                .order_by(models.AuditLog.created_at.asc())
-                .all()
-            )
-            assert logs, "expected health recovery audit log"
-            assert logs[0].target_id == str(endpoint_id)
+
+def test_should_enable_monitor_requires_enabled_flag(monkeypatch):
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    assert should_enable_monitor(enabled=False, environment="production") is False
+
+
+def test_should_enable_monitor_skips_test_environment(monkeypatch):
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    assert should_enable_monitor(enabled=True, environment="  TEST  ") is False
+
+
+def test_should_enable_monitor_disables_when_pytest_running(monkeypatch):
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "tests/test_cdn_service.py::dummy")
+    assert should_enable_monitor(enabled=True, environment="production") is False
+

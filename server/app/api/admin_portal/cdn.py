@@ -19,10 +19,18 @@ from app.api.admin_portal.common import (
     require_permission,
     templates,
 )
+from app.api.admin_portal.common_components.auth import build_audit_actor
 from app.api.deps import get_db
 from app.core.settings import get_settings
 from app.db import CDNEndpointStatus, CDNHealthStatus, CDNTaskType
-from app.services.cdn import CDNService, DeploymentError
+from app.db.session import SessionLocal
+from app.services.cdn import (
+    CDNHealthMonitor,
+    CDNMonitorConfigService,
+    CDNService,
+    DeploymentError,
+    should_enable_monitor,
+)
 
 router = APIRouter(prefix="/cdn")
 
@@ -36,6 +44,18 @@ def cdn_page(
 ):
     service = CDNService(db)
     settings = get_settings()
+    monitor_config_service = CDNMonitorConfigService(db)
+    monitor_config = monitor_config_service.get_config()
+    runtime_monitor = getattr(request.app.state, "cdn_health_monitor", None)
+    runtime_info = {
+        "running": bool(runtime_monitor and runtime_monitor.is_running()),
+        "interval_seconds": runtime_monitor.interval_seconds if runtime_monitor else monitor_config.interval_seconds,
+        "effective_enabled": should_enable_monitor(
+            enabled=monitor_config.enabled,
+            environment=settings.environment,
+        ),
+        "environment": settings.environment,
+    }
     endpoints = service.list_endpoints()
     tasks = service.list_recent_tasks(limit=20)
 
@@ -141,6 +161,8 @@ def cdn_page(
         ],
         task_type_labels=task_type_labels,
         origin_whitelist=settings.cdn_ip_whitelist,
+        monitor_config=monitor_config,
+        monitor_runtime=runtime_info,
     )
     return templates.TemplateResponse(request, "admin/cdn/index.html", context)
 
@@ -344,6 +366,54 @@ def run_cdn_health_check_action(
         label = CDN_HEALTH_STATUS_LABELS.get(record.status, record.status)
         latency_note = f" · {record.latency_ms} ms" if record.latency_ms is not None else ""
         message = f"健康检查完成：{label}{latency_note}"
+
+    target = _append_message(_sanitize_return_path(return_to, fallback="/admin/cdn"), message)
+    return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+
+
+@router.post("/monitor")
+def update_monitor_config_action(
+    request: Request,
+    enabled: Optional[str] = Form(None),
+    interval_seconds: int = Form(...),
+    return_to: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    principal: AdminPrincipal = Depends(require_permission("cdn", "manage")),
+):
+    actor = build_audit_actor(principal)
+    config_service = CDNMonitorConfigService(db, actor=actor)
+    enabled_flag = bool(enabled and enabled.lower() in {"1", "true", "on", "yes"})
+
+    try:
+        updated = config_service.update_config(enabled=enabled_flag, interval_seconds=interval_seconds)
+    except Exception as exc:  # pragma: no cover - defensive
+        db.rollback()
+        message = f"保存巡检配置失败: {exc}"
+    else:
+        settings = get_settings()
+        monitor = getattr(request.app.state, "cdn_health_monitor", None)
+        should_run = should_enable_monitor(
+            enabled=updated.enabled,
+            environment=settings.environment,
+        )
+        if should_run:
+            if monitor is None:
+                monitor = CDNHealthMonitor(session_factory=SessionLocal, interval_seconds=updated.interval_seconds)
+                monitor.start()
+                request.app.state.cdn_health_monitor = monitor
+            else:
+                monitor.update_interval(updated.interval_seconds)
+                if not monitor.is_running():
+                    monitor.start()
+            message = "巡检配置已更新并生效"
+        else:
+            if monitor is not None:
+                monitor.stop()
+                request.app.state.cdn_health_monitor = None
+            if updated.enabled:
+                message = "已保存配置，但当前环境不支持自动巡检（测试环境或 Pytest 运行）。"
+            else:
+                message = "巡检配置已关闭"
 
     target = _append_message(_sanitize_return_path(return_to, fallback="/admin/cdn"), message)
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -13,34 +12,30 @@ from app.core.settings import get_settings
 from app.db.base import Base
 from app.db.session import SessionLocal, engine
 from app.middleware.cdn_guard import CDNGuardMiddleware
-from app.services.cdn import CDNHealthMonitor
+from app.services.cdn import CDNHealthMonitor, should_enable_monitor
 
 settings = get_settings()
-
-
-def _should_start_health_monitor() -> bool:
-    if not settings.cdn_health_monitor_enabled:
-        return False
-    if settings.environment.lower() == "test":
-        return False
-    if os.getenv("PYTEST_CURRENT_TEST"):
-        return False
-    return True
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    app.state.cdn_health_monitor = None
     health_monitor: Optional[CDNHealthMonitor] = None
-    if _should_start_health_monitor():
+    if should_enable_monitor(
+        enabled=settings.cdn_health_monitor_enabled,
+        environment=settings.environment,
+    ):
         health_monitor = CDNHealthMonitor(
             session_factory=SessionLocal,
             interval_seconds=settings.cdn_health_monitor_interval_seconds,
         )
         health_monitor.start()
+        app.state.cdn_health_monitor = health_monitor
     yield
     if health_monitor:
         health_monitor.stop()
+    app.state.cdn_health_monitor = None
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
