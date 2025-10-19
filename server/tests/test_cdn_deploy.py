@@ -36,6 +36,23 @@ def test_generate_nginx_config_tcp_mode():
     assert "proxy_pass vmp_origin;" in nginx_config
 
 
+def test_generate_nginx_config_tcp_mode_with_proxy_protocol():
+    config = DeployConfig(
+        origin_host="origin.internal",
+        origin_port=7000,
+        listen_port=9000,
+        mode="tcp",
+    )
+    deployment_config = config.to_deployment_config()
+    deployment_config.proxy_protocol = True
+
+    nginx_config = generate_nginx_config(deployment_config)
+
+    assert "listen 9000;" in nginx_config
+    assert "proxy_protocol on;" in nginx_config
+    assert "listen 9000 proxy_protocol" not in nginx_config
+
+
 def test_generate_nginx_config_http_only_single_listen():
     config = DeployConfig(
         origin_host="origin.http",

@@ -75,11 +75,7 @@ def generate_nginx_config(config: DeploymentConfig) -> str:
     config.normalize()
 
     if config.mode == "tcp":
-        listen_line = f"        listen {config.listen_port}"
-        if config.proxy_protocol:
-            listen_line += " proxy_protocol;"
-        else:
-            listen_line += ";"
+        listen_line = f"        listen {config.listen_port};"
 
         stream_block = [
             "stream {",
