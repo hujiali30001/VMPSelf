@@ -215,6 +215,7 @@ class CDNEndpoint(Base):
     ssh_port: Mapped[int] = mapped_column(Integer, default=22)
     ssh_password_encrypted: Mapped[Optional[str]] = mapped_column(Text)
     ssh_private_key_encrypted: Mapped[Optional[str]] = mapped_column(Text)
+    sudo_password_encrypted: Mapped[Optional[str]] = mapped_column(Text)
     edge_token: Mapped[Optional[str]] = mapped_column(String(128))
     proxy_protocol_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     egress_ips: Mapped[Optional[list[str]]] = mapped_column(JSON)

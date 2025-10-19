@@ -44,6 +44,7 @@ class EndpointCredentials:
     ssh_port: int
     ssh_password: Optional[str]
     ssh_private_key: Optional[str]
+    sudo_password: Optional[str]
 
 
 class CDNService:
@@ -85,6 +86,7 @@ class CDNService:
         ssh_username: str,
         ssh_password: Optional[str] = None,
         ssh_private_key: Optional[str] = None,
+    sudo_password: Optional[str] = None,
         ssh_port: int = 22,
         listen_port: int = 443,
         origin_port: int = 443,
@@ -148,6 +150,7 @@ class CDNService:
             ssh_port=ssh_port,
             ssh_password_encrypted=encrypt_secret(ssh_password),
             ssh_private_key_encrypted=encrypt_secret(ssh_private_key),
+            sudo_password_encrypted=encrypt_secret(sudo_password),
             listen_port=listen_port,
             origin_port=origin_port,
             deployment_mode=deployment_mode,
@@ -180,6 +183,7 @@ class CDNService:
             ssh_port=endpoint.ssh_port,
             ssh_password=decrypt_secret(endpoint.ssh_password_encrypted),
             ssh_private_key=decrypt_secret(endpoint.ssh_private_key_encrypted),
+            sudo_password=decrypt_secret(endpoint.sudo_password_encrypted),
         )
 
     def _resolve_endpoint_ips(self, endpoint: CDNEndpoint) -> list[str]:
@@ -343,6 +347,7 @@ class CDNService:
             port=credentials.ssh_port,
             password=credentials.ssh_password,
             private_key=credentials.ssh_private_key,
+            sudo_password=credentials.sudo_password or credentials.ssh_password,
         )
 
         deploy_config = DeploymentConfig(

@@ -282,6 +282,11 @@
                 </div>
             </div>
             <div class="full-row">
+                <label>sudo 密码 (可选)</label>
+                <input type="password" name="sudo_password" autocomplete="new-password" />
+                <p class="input-hint">若远程主机要求输入与 SSH 不同的 sudo 密码，请在此填写；留空则沿用 SSH 密码或依赖免密 sudo。</p>
+            </div>
+            <div class="full-row">
                 <label>备注信息</label>
                 <textarea name="notes" rows="3" placeholder="可选：记录负载均衡、探活配置等"></textarea>
             </div>

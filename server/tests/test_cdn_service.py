@@ -92,6 +92,7 @@ def _create_endpoint(service: CDNService, **overrides) -> int:
         "deployment_mode": "http",
         "edge_token": "edge-token",
         "proxy_protocol_enabled": False,
+        "sudo_password": None,
     }
     payload.update(overrides)
     endpoint = service.create_endpoint(**payload)
@@ -113,6 +114,7 @@ def test_create_endpoint_encrypts_credentials():
         assert creds.ssh_password == "password123"
         assert creds.ssh_username == "root"
         assert creds.host == "203.0.113.10"
+    assert creds.sudo_password == "password123"
 
 
 def test_deploy_endpoint_success_updates_status_and_creates_task():
@@ -157,6 +159,8 @@ def test_deploy_endpoint_success_updates_status_and_creates_task():
         target, config = fake.calls[0]
         assert target.host == "203.0.113.10"
         assert target.username == "root"
+        assert target.password == "password123"
+        assert target.sudo_password == "password123"
         assert config.mode == "http"
         assert config.allow_http is True
         assert config.proxy_protocol is False
@@ -172,6 +176,24 @@ def test_deploy_endpoint_success_updates_status_and_creates_task():
         assert isinstance(task.completed_at, datetime)
         if task.completed_at:
             assert task.completed_at.tzinfo is None or task.completed_at.tzinfo == timezone.utc
+
+
+def test_deploy_endpoint_supports_distinct_sudo_password():
+    fake = _FakeDeployer()
+    fake_health = _FakeHealthChecker()
+    with SessionLocal() as session:
+        service = CDNService(session, deployer=fake, health_checker=fake_health)
+        endpoint_id = _create_endpoint(
+            service,
+            ssh_password="ssh-secret",
+            sudo_password="sudo-secret",
+        )
+
+        service.deploy_endpoint(endpoint_id)
+        assert fake.calls
+        target, _ = fake.calls[-1]
+        assert target.password == "ssh-secret"
+        assert target.sudo_password == "sudo-secret"
 
 
 def test_deploy_endpoint_failure_marks_endpoint_error():
@@ -227,6 +249,7 @@ def test_tcp_deploy_respects_proxy_protocol_toggle():
         assert config.mode == "tcp"
         assert config.proxy_protocol is True
         assert config.allow_http is False
+        assert target.sudo_password == "password123"
 
         latest_deployment = refreshed.deployments[0]
         assert latest_deployment.proxy_protocol is True
@@ -237,6 +260,7 @@ def test_tcp_deploy_respects_proxy_protocol_toggle():
         assert refreshed.proxy_protocol_enabled is True
         target, config = fake.calls[-1]
         assert config.proxy_protocol is True
+        assert target.sudo_password == "password123"
 
         # Disable proxy protocol
         service.deploy_endpoint(endpoint_id, use_proxy_protocol=False)
@@ -245,6 +269,7 @@ def test_tcp_deploy_respects_proxy_protocol_toggle():
         assert refreshed.egress_ips == ["203.0.113.10"]
         target, config = fake.calls[-1]
         assert config.proxy_protocol is False
+        assert target.sudo_password == "password123"
         assert refreshed.deployments[0].proxy_protocol is False
 
 
