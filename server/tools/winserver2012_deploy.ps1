@@ -10,7 +10,7 @@
     [string]$AdminPassword,
     [string]$HmacSecret,
     [string]$SqlitePath,
-    [Nullable[bool]]$MonitorEnabled,
+    [string]$MonitorEnabled,
     [ValidateRange(30, 3600)]
     [int]$MonitorIntervalSeconds = 300,
     [ValidateSet("Prompt", "Fresh", "Upgrade", "Uninstall")]
@@ -54,6 +54,39 @@ function New-RandomToken {
         $rng.Dispose()
     }
     return ([Convert]::ToBase64String($buffer)).TrimEnd('=')
+}
+
+function ConvertTo-NullableBoolean {
+    param(
+        [Parameter(ValueFromPipeline = $true)][object]$Value
+    )
+
+    if ($null -eq $Value) {
+        return $null
+    }
+
+    if ($Value -is [bool]) {
+        return [bool]$Value
+    }
+
+    $text = $Value.ToString().Trim()
+    if (-not $text) {
+        return $null
+    }
+
+    switch ($text.ToLowerInvariant()) {
+        "true" { return $true }
+        "false" { return $false }
+        "1" { return $true }
+        "0" { return $false }
+        "yes" { return $true }
+        "no" { return $false }
+        "on" { return $true }
+        "off" { return $false }
+        default {
+            throw "Invalid boolean value: $text. Use true/false/1/0/yes/no/on/off."
+        }
+    }
 }
 
 function Get-EnvMap {
@@ -446,25 +479,37 @@ $FinalEnv["VMP_ADMIN_PASS"] = $FinalAdminPass
 $monitorEnabledSource = "default"
 $existingMonitorEnabled = $null
 if ($ExistingEnv.ContainsKey("VMP_CDN_HEALTH_MONITOR_ENABLED")) {
-    $rawMonitorEnabled = $ExistingEnv["VMP_CDN_HEALTH_MONITOR_ENABLED"]
-    if (-not [string]::IsNullOrWhiteSpace($rawMonitorEnabled)) {
-        $normalizedMonitorEnabled = $rawMonitorEnabled.Trim().ToLowerInvariant()
-        if ($normalizedMonitorEnabled -in @("1", "true", "yes", "on")) {
-            $existingMonitorEnabled = $true
-        } elseif ($normalizedMonitorEnabled -in @("0", "false", "no", "off")) {
-            $existingMonitorEnabled = $false
-        }
+    try {
+        $existingMonitorEnabled = ConvertTo-NullableBoolean -Value $ExistingEnv["VMP_CDN_HEALTH_MONITOR_ENABLED"]
+    } catch {
+        Write-Warning ("Unable to parse existing VMP_CDN_HEALTH_MONITOR_ENABLED value: {0}" -f $ExistingEnv["VMP_CDN_HEALTH_MONITOR_ENABLED"])
     }
 }
 
-if ($PSBoundParameters.ContainsKey("MonitorEnabled") -and $null -ne $MonitorEnabled) {
-    $FinalMonitorEnabled = [bool]$MonitorEnabled
-    $monitorEnabledSource = "parameter"
+$FinalMonitorEnabled = $true
+
+if ($PSBoundParameters.ContainsKey("MonitorEnabled")) {
+    try {
+        $parsedMonitorEnabled = ConvertTo-NullableBoolean -Value $MonitorEnabled
+    } catch {
+        throw "Invalid value supplied for -MonitorEnabled. Use true/false/1/0/yes/no/on/off."
+    }
+
+    if ($null -eq $parsedMonitorEnabled) {
+        if ($null -ne $existingMonitorEnabled) {
+            $FinalMonitorEnabled = [bool]$existingMonitorEnabled
+            $monitorEnabledSource = "parameter-fallback-existing"
+        } else {
+            $FinalMonitorEnabled = $true
+            $monitorEnabledSource = "parameter-default"
+        }
+    } else {
+        $FinalMonitorEnabled = [bool]$parsedMonitorEnabled
+        $monitorEnabledSource = "parameter"
+    }
 } elseif ($null -ne $existingMonitorEnabled) {
     $FinalMonitorEnabled = [bool]$existingMonitorEnabled
     $monitorEnabledSource = "existing"
-} else {
-    $FinalMonitorEnabled = $true
 }
 $FinalEnv["VMP_CDN_HEALTH_MONITOR_ENABLED"] = if ($FinalMonitorEnabled) { "true" } else { "false" }
 
@@ -515,6 +560,8 @@ if ($GeneratedAdminPassword) {
 
 switch ($monitorEnabledSource) {
     "parameter" { Write-Host ("    VMP_CDN_HEALTH_MONITOR_ENABLED set from parameter ({0})" -f $FinalEnv["VMP_CDN_HEALTH_MONITOR_ENABLED"]) -ForegroundColor Yellow }
+    "parameter-fallback-existing" { Write-Host ("    VMP_CDN_HEALTH_MONITOR_ENABLED = {0} (parameter left blank, existing value preserved)" -f $FinalEnv["VMP_CDN_HEALTH_MONITOR_ENABLED"]) }
+    "parameter-default" { Write-Host ("    VMP_CDN_HEALTH_MONITOR_ENABLED = {0} (parameter left blank, default applied)" -f $FinalEnv["VMP_CDN_HEALTH_MONITOR_ENABLED"]) }
     "existing" { Write-Host ("    VMP_CDN_HEALTH_MONITOR_ENABLED = {0} (existing value preserved)" -f $FinalEnv["VMP_CDN_HEALTH_MONITOR_ENABLED"]) }
     default { Write-Host ("    VMP_CDN_HEALTH_MONITOR_ENABLED = {0}" -f $FinalEnv["VMP_CDN_HEALTH_MONITOR_ENABLED"]) }
 }

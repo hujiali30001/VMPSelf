@@ -144,7 +144,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
 | `-AdminPassword` | （可选）自定义后台密码，未提供时脚本会自动生成高强度随机值。 |
 | `-HmacSecret` | （可选）自定义授权 HMAC 密钥，未提供时若检测到默认占位值将自动生成。 |
 | `-SqlitePath` | （可选）自定义数据库文件位置，默认写入 `InstallRoot/data/license.db`。 |
-| `-MonitorEnabled` | （可选）显式开启或关闭自动健康巡检（`$true`/`$false`），默认为保留 `.env` 或自动开启。 |
+| `-MonitorEnabled` | （可选）显式开启或关闭自动健康巡检，接受 `true`/`false`/`1`/`0`/`yes`/`no`，默认为保留 `.env` 或自动开启。 |
 | `-MonitorIntervalSeconds` | （可选）设置巡检周期（30-3600 秒），默认 300。 |
 | `-DeploymentMode` | （可选）指定执行模式：`Fresh` 全新部署、`Upgrade` 保留 `data/` 与 `.env` 升级现有服务、`Uninstall` 仅移除服务与文件后退出。默认 `Prompt`，进入交互选择。 |
 
@@ -154,7 +154,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
 
 ```powershell
 cd C:\Services\VMPSelf
-powershell -ExecutionPolicy Bypass -File server\tools\winserver2012_deploy.ps1 -InstallRoot "C:\Services\VMPSelf\server" -PythonExe "C:\Python313\python.exe" -ServiceName "VMPAuthService" -Port 8000 -ListenHost "0.0.0.0" -AdminUser "ops-admin" -MonitorEnabled:$true -MonitorIntervalSeconds 120
+powershell -ExecutionPolicy Bypass -File server\tools\winserver2012_deploy.ps1 -InstallRoot "C:\Services\VMPSelf\server" -PythonExe "C:\Python313\python.exe" -ServiceName "VMPAuthService" -Port 8000 -ListenHost "0.0.0.0" -AdminUser "ops-admin" -MonitorEnabled false -MonitorIntervalSeconds 120
 ```
 
 > 提示：脚本会在存在生成/变更操作时打印醒目的英文提示。若不传 `-AdminPassword`，会生成高强度密码并在终端显示；同理，检测到默认占位值时会生成新的 `VMP_HMAC_SECRET`。请在窗口关闭前妥善记录这些值。
