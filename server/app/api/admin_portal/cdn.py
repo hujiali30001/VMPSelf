@@ -46,6 +46,17 @@ def _parse_port_mappings(form: dict[str, object]) -> list[dict[str, object]]:
 
     listens = _get_list("port_listen")
     origins = _get_list("port_origin")
+    fallback_listen = form.get("listen_port")
+    fallback_origin = form.get("origin_port")
+
+    if not listens and fallback_listen not in (None, ""):
+        listens = [str(fallback_listen).strip()]
+
+    if not origins:
+        if fallback_origin not in (None, ""):
+            origins = [str(fallback_origin).strip()]
+        elif listens:
+            origins = [str(listens[0]).strip()]
     allow_http_flags = set(_get_list("port_allow_http"))
 
     mappings: list[dict[str, object]] = []
@@ -225,12 +236,14 @@ async def create_cdn_endpoint_action(
 
     port_mappings = _parse_port_mappings(form)
     if not port_mappings:
-        fallback_listen = form.get("default_listen_port", "443")
-        fallback_origin = form.get("default_origin_port", "443")
+        fallback_listen = form.get("listen_port") or form.get("default_listen_port", "443")
+        fallback_origin = form.get("origin_port") or form.get("default_origin_port") or fallback_listen
+        fallback_listen_str = str(fallback_listen).strip() if fallback_listen is not None else "443"
+        fallback_origin_str = str(fallback_origin).strip() if fallback_origin is not None else fallback_listen_str or "443"
         port_mappings = [
             {
-                "listen_port": fallback_listen,
-                "origin_port": fallback_origin,
+                "listen_port": fallback_listen_str or "443",
+                "origin_port": fallback_origin_str or fallback_listen_str or "443",
                 "allow_http": False,
             }
         ]

@@ -15,6 +15,7 @@
 > - CDN 节点现支持同一主机配置多组监听/源站端口映射，HTTP/HTTPS 共存与部署回滚均已适配 CLI、后台界面与部署脚本。
 > - 新增「访问控制」面板：后台可直接维护 CDN 与主服务的 IP 白名单/黑名单，支持 CIDR 网段并即时同步到中间件。
 > - WinServer 部署脚本现会保留并回显访问控制白名单/黑名单计数，便于上线后核对是否写回 `.env`。
+> - 软件位管理现已支持查看/复制 slot secret，并可一键重置；同时提供 `python manage.py list-slots`、`python manage.py rotate-slot-secret` 供运维导出或轮换密钥。
 
 ---
 
@@ -128,6 +129,9 @@ uvicorn app.main:app --host 0.0.0.0 --port 11000 --env-file .env
 - 访问 `http://192.168.132.132:11000/admin/licenses`，浏览器会弹出 HTTP Basic 登录框，使用 `.env` 中的 `VMP_ADMIN_USER` / `VMP_ADMIN_PASS` 登录。新版模块化卡密管理界面支持快速创建卡密、批量筛选、快捷导向详情页以延期或重置授权。
 - 访问 `http://192.168.132.132:11000/admin/users`，查看全新的用户列表：支持关键字搜索、快速跳转到用户详情（含审计日志与激活设备），可直接解绑或删除账号。
 - 访问 `http://192.168.132.132:11000/admin/card-types`，管理卡密类型与时长模板；界面与其他后台页面采用统一布局，便于后续扩展。
+- 访问 `http://192.168.132.132:11000/admin/software`，查看软件位概览与当前共享密钥：
+	- 展开“授权密钥”面板可直接复制 slot secret，重置按钮会生成新密钥并写入审计日志。
+	- 如需离线查看或批量导出，可在服务器目录执行 `python manage.py list-slots`；若要快速轮换密钥，运行 `python manage.py rotate-slot-secret <slot-code>`。
 - 访问 `http://192.168.132.132:11000/admin/settings`，「访问控制」卡片可集中维护 CDN 与主服务的 IP 白名单/黑名单，支持粘贴多行或 CIDR 网段；保存后立即生效，并自动写回 `.env`。
 - 访问 `http://192.168.132.132:11000/admin/cdn`，可新增加速节点、创建刷新或预取任务，并查看最近执行记录与各状态统计。
 	- 创建或编辑节点时，可在“端口映射”表格中添加多行监听/源站端口组合；勾选 HTTP 表示该监听端口走明文回源，其余端口将自动使用 HTTPS 并复用统一证书。
@@ -136,7 +140,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 11000 --env-file .env
 - 若需查看健康探测，可访问 `http://192.168.132.132:11000/api/v1/ping` 或 `http://192.168.132.132:11000/api/v1/cdn/health/status`。
 - 若通过 CDN 节点以 TCP 模式接入此 Windows 服务，请保持 CDN 配置中的 PROXY Protocol 选项关闭；Uvicorn 尚未原生解析 PROXY 协议头，否则会在浏览器中看到 `Invalid HTTP request received` 错误。
 - 在 “CDN 管理” 页面中的「自动健康巡检」卡片里，可随时启用/禁用巡检、调整巡检间隔并实时写回 `.env`；运维人员可根据节点数量调整频率。
-- 在仪表盘「功能模块一览」区域核对卡片状态：卡密管理、用户中心、卡密类型、CDN 管理应显示“前往页面”；软件位与系统设置仍标记为“规划中”属正常现象。
+- 在仪表盘「功能模块一览」区域核对卡片状态：卡密管理、用户中心、卡密类型、软件位、CDN 管理与系统设置应全部显示“前往页面”，其中“软件位”模块会显示当前上线槽位统计并支持一键跳转到密钥列表。
 - 验证完毕后在终端按 `Ctrl+C` 停止 Uvicorn。
 - 可选：保持虚拟环境激活状态执行 `python -m pytest tests/test_admin_api_crud.py tests/test_admin_service.py`，快速确认后台接口的关键用例与仪表盘 HTML。
 

@@ -258,6 +258,9 @@ class LicenseService:
             elif ttl_days is not None:
                 license_obj.custom_duration_days = ttl_days
 
+            if base_duration is not None and base_duration > 0:
+                license_obj.expire_at = now + timedelta(days=base_duration)
+
             self.db.add(license_obj)
             created.append(license_obj)
 

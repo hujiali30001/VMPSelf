@@ -854,6 +854,9 @@ try {
 Write-Host ""
 Write-Host (" Admin dashboard: {0}/admin/" -f $DisplayUrl) -ForegroundColor Green
 Write-Host (" Admin portal (licenses): {0}/admin/licenses" -f $DisplayUrl) -ForegroundColor Green
+Write-Host (" Software slots: {0}/admin/software" -f $DisplayUrl) -ForegroundColor Green
+Write-Host "  · 部署后可在后台查看/复制 slot secret，亦可使用 manage.py CLI 快速导出或重置。" -ForegroundColor Yellow
+Write-Host "  · 示例：python manage.py list-slots / python manage.py rotate-slot-secret <slot-code>" -ForegroundColor Yellow
 Write-Host (" CDN management: {0}/admin/cdn" -f $DisplayUrl) -ForegroundColor Green
 Write-Host "  · 查看最新部署阶段日志与一键回滚工具" -ForegroundColor Yellow
 $CdnConfigExample = if ($ServerDir) { Join-Path $ServerDir "tools\cdn_deploy_config.example.json" } else { $null }

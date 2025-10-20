@@ -9,7 +9,7 @@ from sqlalchemy import select
 from app.core.settings import get_settings
 from app.db import License, LicenseCardType, LicenseStatus
 from app.db.session import SessionLocal, database_url
-from app.services.licensing import LicenseService
+from app.services.licensing import LicenseService, SoftwareService
 
 from alembic import command
 from alembic.config import Config
@@ -167,6 +167,37 @@ def revoke_license(card_code: str) -> None:
             print(f"License {card_code} not found.")
 
 
+def list_software_slots() -> None:
+    with SessionLocal() as session:
+        service = SoftwareService(session)
+        slots = service.list_slots()
+        if not slots:
+            print("No software slots defined.")
+            return
+
+        header = f"{'ID':<6} {'CODE':<16} {'STATUS':<8} {'GRAY%':<6} {'SECRET'}"
+        print(header)
+        print("-" * len(header))
+        for slot in slots:
+            gray = f"{slot.gray_ratio}%" if slot.gray_ratio is not None else "--"
+            print(f"{slot.id:<6} {slot.code:<16} {slot.status:<8} {gray:<6} {slot.slot_secret or '--'}")
+
+
+def rotate_slot_secret_cli(slot_code: str) -> None:
+    normalized = (slot_code or "").strip().lower()
+    if not normalized:
+        raise SystemExit("Slot code is required.")
+
+    with SessionLocal() as session:
+        service = SoftwareService(session)
+        slot = service.get_slot_by_code(normalized)
+        if not slot:
+            raise SystemExit(f"Software slot '{normalized}' not found.")
+        rotated = service.rotate_slot_secret(slot.id)
+        print(f"Rotated secret for slot {rotated.code}: {rotated.slot_secret}")
+        print("Distribute the new secret to clients and discard any previous copies immediately.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Manage VMP Auth Service")
     sub = parser.add_subparsers(dest="command")
@@ -204,6 +235,11 @@ def main() -> None:
     revoke_parser = sub.add_parser("revoke-license", help="Revoke an existing license")
     revoke_parser.add_argument("card_code", help="Card code to revoke")
 
+    sub.add_parser("list-slots", help="List all software slots and their secrets")
+
+    rotate_slot_parser = sub.add_parser("rotate-slot-secret", help="Rotate the shared secret for a software slot")
+    rotate_slot_parser.add_argument("slot_code", help="Software slot code to rotate")
+
     args = parser.parse_args()
 
     if args.command == "init-db":
@@ -224,6 +260,10 @@ def main() -> None:
         list_licenses(args.status, args.limit)
     elif args.command == "revoke-license":
         revoke_license(args.card_code)
+    elif args.command == "list-slots":
+        list_software_slots()
+    elif args.command == "rotate-slot-secret":
+        rotate_slot_secret_cli(args.slot_code)
     else:
         parser.print_help()
 

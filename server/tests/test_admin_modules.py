@@ -16,14 +16,24 @@ from app.db import (
 )
 from app.db.session import SessionLocal
 from app.main import app
+from app.middleware.access_control import AccessControlMiddleware
 from app.services import security
 from app.services.accounts import AdminUserService
 
 BASIC_AUTH = ("admin", "change-me")
 
 
+def _make_client() -> TestClient:
+    for middleware in app.user_middleware:
+        if middleware.cls is AccessControlMiddleware:
+            middleware.kwargs["ip_header"] = "X-Forwarded-For"
+            break
+    app.middleware_stack = app.build_middleware_stack()
+    return TestClient(app, headers={"X-Forwarded-For": "127.0.0.1"})
+
+
 def test_admin_cdn_module_flow():
-    client = TestClient(app)
+    client = _make_client()
 
     create_resp = client.post(
         "/admin/cdn/endpoints",
@@ -112,7 +122,7 @@ def test_admin_cdn_module_flow():
 
 
 def test_admin_software_module_flow():
-    client = TestClient(app)
+    client = _make_client()
 
     create_slot = client.post(
         "/admin/software/slots",
@@ -134,6 +144,8 @@ def test_admin_software_module_flow():
         slot_id = slot.id
         assert slot.status == SoftwareSlotStatus.ACTIVE.value
         assert slot.gray_ratio == 10
+        assert slot.slot_secret
+        original_secret = slot.slot_secret
 
     pause_slot = client.post(
         f"/admin/software/slots/{slot_id}/status",
@@ -142,6 +154,14 @@ def test_admin_software_module_flow():
         follow_redirects=False,
     )
     assert pause_slot.status_code == 303
+
+    rotate_resp = client.post(
+        f"/admin/software/slots/{slot_id}/rotate-secret",
+        data={"return_to": "/admin/software"},
+        auth=BASIC_AUTH,
+        follow_redirects=False,
+    )
+    assert rotate_resp.status_code == 303
 
     package_resp = client.post(
         f"/admin/software/slots/{slot_id}/packages",
@@ -163,6 +183,9 @@ def test_admin_software_module_flow():
         assert refreshed_slot is not None
         assert refreshed_slot.status == SoftwareSlotStatus.PAUSED.value
         assert refreshed_slot.current_package is not None
+        assert refreshed_slot.slot_secret
+        assert refreshed_slot.slot_secret != original_secret
+        latest_secret = refreshed_slot.slot_secret
         package = refreshed_slot.current_package
         package_id = package.id
         assert package.status == SoftwarePackageStatus.ACTIVE.value
@@ -186,10 +209,11 @@ def test_admin_software_module_flow():
     html = response.text
     assert "桌面客户端" in html
     assert "安装包" in html
+    assert latest_secret in html
 
 
 def test_admin_settings_module_flow():
-    client = TestClient(app)
+    client = _make_client()
 
     create_resp = client.post(
         "/admin/settings/admins",
