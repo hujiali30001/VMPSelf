@@ -10,7 +10,7 @@
 > - 一键部署脚本支持交互式部署模式选择，可在全新部署、升级或卸载之间切换，并进行数据保留控制。
 > - 新增“仪表盘巡检”章节，帮助你在上线前核查各模块卡片与关键指标。
 > - 自动健康巡检现可在后台 UI 中即时调整，并支持通过部署脚本参数设定默认开关与周期。
-> - 健康探测端口可通过 `.env` 或部署脚本参数统一指定，确保巡检、防火墙与 CDN 节点使用同一端口（默认 8000）。
+> - 健康探测端口可通过 `.env` 或部署脚本参数统一指定，确保巡检、防火墙与 CDN 节点使用同一端口（当前示例为 11000）。
 > - CDN 部署记录新增阶段时间线与一键回滚功能；从旧版本升级时请重新执行 `python manage.py init-db`（或运行部署脚本）以完成数据库迁移，否则访问 `/admin/cdn` 会返回 500。
 > - CDN 节点现支持同一主机配置多组监听/源站端口映射，HTTP/HTTPS 共存与部署回滚均已适配 CLI、后台界面与部署脚本。
 > - 新增「访问控制」面板：后台可直接维护 CDN 与主服务的 IP 白名单/黑名单，支持 CIDR 网段并即时同步到中间件。
@@ -27,7 +27,7 @@
 | 运行时 | 安装 64 位 Python 3.10+，安装时勾选 “Add Python to PATH”。示例路径 `C:\Python313\python.exe`。 |
 | PowerShell | 以管理员身份启动 PowerShell，会话内执行 `Set-ExecutionPolicy RemoteSigned -Scope Process` 允许脚本运行。 |
 | Git（可选） | 若要直接 `git clone` 仓库，请安装 Git for Windows。没有 Git 时可上传压缩包。 |
-| 防火墙 | 预留 API 监听端口及健康探测端口（默认均为 TCP 8000，可自定义）。 |
+| 防火墙 | 预留 API 监听端口及健康探测端口（当前示例使用 TCP 11000，可自定义）。 |
 | 证书/密码 | 准备好管理后台账号、HMAC 密钥等强随机密码。 |
 
 > 若需要把服务长期运行为 Windows 服务，文末提供自动化脚本和 NSSM 相关步骤。
@@ -90,7 +90,7 @@ notepad .env
 - `VMP_ADMIN_PASS=<后台密码>`
 - `VMP_CDN_HEALTH_MONITOR_ENABLED=true`（若测试环境希望关闭巡检，可设为 `false`）
 - `VMP_CDN_HEALTH_MONITOR_INTERVAL=300`（单位秒，可在后台 CDN 页面随时调整并写回 `.env`）
-- `VMP_CDN_HEALTH_CHECK_PORT=8000`（自动巡检与 CDN 部署脚本默认探测/放行的端口；留空时沿用 `-Port`）
+- `VMP_CDN_HEALTH_CHECK_PORT=11000`（自动巡检与 CDN 部署脚本默认探测/放行的端口；留空时沿用 `-Port`）
 - 若暂不接入 CDN，可保持默认的 `VMP_CDN_*` 配置。
 - **访问控制相关字段**（脚本会自动保留这些值并在部署日志中输出计数）：
 	- `VMP_CDN_IP_HEADER`：默认 `X-Forwarded-For`，若前置代理使用其他头部可在此调整。
@@ -116,24 +116,24 @@ python manage.py init-db
 # 可选：仅在排查或 CI 场景手动执行 Alembic 迁移（init-db 已自动完成同样操作）
 alembic upgrade head
 python manage.py create-license --card DEMO-0001 --ttl 30
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
+uvicorn app.main:app --host 0.0.0.0 --port 11000 --env-file .env
 ```
 
 > **注意**：若你刚从旧版本拉取代码，请务必再次运行 `python manage.py init-db` 以创建 CDN 部署阶段日志与回滚链字段；否则访问 `/admin/cdn` 会因缺少列而触发 `Internal Server Error`。
 
 - `python manage.py init-db` 会在 SQLite 中创建/升级基础表结构，并自动触发 Alembic 迁移到最新版本（包括新引入的 `software_slot_current_packages` 关联表以消除软件位循环外键告警）。
 - 如果你希望单独检查迁移日志，可执行 `alembic upgrade head`（若命令未命中，可改用 `..\.venv\Scripts\alembic.exe upgrade head`），其效果与 `init-db` 内部调用一致。
-- 打开浏览器访问 `http://192.168.132.132:8000/docs`，查看 Swagger 文档确认接口可访问。
-- 访问 `http://192.168.132.132:8000/admin/`，进入统一控制台查看核心统计、即将到期提醒，并从卡片快速跳转到各管理模块。
-- 访问 `http://192.168.132.132:8000/admin/licenses`，浏览器会弹出 HTTP Basic 登录框，使用 `.env` 中的 `VMP_ADMIN_USER` / `VMP_ADMIN_PASS` 登录。新版模块化卡密管理界面支持快速创建卡密、批量筛选、快捷导向详情页以延期或重置授权。
-- 访问 `http://192.168.132.132:8000/admin/users`，查看全新的用户列表：支持关键字搜索、快速跳转到用户详情（含审计日志与激活设备），可直接解绑或删除账号。
-- 访问 `http://192.168.132.132:8000/admin/card-types`，管理卡密类型与时长模板；界面与其他后台页面采用统一布局，便于后续扩展。
-- 访问 `http://192.168.132.132:8000/admin/settings`，「访问控制」卡片可集中维护 CDN 与主服务的 IP 白名单/黑名单，支持粘贴多行或 CIDR 网段；保存后立即生效，并自动写回 `.env`。
- - 访问 `http://192.168.132.132:8000/admin/settings`，「访问控制」卡片可集中维护 CDN 与主服务的 IP 白名单/黑名单，支持粘贴多行或 CIDR 网段；保存后立即生效，并自动写回 `.env`。
- 	- 自 2025-10 版本起，CDN 守卫与主服务访问控制会在拒绝异常请求（令牌缺失、未命中白名单等）时自动把来源 IP 加入对应黑名单，管理员可在此界面即时查看与移除条目。
-- 访问 `http://192.168.132.132:8000/admin/cdn`，可新增加速节点、创建刷新或预取任务，并查看最近执行记录与各状态统计。
+- 打开浏览器访问 `http://192.168.132.132:11000/docs`，查看 Swagger 文档确认接口可访问。
+- 访问 `http://192.168.132.132:11000/admin/`，进入统一控制台查看核心统计、即将到期提醒，并从卡片快速跳转到各管理模块。
+- 访问 `http://192.168.132.132:11000/admin/licenses`，浏览器会弹出 HTTP Basic 登录框，使用 `.env` 中的 `VMP_ADMIN_USER` / `VMP_ADMIN_PASS` 登录。新版模块化卡密管理界面支持快速创建卡密、批量筛选、快捷导向详情页以延期或重置授权。
+- 访问 `http://192.168.132.132:11000/admin/users`，查看全新的用户列表：支持关键字搜索、快速跳转到用户详情（含审计日志与激活设备），可直接解绑或删除账号。
+- 访问 `http://192.168.132.132:11000/admin/card-types`，管理卡密类型与时长模板；界面与其他后台页面采用统一布局，便于后续扩展。
+- 访问 `http://192.168.132.132:11000/admin/settings`，「访问控制」卡片可集中维护 CDN 与主服务的 IP 白名单/黑名单，支持粘贴多行或 CIDR 网段；保存后立即生效，并自动写回 `.env`。
+- 访问 `http://192.168.132.132:11000/admin/cdn`，可新增加速节点、创建刷新或预取任务，并查看最近执行记录与各状态统计。
 	- 创建或编辑节点时，可在“端口映射”表格中添加多行监听/源站端口组合；勾选 HTTP 表示该监听端口走明文回源，其余端口将自动使用 HTTPS 并复用统一证书。
 	- 若保留表格为空，系统会依据主监听端口自动补齐一组默认映射；删除某行只需清空对应输入框即可。
+- 若使用客户端执行激活，可在设置中将“服务器地址”改为 `http://192.168.132.132:11000`，下拉选择匹配的 Slot 代码后保存。
+- 若需查看健康探测，可访问 `http://192.168.132.132:11000/api/v1/ping` 或 `http://192.168.132.132:11000/api/v1/cdn/health/status`。
 - 若通过 CDN 节点以 TCP 模式接入此 Windows 服务，请保持 CDN 配置中的 PROXY Protocol 选项关闭；Uvicorn 尚未原生解析 PROXY 协议头，否则会在浏览器中看到 `Invalid HTTP request received` 错误。
 - 在 “CDN 管理” 页面中的「自动健康巡检」卡片里，可随时启用/禁用巡检、调整巡检间隔并实时写回 `.env`；运维人员可根据节点数量调整频率。
 - 在仪表盘「功能模块一览」区域核对卡片状态：卡密管理、用户中心、卡密类型、CDN 管理应显示“前往页面”；软件位与系统设置仍标记为“规划中”属正常现象。
@@ -205,11 +205,11 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --env-file .env
 
 > **访问控制快速核对**：脚本收尾会打印 CDN / 主服务白名单与黑名单的条目数量，确保 CIDR 与手动条目都被写回到 `.env`。若需要初始化白名单，可先在 `.env` 中填入逗号分隔的 IP 或网段，或直接在部署后打开后台「访问控制」卡片进行录入。
 
-执行示例（让脚本生成随机密码与 HMAC，端口 8000，并将健康巡检调整为禁用+120 秒周期示例）：
+执行示例（让脚本生成随机密码与 HMAC，端口 11000，并将健康巡检调整为禁用+120 秒周期示例）：
 
 ```powershell
 cd C:\Services\VMPSelf
-powershell -ExecutionPolicy Bypass -File server\tools\winserver2012_deploy.ps1 -InstallRoot "C:\Services\VMPSelf\server" -PythonExe "C:\Python313\python.exe" -ServiceName "VMPAuthService" -Port 8000 -ListenHost "0.0.0.0" -AdminUser "ops-admin" -MonitorEnabled false -MonitorIntervalSeconds 120
+powershell -ExecutionPolicy Bypass -File server\tools\winserver2012_deploy.ps1 -InstallRoot "C:\Services\VMPSelf\server" -PythonExe "C:\Python313\python.exe" -ServiceName "VMPAuthService" -Port 11000 -ListenHost "0.0.0.0" -AdminUser "ops-admin" -MonitorEnabled false -MonitorIntervalSeconds 120
 
 # 若 API 监听端口改为 11000，可加上健康探测端口参数保持一致：
 powershell -ExecutionPolicy Bypass -File server\tools\winserver2012_deploy.ps1 -InstallRoot "C:\Services\VMPSelf\server" -PythonExe "C:\Python313\python.exe" -ServiceName "VMPAuthService" -Port 11000 -CdnHealthCheckPort 11000 -AdminUser "ops-admin"
@@ -257,10 +257,10 @@ Get-Content -Path "C:\Services\VMPSelf\server\logs\uvicorn.log" -Wait
 
 ## Step 7. 防火墙与安全建议
 
-- 默认脚本会依据 `-Port` 与 `VMP_CDN_HEALTH_CHECK_PORT` 自动放行端口。若需手动添加 8000（或自定义端口），可执行：
+- 默认脚本会依据 `-Port` 与 `VMP_CDN_HEALTH_CHECK_PORT` 自动放行端口。若需手动添加 11000（或自定义端口），可执行：
 
 	```powershell
-	New-NetFirewallRule -DisplayName "VMP Auth API" -Direction Inbound -Profile Any -Action Allow -Protocol TCP -LocalPort 8000
+	New-NetFirewallRule -DisplayName "VMP Auth API" -Direction Inbound -Profile Any -Action Allow -Protocol TCP -LocalPort 11000
 	```
 
 - 如果要公网访问，建议通过 IIS、Nginx 或 CDN（腾讯云、Cloudflare 等）做 HTTPS 反向代理，并在 `.env` 中启用 `VMP_CDN_ENFORCED=true` 及共享密钥校验。
@@ -275,7 +275,7 @@ Get-Content -Path "C:\Services\VMPSelf\server\logs\uvicorn.log" -Wait
 服务或脚本运行完毕后，可执行以下命令确认接口可用（自动化脚本已在 127.0.0.1 上执行一次同样的检查，若需从运维终端复核可再次运行）：
 
 ```powershell
-Invoke-RestMethod -Uri "http://192.168.132.132:8000/api/v1/ping"  # 请将端口替换为实际监听端口/健康探测端口
+Invoke-RestMethod -Uri "http://192.168.132.132:11000/api/v1/ping"  # 请将端口替换为实际监听端口/健康探测端口
 ```
 
 返回示例：
@@ -317,7 +317,7 @@ pong    2025-10-16T19:28:29.680446+00:00
 
 ## Step 11. 仪表盘巡检与后续扩展
 
-- 登录 `http://<服务器IP>:8000/admin/`，确认首页顶部统计（注册用户、卡密总量、激活中的卡密等）与数据库数据一致，如无数据可忽略统计空值。
+- 登录 `http://<服务器IP>:11000/admin/`，确认首页顶部统计（注册用户、卡密总量、激活中的卡密等）与数据库数据一致，如无数据可忽略统计空值。
 - 「即将过期」列表默认展示未来 7 天内到期的卡密，若列表为空说明近期无即将过期的记录；可通过创建临时期卡密来验证提醒功能。
 - 「最新注册用户」与「最新创建卡密」分别抓取最近 6 条记录，如需查看更多可跳转到对应模块页面进行分页查询。
 - CDN 管理卡片应显示“前往页面”，并能跳转到节点列表与任务面板；软件位与系统设置仍标记为“规划中”，后续迭代上线时会在同一仪表盘解锁。

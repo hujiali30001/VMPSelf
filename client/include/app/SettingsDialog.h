@@ -41,6 +41,7 @@ private:
     QLineEdit *baseUrlEdit_ = nullptr;
     QLineEdit *cardCodeEdit_ = nullptr;
     QLineEdit *licenseSecretEdit_ = nullptr;
+    QLineEdit *slotSecretEdit_ = nullptr;
     QLineEdit *fingerprintEdit_ = nullptr;
     QComboBox *slotCodeCombo_ = nullptr;
     QLabel *validationLabel_ = nullptr;

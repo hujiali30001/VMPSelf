@@ -29,6 +29,7 @@ core::AuthClientConfig config;
 config.baseUrl = QUrl("https://auth.example.com");
 config.cardCode = "CARD-0001";
 config.licenseSecret = "base64-or-random-secret";
+config.slotSecret = "slot-level-secret"; // 可选：若提供则优先使用槽位秘钥
 config.fingerprint = "machine-fingerprint";
 
 client.setConfig(config);
@@ -47,7 +48,7 @@ if (client.testConnection()) {
 }
 ```
 
-- `AuthClient::activate()` 会自动计算 `card_code|fingerprint|timestamp` 的 HMAC-SHA256（Base64），并解析返回的 token 与过期时间。
+- `AuthClient::activate()` 会自动计算 `card_code|fingerprint|timestamp` 的 HMAC-SHA256（Base64），优先使用槽位秘钥（若已配置），并解析返回的 token 与过期时间。
 - 调用 `AuthClient::sendHeartbeat()` 会重用现有 token 发送心跳，失败时可通过 `lastError()` 获取原因。
 - `AuthClient::requestOfflineLicense()` 会向服务器索取离线授权文件并立即校验签名，可通过 `offlineLicense()->signature` 保存原始签名；离线启动时调用 `loadOfflineLicense()` 校验本地文件，同时 `hasValidOfflineLicense()` 可快速判断是否仍在有效期内。
 

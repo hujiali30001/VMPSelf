@@ -64,6 +64,62 @@
         gap: 12px;
         flex-wrap: wrap;
     }
+    .slot-secret {
+        border-radius: 12px;
+        border: 1px dashed rgba(37, 99, 235, 0.3);
+        background: rgba(37, 99, 235, 0.05);
+        padding: 12px 14px;
+        font-size: 13px;
+        display: grid;
+        gap: 10px;
+    }
+    .slot-secret summary {
+        cursor: pointer;
+        font-weight: 600;
+        color: var(--brand-dark);
+    }
+    .slot-secret .secret-line {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        word-break: break-all;
+    }
+    .slot-secret code {
+        background: rgba(15, 23, 42, 0.08);
+        padding: 6px 8px;
+        border-radius: 8px;
+        font-size: 13px;
+    }
+    .slot-secret .ghost-btn {
+        border: none;
+        border-radius: 10px;
+        padding: 6px 12px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        background: rgba(37, 99, 235, 0.14);
+        color: var(--brand-dark);
+    }
+    .slot-secret .ghost-btn:hover {
+        background: rgba(37, 99, 235, 0.2);
+    }
+    .slot-secret .ghost-btn.danger {
+        background: rgba(239, 68, 68, 0.12);
+        color: var(--danger);
+    }
+    .slot-secret .ghost-btn.danger:hover {
+        background: rgba(239, 68, 68, 0.18);
+    }
+    .slot-secret .ghost-btn.copied {
+        background: rgba(16, 185, 129, 0.18);
+        color: var(--success);
+    }
+    .slot-secret .secret-help {
+        margin: 0;
+        font-size: 12px;
+        color: var(--text-secondary);
+    }
     @media (max-width: 1080px) {
         .software-grid {
             grid-template-columns: 1fr;
@@ -183,6 +239,31 @@
                     <div style="font-size: 12px; color: var(--text-secondary);">创建于 {{ slot.created_at.isoformat() }}</div>
                 </div>
 
+                <div class="slot-secret">
+                    {% if slot.slot_secret %}
+                    <details>
+                        <summary>授权密钥</summary>
+                        <div class="secret-line">
+                            <code class="secret-value" data-secret="{{ slot.slot_secret }}">{{ slot.slot_secret }}</code>
+                            <button type="button" class="ghost-btn copy-secret" data-secret="{{ slot.slot_secret }}">复制</button>
+                        </div>
+                        <form method="post" action="/admin/software/slots/{{ slot.id }}/rotate-secret" onsubmit="return confirm('重置后需要更新客户端配置，确认继续吗？');" style="margin: 0;">
+                            <input type="hidden" name="return_to" value="{{ return_to }}" />
+                            <button class="ghost-btn danger" type="submit">重置密钥</button>
+                        </form>
+                        <p class="secret-help">重置将立即使旧密钥失效，请同步更新客户端与部署脚本。</p>
+                    </details>
+                    {% else %}
+                    <div class="secret-line" style="color: var(--text-secondary);">
+                        暂无密钥，可通过“重置密钥”生成新的密钥。
+                        <form method="post" action="/admin/software/slots/{{ slot.id }}/rotate-secret" onsubmit="return confirm('生成新密钥后需使用该密钥进行激活，确认继续吗？');" style="margin: 0;">
+                            <input type="hidden" name="return_to" value="{{ return_to }}" />
+                            <button class="ghost-btn" type="submit">生成密钥</button>
+                        </form>
+                    </div>
+                    {% endif %}
+                </div>
+
                 <details>
                     <summary style="cursor: pointer; font-weight: 600;">创建安装包</summary>
                     <form class="form-grid" method="post" action="/admin/software/slots/{{ slot.id }}/packages" style="margin-top: 14px;">
@@ -266,4 +347,46 @@
         {% endif %}
     </section>
 </div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+(function() {
+    const buttons = document.querySelectorAll('.copy-secret');
+    buttons.forEach((button) => {
+        button.addEventListener('click', async () => {
+            const secret = button.dataset.secret;
+            if (!secret) {
+                return;
+            }
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(secret);
+                } else {
+                    const textarea = document.createElement('textarea');
+                    textarea.value = secret;
+                    textarea.setAttribute('readonly', 'readonly');
+                    textarea.style.position = 'absolute';
+                    textarea.style.left = '-9999px';
+                    document.body.appendChild(textarea);
+                    textarea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textarea);
+                }
+                button.classList.add('copied');
+                const originalText = button.dataset.originalText || button.textContent;
+                button.dataset.originalText = originalText;
+                button.textContent = '已复制';
+                setTimeout(() => {
+                    button.classList.remove('copied');
+                    button.textContent = button.dataset.originalText || '复制';
+                }, 2000);
+            } catch (err) {
+                alert('复制失败，请手动复制。');
+            }
+        });
+    });
+})();
+</script>
 {% endblock %}

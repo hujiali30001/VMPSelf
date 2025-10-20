@@ -15,6 +15,7 @@ struct AuthClientConfig
     QUrl baseUrl;
     QString cardCode;
     QString licenseSecret;
+    QString slotSecret;
     QString fingerprint;
     QString slotCode;
 };

@@ -13,7 +13,11 @@ def reset_database():
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as session:
-        default_slot = models.SoftwareSlot(code="default-slot", name="默认软件位")
+        default_slot = models.SoftwareSlot(
+            code="default-slot",
+            name="默认软件位",
+            slot_secret="default-slot-secret",
+        )
         session.add(default_slot)
         session.commit()
 

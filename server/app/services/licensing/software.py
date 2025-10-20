@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -63,12 +64,24 @@ class SoftwareService:
         slot = SoftwareSlot(
             code=code,
             name=name,
+            slot_secret=secrets.token_urlsafe(32),
             product_line=product_line,
             channel=channel,
             gray_ratio=gray_ratio,
             notes=notes,
         )
         self.db.add(slot)
+        self.db.commit()
+        self.db.refresh(slot)
+        return slot
+
+    def rotate_slot_secret(self, slot_id: int) -> SoftwareSlot:
+        slot = self.db.get(SoftwareSlot, slot_id)
+        if not slot:
+            raise ValueError("slot_not_found")
+
+        slot.slot_secret = secrets.token_urlsafe(32)
+        slot.updated_at = datetime.now(timezone.utc)
         self.db.commit()
         self.db.refresh(slot)
         return slot

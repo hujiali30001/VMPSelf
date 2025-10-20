@@ -72,8 +72,14 @@ bool AuthClient::ensureConfig() const
         const_cast<AuthClient *>(this)->setLastError(QStringLiteral("未配置服务器参数"));
         return false;
     }
-    if (config_->baseUrl.isEmpty() || config_->cardCode.isEmpty() || config_->licenseSecret.isEmpty()) {
-        const_cast<AuthClient *>(this)->setLastError(QStringLiteral("配置缺少 baseUrl/cardCode/licenseSecret"));
+    if (config_->baseUrl.isEmpty() || config_->cardCode.isEmpty()) {
+        const_cast<AuthClient *>(this)->setLastError(QStringLiteral("配置缺少 baseUrl 或 cardCode"));
+        return false;
+    }
+    const bool hasLicenseSecret = !config_->licenseSecret.isEmpty();
+    const bool hasSlotSecret = !config_->slotSecret.trimmed().isEmpty();
+    if (!hasLicenseSecret && !hasSlotSecret) {
+        const_cast<AuthClient *>(this)->setLastError(QStringLiteral("至少需要提供授权密钥或槽位密钥"));
         return false;
     }
     if (config_->fingerprint.isEmpty()) {
@@ -185,11 +191,13 @@ std::optional<AuthSession> AuthClient::activate()
     }
 
     const qint64 timestamp = QDateTime::currentDateTimeUtc().toSecsSinceEpoch();
+    const QString slotSecret = config_->slotSecret.trimmed();
+    const bool useSlotSecret = !slotSecret.isEmpty();
     const QByteArray signature = buildSignature(
         config_->cardCode,
         config_->fingerprint,
         timestamp,
-        config_->licenseSecret);
+        useSlotSecret ? slotSecret : config_->licenseSecret);
 
     QJsonObject payload{
         {QStringLiteral("card_code"), config_->cardCode},
@@ -197,6 +205,7 @@ std::optional<AuthSession> AuthClient::activate()
         {QStringLiteral("timestamp"), timestamp},
         {QStringLiteral("signature"), QString::fromUtf8(signature)},
         {QStringLiteral("slot_code"), config_->slotCode},
+        {QStringLiteral("use_slot_secret"), useSlotSecret},
     };
 
     auto raw = postJson(QStringLiteral("/api/v1/license/activate"), payload);
@@ -245,11 +254,12 @@ bool AuthClient::sendHeartbeat()
     }
 
     const qint64 timestamp = QDateTime::currentDateTimeUtc().toSecsSinceEpoch();
+    const QString slotSecret = config_->slotSecret.trimmed();
     const QByteArray signature = buildSignature(
         config_->cardCode,
         config_->fingerprint,
         timestamp,
-        config_->licenseSecret);
+        !slotSecret.isEmpty() ? slotSecret : config_->licenseSecret);
 
     QJsonObject payload{
         {QStringLiteral("token"), session_->token},
@@ -280,11 +290,12 @@ std::optional<OfflineLicense> AuthClient::requestOfflineLicense(const QDateTime 
     }
 
     const qint64 timestamp = expiresAtUtc.toUTC().toSecsSinceEpoch();
+    const QString slotSecret = config_->slotSecret.trimmed();
     const QByteArray signature = buildSignature(
         config_->cardCode,
         config_->fingerprint,
         timestamp,
-        config_->licenseSecret);
+        !slotSecret.isEmpty() ? slotSecret : config_->licenseSecret);
 
     QJsonObject payload{
         {QStringLiteral("card_code"), config_->cardCode},
@@ -392,15 +403,32 @@ bool AuthClient::verifyOfflineSignature(const QByteArray &licenseBlob, const QSt
     if (!config_) {
         return false;
     }
-    const QByteArray expected = QMessageAuthenticationCode::hash(
-        licenseBlob,
-        config_->licenseSecret.toUtf8(),
-        QCryptographicHash::Sha256);
     const QByteArray provided = QByteArray::fromBase64(signature.toUtf8());
     if (provided.isEmpty() && !signature.isEmpty()) {
         return false;
     }
-    return expected == provided;
+
+    const QString slotSecret = config_->slotSecret.trimmed();
+    const QString licenseSecret = config_->licenseSecret;
+
+    const auto matchSignature = [&](const QString &secret) {
+        if (secret.isEmpty()) {
+            return false;
+        }
+        const QByteArray expected = QMessageAuthenticationCode::hash(
+            licenseBlob,
+            secret.toUtf8(),
+            QCryptographicHash::Sha256);
+        return expected == provided;
+    };
+
+    if (matchSignature(slotSecret)) {
+        return true;
+    }
+    if (matchSignature(licenseSecret)) {
+        return true;
+    }
+    return false;
 }
 
 } // namespace core

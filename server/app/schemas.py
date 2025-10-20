@@ -58,6 +58,7 @@ class ActivationRequest(BaseModel):
     signature: str
     timestamp: int
     slot_code: str = Field(..., min_length=2, max_length=64)
+    use_slot_secret: bool = False
 
 
 class ActivationResponse(BaseModel):

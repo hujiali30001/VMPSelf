@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from app.db import models
 from app.db.session import SessionLocal
-from app.services.licensing import LicenseService
+from app.services.licensing import LicenseService, SoftwareService
 from app.services import security
 
 DEFAULT_SLOT_CODE = "default-slot"
@@ -13,6 +14,26 @@ DEFAULT_SLOT_CODE = "default-slot"
 
 def _get_default_slot(session):
     return session.query(models.SoftwareSlot).filter_by(code=DEFAULT_SLOT_CODE).one()
+
+
+def test_create_slot_generates_secret_and_rotation_changes_value():
+    with SessionLocal() as session:
+        service = SoftwareService(session)
+        code = f"slot-{uuid.uuid4().hex[:10]}"
+        slot = service.create_slot(code=code, name="测试软件位")
+
+        assert slot.slot_secret
+        assert len(slot.slot_secret or "") >= 32
+        initial_secret = slot.slot_secret
+
+        rotated = service.rotate_slot_secret(slot.id)
+        assert rotated.slot_secret
+        assert rotated.slot_secret != initial_secret
+        assert len(rotated.slot_secret or "") >= 32
+
+        refreshed = service.get_slot(slot.id)
+        assert refreshed is not None
+        assert refreshed.slot_secret == rotated.slot_secret
 
 
 def test_create_license_generates_secret_and_expiry():

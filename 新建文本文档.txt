@@ -1,0 +1,37 @@
+🎯目标原则
+激活请求仍携带 card_code，用于判定是否首次激活、记录时间和额度；
+实际签名秘钥上移到 software_slot.secret，同一槽位所有卡密共用；
+未激活的卡密不消耗有效期，第一次激活开始计时；
+旧客户端仍可用当前卡密秘钥完成签名，平滑过渡。
+🧠兼容式迁移策略
+1. 数据层
+新增字段 software_slots.slot_secret（nullable，默认 NULL）。
+迁移脚本一次性为所有槽位生成随机秘钥，写入 slot_secret。
+licenses.secret 暂时保留，且加索引标注“旧客户端秘钥”；后续按计划逐步废弃。
+2. 激活/心跳 API 逻辑
+activate() 流程调整：
+先查卡密→槽位；
+校验签名时支持两套秘钥：
+激活成功后，如 use_slot_secret=True，记录“使用槽位秘钥激活”审计，并将 license.secret_migrated=true（新增布尔字段）以便后续统计；
+更新时间：若 license.expire_at 为空，则 expire_at = now + license.duration；否则保持现有逻辑。
+心跳、离线授权同理，优先使用旧秘钥，失败再用 slot_secret。
+3. 客户端兼容
+AuthClientConfig 增加可选字段 slotSecret（本地保存）。
+SettingsDialog 增加“槽位秘钥”输入框；保存到 SettingsManager。
+AuthClient::buildSignature：
+若配置包含 slotSecret，优先使用；
+否则 fallback 到 licenseSecret（保持旧版兼容）。
+构造激活/心跳 payload 不变，只是签名用哪个秘钥由配置决定。
+4. 管理后台与脚本
+软件位新增秘钥展示/重置按钮（仅管理员可见，操作时要求再次确认）。
+批量导出卡密时追加一列 slot_secret（可选），或提供单独“下载槽位秘钥”的操作。
+winserver2012_deploy.ps1 等脚本新增可选参数 -SlotSecret "<value>"，不传则自动生成后在日志里输出。
+5. 迁移后的演进
+阶段性统计：后台仪表盘新增指标“已迁移槽位秘钥 vs 仍使用卡密秘钥”；
+当旧客户端比例足够低时，可计划停用 license.secret，强制全量切换。
+✅下一步实施顺序
+后端阶段：完成迁移脚本 + API 兼容改造 + 单元测试（激活/心跳/离线三条用例）；
+客户端阶段：新增槽位秘钥字段、签名策略切换、测试；
+后台阶段：秘钥管理 UI 与导出优化；
+文档更新：部署指南、客户端配置说明；
+灰度/验收：联调新客户端 + 旧客户端混合验证。

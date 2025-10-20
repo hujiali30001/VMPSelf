@@ -240,14 +240,11 @@ class LicenseService:
                 code = attempt
 
             secret = secrets.token_urlsafe(32)
-            expire_at = None
-            if base_duration is not None and base_duration > 0:
-                expire_at = now + timedelta(days=base_duration)
 
             license_obj = models.License(
                 card_code=code,
                 secret=secret,
-                expire_at=expire_at,
+                expire_at=None,
                 status=models.LicenseStatus.UNUSED.value,
                 card_prefix=prefix,
                 software_slot=slot,
@@ -318,6 +315,62 @@ class LicenseService:
             ip_address=ip_address,
         )
 
+    def _resolve_duration_days(self, license_obj: models.License) -> Optional[int]:
+        custom_days = license_obj.custom_duration_days
+        if custom_days is not None and custom_days > 0:
+            return custom_days
+
+        card_type = license_obj.card_type
+        if card_type and card_type.default_duration_days is not None and card_type.default_duration_days > 0:
+            return card_type.default_duration_days
+
+        return None
+
+    def _verify_signature_with_fallback(
+        self,
+        *,
+        card_code: str,
+        fingerprint: str,
+        timestamp: int,
+        signature: str,
+        license_obj: models.License,
+        slot: Optional[models.SoftwareSlot],
+        prefer_slot: bool,
+    ) -> Optional[str]:
+        attempts: list[tuple[str, str]] = []
+        slot_secret = slot.slot_secret if slot else None
+
+        def add_attempt(kind: str, secret: Optional[str]) -> None:
+            if secret:
+                attempts.append((kind, secret))
+
+        if prefer_slot:
+            add_attempt("slot", slot_secret)
+            add_attempt("legacy", license_obj.secret)
+        else:
+            add_attempt("legacy", license_obj.secret)
+            add_attempt("slot", slot_secret)
+
+        seen: set[str] = set()
+        ordered_attempts: list[tuple[str, str]] = []
+        for kind, secret in attempts:
+            key = f"{kind}:{secret}"
+            if key not in seen:
+                ordered_attempts.append((kind, secret))
+                seen.add(key)
+
+        for kind, secret in ordered_attempts:
+            if security.verify_signature(
+                card_code,
+                fingerprint,
+                timestamp,
+                signature,
+                shared_secret=secret,
+            ):
+                return kind
+
+        return None
+
     def get_audit_logs(self, license_obj: models.License, limit: int = 50) -> list[models.AuditLog]:
         if license_obj.id is None:
             self.db.flush()
@@ -339,25 +392,55 @@ class LicenseService:
         else:
             return None, None, "license_slot_unset"
 
-        if not security.verify_signature(
-            request.card_code,
-            request.fingerprint,
-            request.timestamp,
-            request.signature,
-            shared_secret=license_obj.secret,
-        ):
+        prefer_slot_secret = bool(getattr(request, "use_slot_secret", False))
+        used_secret_kind = self._verify_signature_with_fallback(
+            card_code=request.card_code,
+            fingerprint=request.fingerprint,
+            timestamp=request.timestamp,
+            signature=request.signature,
+            license_obj=license_obj,
+            slot=slot,
+            prefer_slot=prefer_slot_secret,
+        )
+        if not used_secret_kind:
+            self.log_event(
+                license_obj,
+                "activate_failed_signature",
+                "Activation rejected due to signature mismatch",
+                payload={
+                    "slot_code": slot.code if slot else None,
+                    "requested_slot_secret": prefer_slot_secret,
+                },
+            )
             return None, None, "invalid_signature"
+
+        slot_secret_used = used_secret_kind == "slot"
 
         now = datetime.now(timezone.utc)
         expire_at = license_obj.expire_at
         if expire_at and expire_at.tzinfo is None:
             expire_at = expire_at.replace(tzinfo=timezone.utc)
+            license_obj.expire_at = expire_at
 
         if expire_at and expire_at < now:
             license_obj.status = models.LicenseStatus.EXPIRED.value
-            self.log_event(license_obj, "license_expired", "Activation attempted on expired license")
+            self.log_event(
+                license_obj,
+                "license_expired",
+                "Activation attempted on expired license",
+                payload={
+                    "slot_code": slot.code if slot else None,
+                    "slot_secret_used": slot_secret_used,
+                },
+            )
             self.db.commit()
             return None, None, "license_expired"
+
+        if expire_at is None:
+            duration_days = self._resolve_duration_days(license_obj)
+            if duration_days and duration_days > 0:
+                expire_at = now + timedelta(days=duration_days)
+                license_obj.expire_at = expire_at
 
         activation = next(
             (existing for existing in license_obj.activations if existing.device_fingerprint == request.fingerprint),
@@ -381,7 +464,28 @@ class LicenseService:
         license_obj.status = models.LicenseStatus.ACTIVE.value
         license_obj.bound_fingerprint = request.fingerprint
         license_obj.updated_at = now
-        self.log_event(license_obj, "activate", "License activated and token issued")
+        if slot_secret_used and not license_obj.secret_migrated:
+            license_obj.secret_migrated = True
+
+        activation_payload = {
+            "slot_secret_used": slot_secret_used,
+            "slot_code": slot.code if slot else None,
+            "requested_slot_secret": prefer_slot_secret,
+            "license_expire_at": license_obj.expire_at.isoformat() if license_obj.expire_at else None,
+        }
+        message = (
+            "License activated using slot secret; token issued"
+            if slot_secret_used
+            else "License activated using legacy secret; token issued"
+        )
+        self.log_event(license_obj, "activate", message, payload=activation_payload)
+        if slot_secret_used:
+            self.log_event(
+                license_obj,
+                "activate_slot_secret",
+                "License activated using slot-level secret",
+                payload=activation_payload,
+            )
         self.db.commit()
         self.db.refresh(license_obj)
         return token, expires_at, "ok"
@@ -394,18 +498,39 @@ class LicenseService:
             return False
 
         license_obj = activation.license
-
-        if not security.verify_signature(
-            license_obj.card_code,
-            request.fingerprint,
-            request.timestamp,
-            request.signature,
-            shared_secret=license_obj.secret,
-        ):
+        slot = license_obj.software_slot
+        used_secret_kind = self._verify_signature_with_fallback(
+            card_code=license_obj.card_code,
+            fingerprint=request.fingerprint,
+            timestamp=request.timestamp,
+            signature=request.signature,
+            license_obj=license_obj,
+            slot=slot,
+            prefer_slot=license_obj.secret_migrated,
+        )
+        if not used_secret_kind:
             return False
 
-        activation.last_seen = datetime.now(timezone.utc)
-        self.log_event(license_obj, "heartbeat", "Heartbeat received")
+        slot_secret_used = used_secret_kind == "slot"
+        if slot_secret_used and not license_obj.secret_migrated:
+            license_obj.secret_migrated = True
+
+        now = datetime.now(timezone.utc)
+        activation.last_seen = now
+        message = (
+            "Heartbeat received using slot secret"
+            if slot_secret_used
+            else "Heartbeat received"
+        )
+        self.log_event(
+            license_obj,
+            "heartbeat",
+            message,
+            payload={
+                "slot_secret_used": slot_secret_used,
+                "slot_code": slot.code if slot else None,
+            },
+        )
         self.db.commit()
         return True
 

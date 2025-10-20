@@ -17,8 +17,10 @@ from app.api.admin_portal.common import (
     require_permission,
     templates,
 )
+from app.api.admin_portal.common_components.auth import build_audit_actor
 from app.api.deps import get_db
 from app.db import SoftwareSlotStatus
+from app.services.audit import AuditService, AuditTarget
 from app.services.licensing import SoftwareService
 
 router = APIRouter(prefix="/software")
@@ -140,6 +142,51 @@ def update_software_slot_status_action(
                 message = f"更新失败: {exc}"
         else:
             message = "状态已更新"
+
+    target = _append_message(_sanitize_return_path(return_to, fallback="/admin/software"), message)
+    return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)
+
+
+@router.post("/slots/{slot_id}/rotate-secret")
+def rotate_slot_secret_action(
+    request: Request,
+    slot_id: int,
+    return_to: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    principal: AdminPrincipal = Depends(require_permission("software", "manage")),
+):
+    service = SoftwareService(db)
+    slot = service.get_slot(slot_id)
+    if not slot:
+        message = "未找到指定的软件位"
+    else:
+        try:
+            slot = service.rotate_slot_secret(slot_id)
+        except ValueError as exc:
+            db.rollback()
+            if str(exc) == "slot_not_found":
+                message = "未找到指定的软件位"
+            else:
+                message = f"重置失败: {exc}"
+        else:
+            audit_service = AuditService(db)
+            audit_service.log_event(
+                module="software",
+                action="rotate_slot_secret",
+                actor=build_audit_actor(principal),
+                target=AuditTarget(
+                    type="software_slot",
+                    id=str(slot.id),
+                    name=slot.name,
+                ),
+                message=f"重置软件位 {slot.code} 的密钥",
+                payload={
+                    "slot_id": slot.id,
+                    "slot_code": slot.code,
+                },
+            )
+            db.commit()
+            message = "密钥已重置，请尽快更新相关客户端配置。"
 
     target = _append_message(_sanitize_return_path(return_to, fallback="/admin/software"), message)
     return RedirectResponse(url=target, status_code=HTTP_303_SEE_OTHER)

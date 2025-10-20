@@ -20,7 +20,7 @@ from app.schemas import (
     RevokeRequest,
 )
 from app.services.licensing import LicenseService
-from app.services.security import issue_token, sign_message, verify_signature
+from app.services.security import issue_token, sign_message
 
 router = APIRouter(prefix="/license", tags=["licenses"])
 settings = get_settings()
@@ -55,14 +55,22 @@ def generate_offline(payload: OfflineLicenseRequest, db: Session = Depends(get_d
     if not license_obj:
         raise HTTPException(status_code=404, detail="license_not_found")
 
-    if not verify_signature(
-        payload.card_code,
-        payload.fingerprint,
-        int(payload.expires_at.timestamp()),
-        payload.signature,
-        shared_secret=license_obj.secret,
-    ):
+    slot = license_obj.software_slot
+    used_secret_kind = service._verify_signature_with_fallback(
+        card_code=payload.card_code,
+        fingerprint=payload.fingerprint,
+        timestamp=int(payload.expires_at.timestamp()),
+        signature=payload.signature,
+        license_obj=license_obj,
+        slot=slot,
+        prefer_slot=license_obj.secret_migrated,
+    )
+    if not used_secret_kind:
         raise HTTPException(status_code=400, detail="invalid_signature")
+
+    slot_secret_used = used_secret_kind == "slot"
+    if slot_secret_used and not license_obj.secret_migrated:
+        license_obj.secret_migrated = True
 
     token, _ = issue_token(payload.card_code, payload.fingerprint)
     expires = payload.expires_at.replace(tzinfo=timezone.utc)
@@ -75,8 +83,19 @@ def generate_offline(payload: OfflineLicenseRequest, db: Session = Depends(get_d
     }
 
     license_blob = json.dumps(blob, separators=(",", ":"))
-    signature = sign_message(license_blob, shared_secret=license_obj.secret)
-    service.log_event(license_obj, "offline_issue", "Offline license generated")
+    shared_secret = slot.slot_secret if slot_secret_used and slot and slot.slot_secret else license_obj.secret
+    signature = sign_message(license_blob, shared_secret=shared_secret)
+    service.log_event(
+        license_obj,
+        "offline_issue",
+        "Offline license generated using slot secret"
+        if slot_secret_used
+        else "Offline license generated",
+        payload={
+            "slot_secret_used": slot_secret_used,
+            "slot_code": slot.code if slot else None,
+        },
+    )
     db.commit()
 
     return OfflineLicenseResponse(license_blob=license_blob, signature=signature)

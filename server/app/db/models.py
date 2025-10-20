@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -58,10 +58,12 @@ class LicenseBatch(Base):
 
 class License(Base):
     __tablename__ = "licenses"
+    __table_args__ = (Index("ix_licenses_legacy_secret", "secret"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     card_code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     secret: Mapped[str] = mapped_column(String(128), nullable=False)
+    secret_migrated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     status: Mapped[str] = mapped_column(String(16), default=LicenseStatus.UNUSED.value)
     bound_fingerprint: Mapped[Optional[str]] = mapped_column(String(128))
     expire_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
@@ -355,6 +357,7 @@ class SoftwareSlot(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
+    slot_secret: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     product_line: Mapped[Optional[str]] = mapped_column(String(128))
     channel: Mapped[Optional[str]] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(16), default=SoftwareSlotStatus.ACTIVE.value)

@@ -47,9 +47,10 @@ SettingsManager::SettingsManager()
 SettingsManager::SettingsManager(QString configFilePath)
     : configFilePath_(std::move(configFilePath))
 {
-    settings_.auth.baseUrl = QStringLiteral("http://127.0.0.1:8000");
+    settings_.auth.baseUrl = QStringLiteral("http://192.168.132.132:11000");
     settings_.auth.cardCode = QStringLiteral("CARD-TEST");
     settings_.auth.licenseSecret = QStringLiteral("secret-key");
+    settings_.auth.slotSecret.clear();
     settings_.auth.fingerprint = QStringLiteral("fp-12345");
     settings_.auth.slotCode = QStringLiteral("default-slot");
 }
@@ -157,10 +158,15 @@ std::optional<AuthClientConfig> SettingsManager::authClientConfig() const
 
     const QString cardCode = settings_.auth.cardCode.trimmed();
     const QString licenseSecret = settings_.auth.licenseSecret;
+    const QString slotSecret = settings_.auth.slotSecret;
     const QString fingerprint = settings_.auth.fingerprint.trimmed();
     const QString slotCode = settings_.auth.slotCode.trimmed();
 
-    if (cardCode.isEmpty() || licenseSecret.isEmpty() || fingerprint.isEmpty() || slotCode.isEmpty()) {
+    if (cardCode.isEmpty() || fingerprint.isEmpty() || slotCode.isEmpty()) {
+        return std::nullopt;
+    }
+
+    if (licenseSecret.isEmpty() && slotSecret.trimmed().isEmpty()) {
         return std::nullopt;
     }
 
@@ -173,6 +179,7 @@ std::optional<AuthClientConfig> SettingsManager::authClientConfig() const
     config.baseUrl = url;
     config.cardCode = cardCode;
     config.licenseSecret = licenseSecret;
+    config.slotSecret = slotSecret.trimmed();
     config.fingerprint = fingerprint;
     config.slotCode = slotCode;
     return config;
@@ -205,6 +212,9 @@ void SettingsManager::fromJson(const QJsonObject &object)
     if (authObject.contains(QStringLiteral("license_secret"))) {
         settings_.auth.licenseSecret = authObject.value(QStringLiteral("license_secret")).toString();
     }
+    if (authObject.contains(QStringLiteral("slot_secret"))) {
+        settings_.auth.slotSecret = authObject.value(QStringLiteral("slot_secret")).toString();
+    }
     if (authObject.contains(QStringLiteral("fingerprint"))) {
         settings_.auth.fingerprint = authObject.value(QStringLiteral("fingerprint")).toString();
     }
@@ -224,6 +234,7 @@ QJsonObject SettingsManager::toJson() const
     authObject.insert(QStringLiteral("base_url"), settings_.auth.baseUrl);
     authObject.insert(QStringLiteral("card_code"), settings_.auth.cardCode);
     authObject.insert(QStringLiteral("license_secret"), settings_.auth.licenseSecret);
+    authObject.insert(QStringLiteral("slot_secret"), settings_.auth.slotSecret);
     authObject.insert(QStringLiteral("fingerprint"), settings_.auth.fingerprint);
     authObject.insert(QStringLiteral("slot_code"), settings_.auth.slotCode);
 
