@@ -22,6 +22,21 @@ client/build/
 client/bin/
 server/build/
 
+# Server in-source build artifacts
+server/client/
+server/bin/
+server/lib/
+server/CMakeFiles/
+server/CMakeCache.txt
+server/build.ninja
+server/.ninja_deps
+server/.ninja_log
+server/cmake_install.cmake
+server/CTestTestfile.cmake
+server/DartConfiguration.tcl
+server/Testing/
+server/.cmake/
+
 # Qt deployment artifacts
 client/**/*.qm
 client/**/*.dll
