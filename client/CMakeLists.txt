@@ -16,22 +16,26 @@ find_package(Qt5 5.12 REQUIRED COMPONENTS Widgets Network)
 set(CLIENT_SOURCES
     src/main.cpp
     src/app/MainWindow.cpp
+    src/app/SettingsDialog.cpp
     src/core/auth/AuthClient.cpp
     src/core/driver/DriverBridge.cpp
     src/core/pipeline/ProtectionPassManager.cpp
     src/core/pe/PEParser.cpp
     src/core/vm/VirtualMachine.cpp
     src/core/util/Logger.cpp
+    src/core/util/SettingsManager.cpp
 )
 
 set(CLIENT_HEADERS
     include/app/MainWindow.h
+    include/app/SettingsDialog.h
     include/core/auth/AuthClient.h
     include/core/driver/DriverBridge.h
     include/core/pipeline/ProtectionPassManager.h
     include/core/pe/PEParser.h
     include/core/vm/VirtualMachine.h
     include/core/util/Logger.h
+    include/core/util/SettingsManager.h
 )
 
 add_executable(vmp_shell ${CLIENT_SOURCES} ${CLIENT_HEADERS})

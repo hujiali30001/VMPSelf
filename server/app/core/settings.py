@@ -19,13 +19,39 @@ class Settings(BaseSettings):
     cdn_header_name: str = Field("X-Edge-Token", env="VMP_CDN_HEADER")
     cdn_ip_header: str = Field("X-Forwarded-For", env="VMP_CDN_IP_HEADER")
     cdn_ip_whitelist: list[str] = Field(default_factory=list)
-    cdn_exempt_paths: list[str] = Field(default_factory=lambda: ["/api/v1/ping"])
+    cdn_exempt_paths: list[str] = Field(
+        default_factory=lambda: [
+            "/api/v1/ping",
+            "/api/v1/license/activate",
+            "/api/v1/license/heartbeat",
+            "/api/v1/license/offline",
+            "/api/v1/license/config",
+            "/api/v1/license/reset",
+            "/api/v1/license/detail",
+            "/api/v1/software/slots",
+            "/api/v1/software/packages",
+            "/api/v1/users/register",
+        ]
+    )
     cdn_ip_manual_whitelist: list[str] = Field(default_factory=list)
     cdn_ip_blacklist: list[str] = Field(default_factory=list)
     core_ip_header: Optional[str] = Field(None, env="VMP_CORE_IP_HEADER")
     core_ip_whitelist: list[str] = Field(default_factory=list)
     core_ip_blacklist: list[str] = Field(default_factory=list)
-    core_exempt_paths: list[str] = Field(default_factory=lambda: ["/api/v1/ping"])
+    core_exempt_paths: list[str] = Field(
+        default_factory=lambda: [
+            "/api/v1/ping",
+            "/api/v1/license/activate",
+            "/api/v1/license/heartbeat",
+            "/api/v1/license/offline",
+            "/api/v1/license/config",
+            "/api/v1/license/reset",
+            "/api/v1/license/detail",
+            "/api/v1/software/slots",
+            "/api/v1/software/packages",
+            "/api/v1/users/register",
+        ]
+    )
     cdn_credentials_key: Optional[str] = Field(None, env="VMP_CDN_CREDENTIALS_KEY")
     admin_username: str = Field("admin", env="VMP_ADMIN_USER")
     admin_password: str = Field("change-me", env="VMP_ADMIN_PASS")

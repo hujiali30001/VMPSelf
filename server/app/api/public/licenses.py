@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
@@ -12,6 +12,9 @@ from app.schemas import (
     ActivationRequest,
     ActivationResponse,
     HeartbeatRequest,
+    LicenseClientConfigResponse,
+    LicenseDetailResponse,
+    LicenseResetRequest,
     OfflineLicenseRequest,
     OfflineLicenseResponse,
     RevokeRequest,
@@ -84,4 +87,46 @@ def revoke(payload: RevokeRequest, db: Session = Depends(get_db)):
     service = LicenseService(db)
     if not service.revoke(payload.card_code):
         raise HTTPException(status_code=404, detail="license_not_found")
+
+
+@router.post("/reset")
+def reset_license(payload: LicenseResetRequest, db: Session = Depends(get_db)):
+    service = LicenseService(db)
+    if not service.reset_license(payload.card_code):
+        raise HTTPException(status_code=404, detail="license_not_found")
+    return {"status": "ok"}
+
+
+@router.get("/config", response_model=LicenseClientConfigResponse)
+def get_license_config() -> LicenseClientConfigResponse:
+    return LicenseClientConfigResponse(
+        heartbeat_interval_seconds=settings.heartbeat_interval_seconds,
+        token_ttl_minutes=settings.token_ttl_minutes,
+        offline_ttl_minutes=settings.allow_offline_minutes,
+    )
+
+
+@router.get("/detail", response_model=LicenseDetailResponse)
+def get_license_detail(
+    card_code: str = Query(..., max_length=64),
+    db: Session = Depends(get_db),
+) -> LicenseDetailResponse:
+    service = LicenseService(db)
+    license_obj = service.get_license(card_code.strip())
+    if not license_obj:
+        raise HTTPException(status_code=404, detail="license_not_found")
+
+    slot_code = license_obj.software_slot.code if license_obj.software_slot else None
+    card_type = license_obj.card_type.code if license_obj.card_type else None
+
+    return LicenseDetailResponse(
+        card_code=license_obj.card_code,
+        status=license_obj.status,
+        bound_fingerprint=license_obj.bound_fingerprint,
+        expire_at=license_obj.expire_at,
+        card_type=card_type,
+        slot_code=slot_code,
+        created_at=license_obj.created_at,
+        updated_at=license_obj.updated_at,
+    )
     return {"status": "revoked"}

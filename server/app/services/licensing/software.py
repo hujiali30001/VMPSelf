@@ -27,6 +27,12 @@ class SoftwareService:
     def get_slot(self, slot_id: int) -> Optional[SoftwareSlot]:
         return self.db.get(SoftwareSlot, slot_id)
 
+    def get_slot_by_code(self, code: str) -> Optional[SoftwareSlot]:
+        normalized = (code or "").strip().lower()
+        if not normalized:
+            return None
+        return self.db.scalar(select(SoftwareSlot).where(SoftwareSlot.code == normalized))
+
     def create_slot(
         self,
         *,

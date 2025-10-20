@@ -2,8 +2,11 @@
 
 #include "app/MainWindow.h"
 
+#include "app/SettingsDialog.h"
+
 #include <QAction>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QStatusBar>
@@ -15,6 +18,7 @@
 #include "core/pe/PEParser.h"
 #include "core/pipeline/ProtectionPassManager.h"
 #include "core/util/Logger.h"
+#include "core/util/SettingsManager.h"
 
 namespace {
 constexpr auto WINDOW_TITLE = "VMP Self Protector";
@@ -28,13 +32,14 @@ public:
     QAction *openFileAction = nullptr;
     QAction *buildAction = nullptr;
     QAction *testAuthAction = nullptr;
+    QAction *settingsAction = nullptr;
 };
 
 MainWindow::MainWindow(QWidget *parent)
-    : QMainWindow(parent),
-      ui_(std::make_unique<MainWindowUi>()),
-      passManager_(std::make_unique<core::ProtectionPassManager>()),
-      authClient_(std::make_unique<core::AuthClient>())
+        : QMainWindow(parent),
+            ui_(std::make_unique<MainWindowUi>()),
+            passManager_(std::make_unique<core::ProtectionPassManager>()),
+            authClient_(std::make_unique<core::AuthClient>())
 {
     setupUi();
     core::Logger::instance().setSink([this](const QString &message) {
@@ -43,6 +48,8 @@ MainWindow::MainWindow(QWidget *parent)
         }
     });
     connectSignals();
+    settingsManager_.load();
+    applySettingsToAuthClient();
     core::Logger::instance().log("Main window initialized");
 }
 
@@ -64,9 +71,11 @@ void MainWindow::setupUi()
     ui_->openFileAction = new QAction(tr("打开目标程序"), this);
     ui_->buildAction = new QAction(tr("生成保护"), this);
     ui_->testAuthAction = new QAction(tr("测试授权"), this);
+    ui_->settingsAction = new QAction(tr("授权配置"), this);
 
     auto *fileMenu = menuBar()->addMenu(tr("文件"));
     fileMenu->addAction(ui_->openFileAction);
+    fileMenu->addAction(ui_->settingsAction);
 
     auto *protectMenu = menuBar()->addMenu(tr("保护"));
     protectMenu->addAction(ui_->buildAction);
@@ -76,6 +85,7 @@ void MainWindow::setupUi()
     toolBar->addAction(ui_->openFileAction);
     toolBar->addAction(ui_->buildAction);
     toolBar->addAction(ui_->testAuthAction);
+    toolBar->addAction(ui_->settingsAction);
 }
 
 void MainWindow::connectSignals()
@@ -83,16 +93,23 @@ void MainWindow::connectSignals()
     connect(ui_->openFileAction, &QAction::triggered, this, &MainWindow::onOpenFile);
     connect(ui_->buildAction, &QAction::triggered, this, &MainWindow::onBuildProtection);
     connect(ui_->testAuthAction, &QAction::triggered, this, &MainWindow::onTestActivation);
+    connect(ui_->settingsAction, &QAction::triggered, this, &MainWindow::onOpenSettings);
 }
 
 void MainWindow::onOpenFile()
 {
-    const QString filePath = QFileDialog::getOpenFileName(this, tr("选择可执行文件"), QString(), tr("Executable Files (*.exe)"));
+    const QString startDir = settingsManager_.lastTargetPath();
+    const QString filePath = QFileDialog::getOpenFileName(this,
+                                                          tr("选择可执行文件"),
+                                                          startDir,
+                                                          tr("Executable Files (*.exe)"));
     if (filePath.isEmpty()) {
         return;
     }
 
     targetFilePath_ = filePath;
+    settingsManager_.setLastTargetPath(QFileInfo(filePath).absolutePath());
+    settingsManager_.save();
     statusBar()->showMessage(tr("选择文件: %1").arg(filePath));
     core::Logger::instance().log(QString("Loaded target program: %1").arg(filePath));
 
@@ -155,11 +172,45 @@ void MainWindow::onBuildProtection()
 
 void MainWindow::onTestActivation()
 {
+    if (!authClient_->config()) {
+        QMessageBox::information(this, tr("授权测试"), tr("请先在“授权配置”中设置服务器信息。"));
+        return;
+    }
+
     core::Logger::instance().log("Running activation test (stub)");
     const auto result = authClient_->testConnection();
     if (result) {
         QMessageBox::information(this, tr("授权测试"), tr("连接成功。"));
     } else {
         QMessageBox::warning(this, tr("授权测试"), tr("连接失败，请检查配置。"));
+    }
+}
+
+void MainWindow::onOpenSettings()
+{
+    SettingsDialog dialog(settingsManager_.authSettings(), this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    settingsManager_.setAuthSettings(dialog.authSettings());
+    if (!settingsManager_.save()) {
+        QMessageBox::warning(this, tr("授权配置"), tr("保存配置文件失败，请检查写入权限。"));
+        return;
+    }
+
+    applySettingsToAuthClient();
+
+    QMessageBox::information(this, tr("授权配置"), tr("配置已保存。"));
+}
+
+void MainWindow::applySettingsToAuthClient()
+{
+    const auto config = settingsManager_.authClientConfig();
+    if (config) {
+        authClient_->setConfig(*config);
+        core::Logger::instance().log(QStringLiteral("AuthClient: 已配置服务器 %1").arg(config->baseUrl.toString()));
+    } else {
+        core::Logger::instance().log(QStringLiteral("AuthClient: 配置信息不完整，等待用户输入"));
     }
 }

@@ -11,4 +11,8 @@ router = APIRouter(tags=["health"])
 
 @router.get("/ping", response_model=PingResponse)
 def ping():
+    return PingResponse(
+        message="pong",
+        server_time=datetime.now(timezone.utc),
+    )
     return PingResponse(message="pong", server_time=datetime.now(timezone.utc))

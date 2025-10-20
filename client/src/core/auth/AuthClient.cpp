@@ -80,6 +80,10 @@ bool AuthClient::ensureConfig() const
         const_cast<AuthClient *>(this)->setLastError(QStringLiteral("未设置设备指纹"));
         return false;
     }
+    if (config_->slotCode.isEmpty()) {
+        const_cast<AuthClient *>(this)->setLastError(QStringLiteral("未设置软件槽标识"));
+        return false;
+    }
     return true;
 }
 
@@ -192,6 +196,7 @@ std::optional<AuthSession> AuthClient::activate()
         {QStringLiteral("fingerprint"), config_->fingerprint},
         {QStringLiteral("timestamp"), timestamp},
         {QStringLiteral("signature"), QString::fromUtf8(signature)},
+        {QStringLiteral("slot_code"), config_->slotCode},
     };
 
     auto raw = postJson(QStringLiteral("/api/v1/license/activate"), payload);

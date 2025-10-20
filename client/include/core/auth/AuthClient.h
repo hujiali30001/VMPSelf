@@ -16,6 +16,7 @@ struct AuthClientConfig
     QString cardCode;
     QString licenseSecret;
     QString fingerprint;
+    QString slotCode;
 };
 
 struct AuthSession
