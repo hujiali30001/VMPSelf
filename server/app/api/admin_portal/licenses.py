@@ -475,6 +475,7 @@ def license_batch_export_page(
     rows: list[list[str]] = [[
         "card_code",
         "secret",
+        "slot_secret",
         "status",
         "expire_at",
         "slot_code",
@@ -485,9 +486,11 @@ def license_batch_export_page(
         expire_at = ""
         if license_obj.expire_at:
             expire_at = license_obj.expire_at.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        slot_secret = license_obj.software_slot.slot_secret if license_obj.software_slot else ""
         rows.append([
             license_obj.card_code,
             license_obj.secret,
+            slot_secret or "",
             license_obj.status,
             expire_at,
             license_obj.software_slot.code if license_obj.software_slot else "",

@@ -14,6 +14,8 @@
     [ValidateRange(30, 3600)]
     [int]$MonitorIntervalSeconds = 300,
     [int]$CdnHealthCheckPort,
+    [string]$SlotSecret,
+    [string]$SlotCode = "default-slot",
     [ValidateSet("Prompt", "Fresh", "Upgrade", "Uninstall")]
     [string]$DeploymentMode = "Prompt"
 )
@@ -497,6 +499,22 @@ if ($AdminPassword) {
 }
 $FinalEnv["VMP_ADMIN_PASS"] = $FinalAdminPass
 
+$NormalizedSlotCode = if ([string]::IsNullOrWhiteSpace($SlotCode)) { "default-slot" } else { $SlotCode.Trim().ToLower() }
+$SlotSecretSource = "generated"
+$EffectiveSlotSecret = $null
+if ($PSBoundParameters.ContainsKey("SlotSecret")) {
+    if ([string]::IsNullOrWhiteSpace($SlotSecret)) {
+        throw "-SlotSecret cannot be empty. Omit the parameter to auto-generate a value."
+    }
+    if ($SlotSecret.Trim().Length -lt 16) {
+        throw "-SlotSecret must be at least 16 characters long."
+    }
+    $EffectiveSlotSecret = $SlotSecret.Trim()
+    $SlotSecretSource = "parameter"
+} else {
+    $EffectiveSlotSecret = New-RandomToken -Bytes 36
+}
+
 $monitorEnabledSource = "default"
 $existingMonitorEnabled = $null
 if ($ExistingEnv.ContainsKey("VMP_CDN_HEALTH_MONITOR_ENABLED")) {
@@ -687,6 +705,36 @@ if (-not (Test-Path -LiteralPath $ManagePy)) {
 & $VenvPython $ManagePy init-db
 Write-Host "    CDN deployment schema synced (stage timelines & rollback chain ready)."
 
+Write-Step ("Applying slot secret for '{0}'" -f $NormalizedSlotCode)
+$slotArgs = @("set-slot-secret", $NormalizedSlotCode, "--secret", $EffectiveSlotSecret)
+$slotOutput = & $VenvPython $ManagePy @slotArgs 2>&1
+$slotExitCode = $LASTEXITCODE
+if ($slotExitCode -eq 0) {
+    foreach ($line in $slotOutput) {
+        if (-not [string]::IsNullOrWhiteSpace($line)) {
+            Write-Host ("    {0}" -f $line.Trim())
+        }
+    }
+    if ($SlotSecretSource -eq "parameter") {
+        Write-Host "    Slot secret applied from -SlotSecret parameter." -ForegroundColor Yellow
+    } else {
+        Write-Host ("    Generated slot secret (store securely): {0}" -f $EffectiveSlotSecret) -ForegroundColor Yellow
+    }
+} else {
+    Write-Warning ("    Failed to set slot secret for '{0}'." -f $NormalizedSlotCode)
+    if ($slotOutput) {
+        foreach ($line in $slotOutput) {
+            if (-not [string]::IsNullOrWhiteSpace($line)) {
+                Write-Warning ("      {0}" -f $line.Trim())
+            }
+        }
+    }
+    Write-Warning "    Please use 'python manage.py set-slot-secret <slot-code>' manually after deployment."
+    if ($SlotSecretSource -ne "parameter") {
+        Write-Host ("    Generated slot secret (not applied): {0}" -f $EffectiveSlotSecret) -ForegroundColor Yellow
+    }
+}
+
 Write-Step "Preparing NSSM"
 $NssmDir = Join-Path $InstallRoot "tools\nssm"
 $NssmExe = Join-Path $NssmDir "nssm.exe"
@@ -857,6 +905,7 @@ Write-Host (" Admin portal (licenses): {0}/admin/licenses" -f $DisplayUrl) -Fore
 Write-Host (" Software slots: {0}/admin/software" -f $DisplayUrl) -ForegroundColor Green
 Write-Host "  · 部署后可在后台查看/复制 slot secret，亦可使用 manage.py CLI 快速导出或重置。" -ForegroundColor Yellow
 Write-Host "  · 示例：python manage.py list-slots / python manage.py rotate-slot-secret <slot-code>" -ForegroundColor Yellow
+Write-Host "  · 自定义密钥：python manage.py set-slot-secret <slot-code> --secret <value>" -ForegroundColor Yellow
 Write-Host (" CDN management: {0}/admin/cdn" -f $DisplayUrl) -ForegroundColor Green
 Write-Host "  · 查看最新部署阶段日志与一键回滚工具" -ForegroundColor Yellow
 $CdnConfigExample = if ($ServerDir) { Join-Path $ServerDir "tools\cdn_deploy_config.example.json" } else { $null }

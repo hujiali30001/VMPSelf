@@ -30,6 +30,18 @@ def dashboard_page(
 ):
     total_users = db.scalar(select(func.count()).select_from(models.User)) or 0
     total_licenses = db.scalar(select(func.count()).select_from(License)) or 0
+    migrated_count = (
+        db.scalar(
+            select(func.count())
+            .select_from(License)
+            .where(License.secret_migrated.is_(True))
+        )
+        or 0
+    )
+    legacy_count = max(total_licenses - migrated_count, 0)
+    migrated_ratio = 0
+    if total_licenses:
+        migrated_ratio = round((migrated_count / total_licenses) * 100)
     total_card_types = db.scalar(select(func.count()).select_from(models.LicenseCardType)) or 0
     active_card_types = (
         db.scalar(
@@ -111,6 +123,12 @@ def dashboard_page(
             "value": active_card_types,
             "meta": f"共 {total_card_types} 种",
         },
+        {
+            "code": "slot-secret-migrated",
+            "label": "槽位秘钥激活",
+            "value": migrated_count,
+            "meta": f"{migrated_ratio}% 已迁移 · 仍使用卡密秘钥 {legacy_count}",
+        },
     ]
 
     status_summary = [
@@ -184,6 +202,9 @@ def dashboard_page(
         timeframe_days=7,
         now=now,
         status_labels=STATUS_LABELS,
+        migrated_slot_count=migrated_count,
+        legacy_secret_count=legacy_count,
+        migrated_ratio=migrated_ratio,
     )
 
     return templates.TemplateResponse(

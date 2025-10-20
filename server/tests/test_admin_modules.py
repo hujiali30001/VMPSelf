@@ -338,4 +338,5 @@ def test_admin_license_batch_pages():
     assert export_resp.headers.get("content-disposition", "").startswith("attachment;")
     body = export_resp.content.decode()
     assert "card_code" in body
+    assert "slot_secret" in body
     assert batch_code in detail_page.text

@@ -198,6 +198,26 @@ def rotate_slot_secret_cli(slot_code: str) -> None:
         print("Distribute the new secret to clients and discard any previous copies immediately.")
 
 
+def set_slot_secret_cli(slot_code: str, secret: str | None) -> None:
+    normalized = (slot_code or "").strip().lower()
+    if not normalized:
+        raise SystemExit("Slot code is required.")
+
+    provided_secret = secret.strip() if secret else None
+    if provided_secret is not None and len(provided_secret) < 16:
+        raise SystemExit("Provided slot secret must be at least 16 characters long.")
+
+    with SessionLocal() as session:
+        service = SoftwareService(session)
+        slot = service.get_slot_by_code(normalized)
+        if not slot:
+            raise SystemExit(f"Software slot '{normalized}' not found.")
+        updated = service.set_slot_secret(slot.id, secret=provided_secret)
+        print(f"Slot {updated.code} secret updated: {updated.slot_secret}")
+        if provided_secret is None:
+            print("A new secret was generated automatically; share it securely with trusted clients.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Manage VMP Auth Service")
     sub = parser.add_subparsers(dest="command")
@@ -240,6 +260,10 @@ def main() -> None:
     rotate_slot_parser = sub.add_parser("rotate-slot-secret", help="Rotate the shared secret for a software slot")
     rotate_slot_parser.add_argument("slot_code", help="Software slot code to rotate")
 
+    set_slot_secret_parser = sub.add_parser("set-slot-secret", help="Set the shared secret for a software slot")
+    set_slot_secret_parser.add_argument("slot_code", help="Software slot code to update")
+    set_slot_secret_parser.add_argument("--secret", dest="secret", help="Custom secret value; omitted to auto-generate")
+
     args = parser.parse_args()
 
     if args.command == "init-db":
@@ -264,6 +288,8 @@ def main() -> None:
         list_software_slots()
     elif args.command == "rotate-slot-secret":
         rotate_slot_secret_cli(args.slot_code)
+    elif args.command == "set-slot-secret":
+        set_slot_secret_cli(args.slot_code, args.secret)
     else:
         parser.print_help()
 

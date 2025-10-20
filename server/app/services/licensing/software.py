@@ -75,16 +75,26 @@ class SoftwareService:
         self.db.refresh(slot)
         return slot
 
-    def rotate_slot_secret(self, slot_id: int) -> SoftwareSlot:
+    def set_slot_secret(self, slot_id: int, *, secret: Optional[str] = None) -> SoftwareSlot:
         slot = self.db.get(SoftwareSlot, slot_id)
         if not slot:
             raise ValueError("slot_not_found")
 
-        slot.slot_secret = secrets.token_urlsafe(32)
+        if secret is None or not secret.strip():
+            secret_value = secrets.token_urlsafe(32)
+        else:
+            secret_value = secret.strip()
+            if len(secret_value) < 16:
+                raise ValueError("secret_too_short")
+
+        slot.slot_secret = secret_value
         slot.updated_at = datetime.now(timezone.utc)
         self.db.commit()
         self.db.refresh(slot)
         return slot
+
+    def rotate_slot_secret(self, slot_id: int) -> SoftwareSlot:
+        return self.set_slot_secret(slot_id)
 
     def set_slot_status(self, slot_id: int, status: SoftwareSlotStatus) -> SoftwareSlot:
         slot = self.db.get(SoftwareSlot, slot_id)

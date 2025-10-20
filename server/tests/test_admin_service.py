@@ -36,6 +36,20 @@ def test_create_slot_generates_secret_and_rotation_changes_value():
         assert refreshed.slot_secret == rotated.slot_secret
 
 
+def test_set_slot_secret_to_custom_value():
+    with SessionLocal() as session:
+        service = SoftwareService(session)
+        code = f"slot-{uuid.uuid4().hex[:10]}"
+        slot = service.create_slot(code=code, name="自定义槽位")
+
+        custom_secret = "custom-slot-secret-1234567890"
+        updated = service.set_slot_secret(slot.id, secret=custom_secret)
+        assert updated.slot_secret == custom_secret
+
+        refreshed = service.get_slot(slot.id)
+        assert refreshed is not None
+        assert refreshed.slot_secret == custom_secret
+
 def test_create_license_generates_secret_and_expiry():
     with SessionLocal() as session:
         service = LicenseService(session)

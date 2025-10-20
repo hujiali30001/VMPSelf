@@ -141,6 +141,7 @@ def test_admin_dashboard_renders_with_recent_data():
     assert "dash_user" in html
     assert "DASH-0001" in html
     assert "即将过期" in html
+    assert "槽位秘钥激活" in html
 
 
 def test_admin_api_license_crud_flow():

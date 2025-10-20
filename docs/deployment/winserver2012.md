@@ -16,6 +16,7 @@
 > - 新增「访问控制」面板：后台可直接维护 CDN 与主服务的 IP 白名单/黑名单，支持 CIDR 网段并即时同步到中间件。
 > - WinServer 部署脚本现会保留并回显访问控制白名单/黑名单计数，便于上线后核对是否写回 `.env`。
 > - 软件位管理现已支持查看/复制 slot secret，并可一键重置；同时提供 `python manage.py list-slots`、`python manage.py rotate-slot-secret` 供运维导出或轮换密钥。
+> - 部署脚本新增 `-SlotSecret`/`-SlotCode` 参数，可在初始化时直接指定或自动生成槽位密钥，并以日志方式回显用于分发。
 
 ---
 
@@ -132,6 +133,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 11000 --env-file .env
 - 访问 `http://192.168.132.132:11000/admin/software`，查看软件位概览与当前共享密钥：
 	- 展开“授权密钥”面板可直接复制 slot secret，重置按钮会生成新密钥并写入审计日志。
 	- 如需离线查看或批量导出，可在服务器目录执行 `python manage.py list-slots`；若要快速轮换密钥，运行 `python manage.py rotate-slot-secret <slot-code>`。
+	- 若需指定槽位密钥，可执行 `python manage.py set-slot-secret <slot-code> --secret <value>`；部署脚本未传入 `-SlotSecret` 时会自动生成并回显该值。
 - 访问 `http://192.168.132.132:11000/admin/settings`，「访问控制」卡片可集中维护 CDN 与主服务的 IP 白名单/黑名单，支持粘贴多行或 CIDR 网段；保存后立即生效，并自动写回 `.env`。
 - 访问 `http://192.168.132.132:11000/admin/cdn`，可新增加速节点、创建刷新或预取任务，并查看最近执行记录与各状态统计。
 	- 创建或编辑节点时，可在“端口映射”表格中添加多行监听/源站端口组合；勾选 HTTP 表示该监听端口走明文回源，其余端口将自动使用 HTTPS 并复用统一证书。
@@ -198,6 +200,8 @@ uvicorn app.main:app --host 0.0.0.0 --port 11000 --env-file .env
 | `-AdminPassword` | （可选）自定义后台密码，未提供时脚本会自动生成高强度随机值。 |
 | `-HmacSecret` | （可选）自定义授权 HMAC 密钥，未提供时若检测到默认占位值将自动生成。 |
 | `-SqlitePath` | （可选）自定义数据库文件位置，默认写入 `InstallRoot/data/license.db`。 |
+| `-SlotCode` | （可选）要更新的槽位代码，默认 `default-slot`。 |
+| `-SlotSecret` | （可选）自定义槽位密钥字符串；不提供时脚本会自动生成并在日志中回显。 |
 | `-MonitorEnabled` | （可选）显式开启或关闭自动健康巡检，接受 `true`/`false`/`1`/`0`/`yes`/`no`，默认为保留 `.env` 或自动开启。 |
 | `-MonitorIntervalSeconds` | （可选）设置巡检周期（30-3600 秒），默认 300。 |
 | `-CdnHealthCheckPort` | （可选）覆盖默认健康探测端口，脚本会同步写入 `.env` 与防火墙规则；未指定时沿用 `-Port` 或 `.env`。 |
