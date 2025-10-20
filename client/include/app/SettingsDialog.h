@@ -39,10 +39,7 @@ private:
     void applySlotOptions(const QList<QPair<QString, QString>> &options);
 
     QLineEdit *baseUrlEdit_ = nullptr;
-    QLineEdit *cardCodeEdit_ = nullptr;
-    QLineEdit *licenseSecretEdit_ = nullptr;
     QLineEdit *slotSecretEdit_ = nullptr;
-    QLineEdit *fingerprintEdit_ = nullptr;
     QComboBox *slotCodeCombo_ = nullptr;
     QLabel *validationLabel_ = nullptr;
     QLabel *slotStatusLabel_ = nullptr;
@@ -50,4 +47,5 @@ private:
     QNetworkAccessManager *networkManager_ = nullptr;
     QTimer *slotRefreshTimer_ = nullptr;
     bool isFetchingSlots_ = false;
+    core::AuthSettings originalAuthSettings_;
 };

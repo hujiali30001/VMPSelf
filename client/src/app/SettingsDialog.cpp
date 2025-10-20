@@ -24,9 +24,7 @@
 namespace {
 constexpr auto DIALOG_TITLE = "授权服务器设置";
 constexpr auto PLACEHOLDER_BASE_URL = "http://192.168.132.132:11000";
-constexpr auto PLACEHOLDER_CARD_CODE = "CARD-TEST";
 constexpr auto PLACEHOLDER_SLOT_CODE = "default-slot";
-constexpr auto PLACEHOLDER_FINGERPRINT = "fp-12345";
 constexpr auto PLACEHOLDER_SLOT_SECRET = "槽位秘钥（可选）";
 constexpr auto SLOT_ENDPOINT_PATH = "/api/v1/software/slots";
 }
@@ -44,12 +42,9 @@ SettingsDialog::SettingsDialog(const core::AuthSettings &authSettings, QWidget *
 
 core::AuthSettings SettingsDialog::authSettings() const
 {
-    core::AuthSettings settings;
+    core::AuthSettings settings = originalAuthSettings_;
     settings.baseUrl = baseUrlEdit_->text().trimmed();
-    settings.cardCode = cardCodeEdit_->text().trimmed();
-    settings.licenseSecret = licenseSecretEdit_->text();
     settings.slotSecret = slotSecretEdit_->text().trimmed();
-    settings.fingerprint = fingerprintEdit_->text().trimmed();
     settings.slotCode = slotCodeCombo_->currentText().trimmed();
     return settings;
 }
@@ -63,16 +58,6 @@ void SettingsDialog::setupUi()
     baseUrlEdit_->setPlaceholderText(tr(PLACEHOLDER_BASE_URL));
     baseUrlEdit_->setClearButtonEnabled(true);
     formLayout->addRow(tr("服务地址"), baseUrlEdit_);
-
-    cardCodeEdit_ = new QLineEdit(this);
-    cardCodeEdit_->setPlaceholderText(tr(PLACEHOLDER_CARD_CODE));
-    cardCodeEdit_->setClearButtonEnabled(true);
-    formLayout->addRow(tr("测试卡号"), cardCodeEdit_);
-
-    licenseSecretEdit_ = new QLineEdit(this);
-    licenseSecretEdit_->setEchoMode(QLineEdit::Password);
-    licenseSecretEdit_->setClearButtonEnabled(true);
-    formLayout->addRow(tr("授权密钥"), licenseSecretEdit_);
 
     slotSecretEdit_ = new QLineEdit(this);
     slotSecretEdit_->setEchoMode(QLineEdit::Password);
@@ -91,11 +76,6 @@ void SettingsDialog::setupUi()
     }
     formLayout->addRow(tr("软件槽标识"), slotCodeCombo_);
 
-    fingerprintEdit_ = new QLineEdit(this);
-    fingerprintEdit_->setPlaceholderText(tr(PLACEHOLDER_FINGERPRINT));
-    fingerprintEdit_->setClearButtonEnabled(true);
-    formLayout->addRow(tr("设备指纹"), fingerprintEdit_);
-
     layout->addLayout(formLayout);
 
     slotStatusLabel_ = new QLabel(this);
@@ -103,6 +83,12 @@ void SettingsDialog::setupUi()
     slotStatusLabel_->setStyleSheet(QStringLiteral("color: %1").arg(palette().color(QPalette::WindowText).darker(125).name()));
     slotStatusLabel_->setText(tr("填写服务地址后可自动加载可用槽位。"));
     layout->addWidget(slotStatusLabel_);
+
+    auto *infoLabel = new QLabel(this);
+    infoLabel->setWordWrap(true);
+    infoLabel->setStyleSheet(QStringLiteral("color: %1").arg(palette().color(QPalette::WindowText).darker(125).name()));
+    infoLabel->setText(tr("卡号、授权密钥与设备指纹将在登录/注册流程中自动获取并绑定，无需在此手动填写。"));
+    layout->addWidget(infoLabel);
 
     validationLabel_ = new QLabel(this);
     validationLabel_->setWordWrap(true);
@@ -116,10 +102,7 @@ void SettingsDialog::setupUi()
     connect(buttonBox_, &QDialogButtonBox::rejected, this, &SettingsDialog::reject);
 
     connect(baseUrlEdit_, &QLineEdit::textChanged, this, &SettingsDialog::onBaseUrlTextChanged);
-    connect(cardCodeEdit_, &QLineEdit::textChanged, this, &SettingsDialog::onFieldChanged);
-    connect(licenseSecretEdit_, &QLineEdit::textChanged, this, &SettingsDialog::onFieldChanged);
     connect(slotSecretEdit_, &QLineEdit::textChanged, this, &SettingsDialog::onFieldChanged);
-    connect(fingerprintEdit_, &QLineEdit::textChanged, this, &SettingsDialog::onFieldChanged);
     connect(slotCodeCombo_, &QComboBox::currentTextChanged, this, &SettingsDialog::onSlotSelectionChanged);
     if (auto *slotEdit = slotCodeCombo_->lineEdit()) {
         connect(slotEdit, &QLineEdit::textChanged, this, &SettingsDialog::onFieldChanged);
@@ -128,20 +111,16 @@ void SettingsDialog::setupUi()
 
 void SettingsDialog::updateStateFrom(const core::AuthSettings &authSettings)
 {
+    originalAuthSettings_ = authSettings;
+
     QSignalBlocker blockBase(baseUrlEdit_);
-    QSignalBlocker blockCard(cardCodeEdit_);
-    QSignalBlocker blockSecret(licenseSecretEdit_);
     QSignalBlocker blockSlotSecret(slotSecretEdit_);
-    QSignalBlocker blockFingerprint(fingerprintEdit_);
     QSignalBlocker blockCombo(slotCodeCombo_);
     QSignalBlocker blockComboEdit(slotCodeCombo_->lineEdit());
 
     baseUrlEdit_->setText(authSettings.baseUrl);
-    cardCodeEdit_->setText(authSettings.cardCode);
-    licenseSecretEdit_->setText(authSettings.licenseSecret);
     slotSecretEdit_->setText(authSettings.slotSecret);
     slotCodeCombo_->setEditText(authSettings.slotCode);
-    fingerprintEdit_->setText(authSettings.fingerprint);
 }
 
 void SettingsDialog::onFieldChanged()
@@ -221,11 +200,8 @@ void SettingsDialog::updateValidationState()
 {
     QStringList warnings;
     const QString baseUrl = baseUrlEdit_->text().trimmed();
-    const QString cardCode = cardCodeEdit_->text().trimmed();
-    const QString secret = licenseSecretEdit_->text();
     const QString slotSecret = slotSecretEdit_->text().trimmed();
     const QString slotCode = slotCodeCombo_->currentText().trimmed();
-    const QString fingerprint = fingerprintEdit_->text().trimmed();
 
     bool valid = true;
 
@@ -240,23 +216,8 @@ void SettingsDialog::updateValidationState()
         }
     }
 
-    if (cardCode.isEmpty()) {
-        warnings << tr("请提供测试卡号");
-        valid = false;
-    }
-
-    if (secret.isEmpty() && slotSecret.isEmpty()) {
-        warnings << tr("请至少填写授权密钥或槽位密钥");
-        valid = false;
-    }
-
     if (slotCode.isEmpty()) {
         warnings << tr("请填写软件槽标识");
-        valid = false;
-    }
-
-    if (fingerprint.isEmpty()) {
-        warnings << tr("请填写设备指纹");
         valid = false;
     }
 
