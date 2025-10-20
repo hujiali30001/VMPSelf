@@ -153,6 +153,7 @@ std::optional<AuthClientConfig> SettingsManager::authClientConfig() const
 {
     const QString baseUrlString = settings_.auth.baseUrl.trimmed();
     if (baseUrlString.isEmpty()) {
+        Logger::instance().log(QStringLiteral("SettingsManager: auth config missing base_url"));
         return std::nullopt;
     }
 
@@ -163,15 +164,18 @@ std::optional<AuthClientConfig> SettingsManager::authClientConfig() const
     const QString slotCode = settings_.auth.slotCode.trimmed();
 
     if (cardCode.isEmpty() || fingerprint.isEmpty() || slotCode.isEmpty()) {
+        Logger::instance().log(QStringLiteral("SettingsManager: auth config missing required identifier"));
         return std::nullopt;
     }
 
     if (licenseSecret.isEmpty() && slotSecret.trimmed().isEmpty()) {
+        Logger::instance().log(QStringLiteral("SettingsManager: both legacy and slot secrets are empty"));
         return std::nullopt;
     }
 
     QUrl url = QUrl::fromUserInput(baseUrlString);
     if (!url.isValid() || url.scheme().isEmpty() || (!url.scheme().startsWith(QStringLiteral("http")))) {
+        Logger::instance().log(QStringLiteral("SettingsManager: auth config URL invalid -> %1").arg(baseUrlString));
         return std::nullopt;
     }
 

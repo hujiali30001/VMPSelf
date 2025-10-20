@@ -1,0 +1,7 @@
+PeParserTests.ParsesValid64BitPe 2 0.0314786
+PeParserTests.ReturnsNulloptWhenFileMissing 2 0.013823
+PeParserTests.RejectsCorruptedPeSignature 2 0.0153056
+SettingsManagerTests.SavesAndLoadsConfiguration 1 0.0317641
+SettingsManagerTests.ReturnsNulloptForIncompleteConfig 2 0.0152344
+SettingsManagerTests.SlotSecretAloneIsAccepted 1 0.0250845
+---
