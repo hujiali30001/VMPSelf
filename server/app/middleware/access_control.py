@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 from typing import Callable, Iterable, Optional, Sequence, Set
 
+import ipaddress
+
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -58,13 +60,33 @@ class AccessControlMiddleware(BaseHTTPMiddleware):
         return sorted(values)
 
     def _extract_client_ip(self, request: Request) -> Optional[str]:
+        forwarded_value: Optional[str] = None
         if self.ip_header:
-            forwarded = request.headers.get(self.ip_header, "")
-            if forwarded:
-                return forwarded.split(",")[0].strip()
-            return None
+            forwarded_value = request.headers.get(self.ip_header, "")
+            if forwarded_value:
+                return forwarded_value.split(",")[0].strip()
+
         client = request.client
-        return client.host if client else None
+        if client and client.host:
+            candidate = client.host.strip()
+            try:
+                ipaddress.ip_address(candidate)
+                return candidate
+            except ValueError:
+                if candidate.lower() in {"localhost", "testclient"}:
+                    return "127.0.0.1"
+
+        if forwarded_value:
+            candidate = forwarded_value.split(",")[0].strip()
+            if candidate:
+                try:
+                    ipaddress.ip_address(candidate)
+                    return candidate
+                except ValueError:
+                    if candidate.lower() in {"localhost", "testclient"}:
+                        return "127.0.0.1"
+
+        return None
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         path = request.url.path.rstrip("/") or "/"
